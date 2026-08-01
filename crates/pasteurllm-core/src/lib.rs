@@ -21,7 +21,7 @@ pub enum PasteurError {
     RateLimited,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct AppConfig {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
@@ -29,19 +29,19 @@ pub struct AppConfig {
     pub providers: ProvidersConfig,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
     pub request_timeout_seconds: u64,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct DatabaseConfig {
     pub url: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct AuthConfig {
     pub jwt_secret: String,
     pub access_token_ttl_minutes: i64,
@@ -50,7 +50,7 @@ pub struct AuthConfig {
     pub saml_providers: Vec<SamlProviderConfig>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct OidcProviderConfig {
     pub id: String,
     pub issuer_url: String,
@@ -59,7 +59,7 @@ pub struct OidcProviderConfig {
     pub redirect_uri: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct SamlProviderConfig {
     pub id: String,
     pub idp_metadata_url: String,
@@ -67,13 +67,13 @@ pub struct SamlProviderConfig {
     pub acs_url: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ProvidersConfig {
     pub openai: ProviderConfig,
     pub anthropic: ProviderConfig,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ProviderConfig {
     pub api_key: String,
     pub base_url: String,

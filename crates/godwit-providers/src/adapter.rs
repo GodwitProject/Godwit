@@ -48,8 +48,8 @@ pub enum ProviderError {
     Serialization(String),
     #[error("provider error: {0}")]
     Provider(String),
-    #[error("capability not supported")]
-    CapabilityNotSupported,
+    #[error("capability not supported: {0}")]
+    CapabilityNotSupported(String),
 }
 
 #[async_trait]

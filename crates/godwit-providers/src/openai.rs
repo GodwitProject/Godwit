@@ -159,7 +159,9 @@ impl Adapter for OpenAiProvider {
         _model: &Model,
         _request: godwit_core::VideoGenerationRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
-        Err(ProviderError::CapabilityNotSupported)
+        Err(ProviderError::CapabilityNotSupported(
+            "video generation is not supported for OpenAI".to_string(),
+        ))
     }
 
     async fn audio_tts(

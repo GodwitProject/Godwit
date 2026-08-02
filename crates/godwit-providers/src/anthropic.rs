@@ -1,117 +1,27 @@
+use crate::adapter::{
+    Adapter, ProviderError, ProviderResponse, SseEvent, UsageReport,
+};
 use crate::streaming::parse_sse_events;
-use crate::{Provider, ProviderError, ProviderResponse, SseEvent};
 use async_trait::async_trait;
+use chrono::Utc;
 use futures::stream::{self, BoxStream, StreamExt};
 use godwit_core::{
-    ChatCompletionChoice, ChatCompletionRequest, ChatCompletionResponse, ChatMessage, Usage,
+    AudioSttRequest, AudioTtsRequest, Capability, ChatCompletionRequest,
+    ChatCompletionResponse, ChatMessage, EmbeddingRequest, ImageGenerationRequest,
+    VideoGenerationRequest,
 };
+use godwit_db::models::{Model, ProviderProfile};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Serialize)]
-pub struct AnthropicMessage {
-    pub role: String,
-    pub content: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct AnthropicRequest {
-    pub model: String,
-    pub max_tokens: i32,
-    pub messages: Vec<AnthropicMessage>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub system: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub temperature: Option<f32>,
-    pub stream: bool,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ContentBlock {
-    #[serde(rename = "type")]
-    pub type_: String,
-    pub text: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct AnthropicUsage {
-    pub input_tokens: i32,
-    pub output_tokens: i32,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct AnthropicResponse {
-    pub id: String,
-    pub model: String,
-    pub content: Vec<ContentBlock>,
-    pub usage: AnthropicUsage,
-}
-
-fn map_model(public_model: &str) -> String {
-    match public_model {
-        "claude-sonnet" => "claude-3-5-sonnet-20240620".to_string(),
-        _ => public_model.to_string(),
-    }
-}
-
-pub fn to_anthropic_request(req: &ChatCompletionRequest) -> AnthropicRequest {
-    let mut system: Option<String> = None;
-    let mut messages = Vec::new();
-    for m in &req.messages {
-        if m.role == "system" {
-            system = Some(m.content.clone());
-        } else {
-            messages.push(AnthropicMessage {
-                role: m.role.clone(),
-                content: m.content.clone(),
-            });
-        }
-    }
-    AnthropicRequest {
-        model: map_model(&req.model),
-        max_tokens: req.max_tokens.unwrap_or(4096),
-        messages,
-        system,
-        temperature: req.temperature,
-        stream: req.stream.unwrap_or(false),
-    }
-}
-
-pub fn to_openai_response(resp: AnthropicResponse, public_model: &str) -> ChatCompletionResponse {
-    let text = resp
-        .content
-        .into_iter()
-        .filter(|c| c.type_ == "text")
-        .map(|c| c.text)
-        .collect::<Vec<_>>()
-        .join("");
-    let usage = Usage {
-        prompt_tokens: resp.usage.input_tokens,
-        completion_tokens: resp.usage.output_tokens,
-        total_tokens: resp.usage.input_tokens + resp.usage.output_tokens,
-    };
-    ChatCompletionResponse {
-        id: resp.id,
-        object: "chat.completion".to_string(),
-        created: chrono::Utc::now().timestamp(),
-        model: public_model.to_string(),
-        choices: vec![ChatCompletionChoice {
-            index: 0,
-            message: ChatMessage {
-                role: "assistant".to_string(),
-                content: text,
-            },
-            finish_reason: Some("stop".to_string()),
-        }],
-        usage: Some(usage),
-    }
-}
+use tracing::{debug, error, info, instrument};
 
 pub struct AnthropicProvider {
     client: Client,
     api_key: String,
     base_url: String,
 }
+
+pub type AnthropicAdapter = AnthropicProvider;
 
 impl AnthropicProvider {
     pub fn new(api_key: &str, base_url: &str) -> Self {
@@ -127,84 +37,414 @@ impl AnthropicProvider {
             base_url: base_url.to_string(),
         }
     }
+
+    pub fn from_config(config: &godwit_core::ProviderConfig) -> Self {
+        Self::new(&config.api_key, &config.base_url)
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct AnthropicMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Debug, Serialize)]
+struct AnthropicChatRequest {
+    model: String,
+    max_tokens: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    system: Option<String>,
+    messages: Vec<AnthropicMessage>,
+    stream: bool,
+}
+
+impl AnthropicChatRequest {
+    fn from_chat_request(request: ChatCompletionRequest, model_id: String) -> Self {
+        let mut system_parts: Vec<String> = Vec::new();
+        let mut messages: Vec<AnthropicMessage> = Vec::new();
+
+        for msg in request.messages {
+            if msg.role == "system" {
+                system_parts.push(msg.content);
+            } else {
+                messages.push(AnthropicMessage {
+                    role: msg.role,
+                    content: msg.content,
+                });
+            }
+        }
+
+        let system = if system_parts.is_empty() {
+            None
+        } else {
+            Some(system_parts.join("\n\n"))
+        };
+
+        Self {
+            model: model_id,
+            max_tokens: request.max_tokens.unwrap_or(4096),
+            temperature: request.temperature,
+            system,
+            messages,
+            stream: request.stream == Some(true),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct AnthropicContentBlock {
+    #[serde(rename = "type")]
+    block_type: String,
+    text: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AnthropicUsage {
+    input_tokens: i32,
+    output_tokens: i32,
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct AnthropicMessageResponse {
+    id: String,
+    #[serde(rename = "type")]
+    message_type: String,
+    role: String,
+    model: String,
+    content: Vec<AnthropicContentBlock>,
+    stop_reason: Option<String>,
+    usage: AnthropicUsage,
+}
+
+fn anthropic_response_to_chat_completion(
+    response: AnthropicMessageResponse,
+) -> ChatCompletionResponse {
+    let content = response
+        .content
+        .into_iter()
+        .filter_map(|block| {
+            if block.block_type == "text" {
+                block.text
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("");
+
+    ChatCompletionResponse {
+        id: response.id,
+        object: "chat.completion".to_string(),
+        created: Utc::now().timestamp(),
+        model: response.model,
+        choices: vec![godwit_core::ChatCompletionChoice {
+            index: 0,
+            message: ChatMessage {
+                role: "assistant".to_string(),
+                content,
+            },
+            finish_reason: response.stop_reason,
+        }],
+        usage: Some(godwit_core::Usage {
+            prompt_tokens: response.usage.input_tokens,
+            completion_tokens: response.usage.output_tokens,
+            total_tokens: response.usage.input_tokens + response.usage.output_tokens,
+        }),
+    }
+}
+
+fn build_sse_delta(text: &str) -> String {
+    serde_json::json!({"type": "delta", "delta": text}).to_string()
+}
+
+fn build_sse_finish(usage: &serde_json::Value) -> String {
+    let prompt_tokens = usage["input_tokens"].as_i64().unwrap_or(0) as i32;
+    let completion_tokens = usage["output_tokens"].as_i64().unwrap_or(0) as i32;
+    serde_json::json!({
+        "type": "finish",
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
+        }
+    })
+    .to_string()
+}
+
+fn build_sse_error(message: &str) -> String {
+    serde_json::json!({"type": "error", "message": message}).to_string()
+}
+
+fn normalize_anthropic_sse_event(raw: SseEvent) -> Vec<Result<SseEvent, ProviderError>> {
+    let parsed: serde_json::Value = match serde_json::from_str(&raw.data) {
+        Ok(v) => v,
+        Err(e) => {
+            return vec![Ok(SseEvent {
+                data: build_sse_error(&format!("failed to parse anthropic sse event: {e}")),
+            })];
+        }
+    };
+
+    let event_type = parsed.get("type").and_then(|t| t.as_str());
+
+    match event_type {
+        Some("content_block_delta") => {
+            if let Some(text) = parsed["delta"]["text"].as_str() {
+                vec![Ok(SseEvent {
+                    data: build_sse_delta(text),
+                })]
+            } else {
+                vec![]
+            }
+        }
+        Some("message_delta") => {
+            if let Some(usage) = parsed.get("usage") {
+                vec![Ok(SseEvent {
+                    data: build_sse_finish(usage),
+                })]
+            } else {
+                vec![]
+            }
+        }
+        Some("message_start") => {
+            debug!("anthropic stream message_start received");
+            vec![]
+        }
+        Some(other) => {
+            debug!("ignoring anthropic sse event type: {}", other);
+            vec![]
+        }
+        None => vec![Ok(SseEvent {
+            data: build_sse_error("anthropic sse event missing type field"),
+        })],
+    }
 }
 
 #[async_trait]
-impl Provider for AnthropicProvider {
-    async fn chat_completion(
+impl Adapter for AnthropicProvider {
+    fn supported_capabilities(&self) -> Vec<Capability> {
+        vec![Capability::Chat]
+    }
+
+    #[instrument(skip(self, _profile, model, request))]
+    async fn chat(
         &self,
+        _profile: &ProviderProfile,
+        model: &Model,
         request: ChatCompletionRequest,
-    ) -> Result<ProviderResponse, ProviderError> {
-        let url = format!("{}/messages", self.base_url);
-        let anthropic_req = to_anthropic_request(&request);
+    ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        let url = format!("{}/v1/messages", self.base_url);
+        let anthropic_request = AnthropicChatRequest::from_chat_request(request, model.public_id.clone());
+
+        info!("sending anthropic chat request to {}", url);
+        debug!("anthropic request body: {:?}", anthropic_request);
+
         let res = self
             .client
             .post(&url)
-            .header("x-api-key", self.api_key.clone())
+            .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
-            .json(&anthropic_req)
+            .header("content-type", "application/json")
+            .json(&anthropic_request)
             .send()
             .await
-            .map_err(|e| ProviderError::Http(e.to_string()))?;
+            .map_err(|e| ProviderError::Http {
+                status: 0,
+                message: e.to_string(),
+            })?;
+
         if !res.status().is_success() {
-            return Err(ProviderError::Provider(
-                res.text().await.unwrap_or_default(),
-            ));
+            let status = res.status().as_u16();
+            let text = res.text().await.unwrap_or_default();
+            error!("anthropic chat request failed with status {}: {}", status, text);
+            return Err(ProviderError::Http {
+                status,
+                message: text,
+            });
         }
-        let anthropic_resp: AnthropicResponse = res
+
+        let body: AnthropicMessageResponse = res
             .json()
             .await
             .map_err(|e| ProviderError::Serialization(e.to_string()))?;
-        let openai_resp = to_openai_response(anthropic_resp, &request.model);
-        Ok(ProviderResponse::Json(openai_resp))
+
+        debug!("anthropic response body: {:?}", body);
+
+        let chat_response = anthropic_response_to_chat_completion(body);
+        let usage_report = if let Some(ref usage) = chat_response.usage {
+            UsageReport {
+                prompt_tokens: Some(usage.prompt_tokens),
+                completion_tokens: Some(usage.completion_tokens),
+                ..Default::default()
+            }
+        } else {
+            UsageReport::default()
+        };
+
+        Ok((ProviderResponse::Chat(chat_response), usage_report))
     }
 
-    async fn stream_chat_completion(
+    #[instrument(skip(self, _profile, model, request))]
+    async fn chat_stream(
         &self,
+        _profile: &ProviderProfile,
+        model: &Model,
         mut request: ChatCompletionRequest,
     ) -> Result<BoxStream<'static, Result<SseEvent, ProviderError>>, ProviderError> {
         request.stream = Some(true);
-        let url = format!("{}/messages", self.base_url);
-        let anthropic_req = to_anthropic_request(&request);
+        let url = format!("{}/v1/messages", self.base_url);
+        let anthropic_request = AnthropicChatRequest::from_chat_request(request, model.public_id.clone());
+
+        info!("sending anthropic streaming chat request to {}", url);
+        debug!("anthropic streaming request body: {:?}", anthropic_request);
+
         let res = self
             .client
             .post(&url)
-            .header("x-api-key", self.api_key.clone())
+            .header("x-api-key", &self.api_key)
             .header("anthropic-version", "2023-06-01")
-            .json(&anthropic_req)
+            .header("content-type", "application/json")
+            .json(&anthropic_request)
             .send()
             .await
-            .map_err(|e| ProviderError::Http(e.to_string()))?;
+            .map_err(|e| ProviderError::Http {
+                status: 0,
+                message: e.to_string(),
+            })?;
+
         if !res.status().is_success() {
-            return Err(ProviderError::Provider(
-                res.text().await.unwrap_or_default(),
-            ));
+            let status = res.status().as_u16();
+            let text = res.text().await.unwrap_or_default();
+            error!("anthropic streaming chat request failed with status {}: {}", status, text);
+            return Err(ProviderError::Http {
+                status,
+                message: text,
+            });
         }
+
         let byte_stream = res.bytes_stream();
         let event_stream = byte_stream.flat_map(|bytes| {
             let text = bytes
                 .map(|b| String::from_utf8_lossy(&b).to_string())
                 .unwrap_or_default();
-            let events = parse_sse_events(&text);
-            stream::iter(events.into_iter().map(Ok))
+            let raw_events = parse_sse_events(&text);
+            let normalized: Vec<Result<SseEvent, ProviderError>> = raw_events
+                .into_iter()
+                .flat_map(normalize_anthropic_sse_event)
+                .collect();
+            stream::iter(normalized)
         });
+
         Ok(event_stream.boxed())
+    }
+
+    async fn image_generation(
+        &self,
+        _profile: &ProviderProfile,
+        _model: &Model,
+        _request: ImageGenerationRequest,
+    ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        Err(ProviderError::CapabilityNotSupported(
+            "image generation is not supported for Anthropic".to_string(),
+        ))
+    }
+
+    async fn video_generation(
+        &self,
+        _profile: &ProviderProfile,
+        _model: &Model,
+        _request: VideoGenerationRequest,
+    ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        Err(ProviderError::CapabilityNotSupported(
+            "video generation is not supported for Anthropic".to_string(),
+        ))
+    }
+
+    async fn audio_tts(
+        &self,
+        _profile: &ProviderProfile,
+        _model: &Model,
+        _request: AudioTtsRequest,
+    ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        Err(ProviderError::CapabilityNotSupported(
+            "audio TTS is not supported for Anthropic".to_string(),
+        ))
+    }
+
+    async fn audio_stt(
+        &self,
+        _profile: &ProviderProfile,
+        _model: &Model,
+        _request: AudioSttRequest,
+        _file_bytes: Vec<u8>,
+        _filename: String,
+        _content_type: String,
+    ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        Err(ProviderError::CapabilityNotSupported(
+            "audio STT is not supported for Anthropic".to_string(),
+        ))
+    }
+
+    async fn embedding(
+        &self,
+        _profile: &ProviderProfile,
+        _model: &Model,
+        _request: EmbeddingRequest,
+    ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        Err(ProviderError::CapabilityNotSupported(
+            "embedding is not supported for Anthropic".to_string(),
+        ))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use godwit_core::{ChatCompletionRequest, ChatMessage};
+    use chrono::Utc;
+    use godwit_core::ChatCompletionRequest;
+    use uuid::Uuid;
+    use wiremock::{matchers::*, Mock, MockServer, ResponseTemplate};
 
-    #[test]
-    fn openai_to_anthropic_request() {
-        let req = ChatCompletionRequest {
-            model: "claude-sonnet".to_string(),
+    fn dummy_profile() -> ProviderProfile {
+        ProviderProfile {
+            id: Uuid::nil(),
+            organization_id: Uuid::nil(),
+            name: "anthropic".to_string(),
+            protocol: "anthropic".to_string(),
+            base_url: None,
+            auth: serde_json::json!({}),
+            config: serde_json::json!({}),
+            enabled: true,
+            created_at: Utc::now(),
+        }
+    }
+
+    fn dummy_model() -> Model {
+        Model {
+            id: Uuid::nil(),
+            organization_id: Uuid::nil(),
+            public_id: "claude-3-5-sonnet".to_string(),
+            provider: "anthropic".to_string(),
+            provider_profile_id: Uuid::nil(),
+            provider_model_id: "claude-3-5-sonnet-20241022".to_string(),
+            capability: "chat".to_string(),
+            pricing: serde_json::json!({}),
+            config: serde_json::json!({}),
+            created_at: Utc::now(),
+        }
+    }
+
+    fn chat_request_with_system() -> ChatCompletionRequest {
+        ChatCompletionRequest {
+            model: "claude-3-5-sonnet".to_string(),
             messages: vec![
                 ChatMessage {
                     role: "system".to_string(),
-                    content: "You are helpful".to_string(),
+                    content: "You are a helpful assistant.".to_string(),
                 },
                 ChatMessage {
                     role: "user".to_string(),
@@ -212,31 +452,187 @@ mod tests {
                 },
             ],
             stream: Some(false),
-            temperature: Some(0.7),
-            max_tokens: Some(100),
-        };
-        let anthropic = to_anthropic_request(&req);
-        assert_eq!(anthropic.model, "claude-3-5-sonnet-20240620");
-        assert_eq!(anthropic.system, Some("You are helpful".to_string()));
-        assert_eq!(anthropic.messages.len(), 1);
+            temperature: None,
+            max_tokens: None,
+        }
     }
 
-    #[test]
-    fn anthropic_response_to_openai() {
-        let ar = AnthropicResponse {
-            id: "msg-1".to_string(),
-            model: "claude-3-5-sonnet-20240620".to_string(),
-            content: vec![ContentBlock {
-                text: "Hi there".to_string(),
-                type_: "text".to_string(),
+    #[tokio::test]
+    async fn chat_request_body_has_model_system_and_default_max_tokens() {
+        let server = MockServer::start().await;
+        let captured_body = std::sync::Arc::new(std::sync::Mutex::new(None::<serde_json::Value>));
+        let captured_clone = captured_body.clone();
+
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .respond_with(move |req: &wiremock::Request| {
+                if let Ok(body) = serde_json::from_slice::<serde_json::Value>(&req.body) {
+                    *captured_clone.lock().unwrap() = Some(body);
+                }
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "id": "msg_01",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-3-5-sonnet-20241022",
+                    "content": [{"type": "text", "text": "Hi there"}],
+                    "stop_reason": "end_turn",
+                    "usage": {"input_tokens": 10, "output_tokens": 5}
+                }))
+            })
+            .mount(&server)
+            .await;
+
+        let client = AnthropicProvider::new("fake-key", &server.uri());
+        let _ = client
+            .chat(&dummy_profile(), &dummy_model(), chat_request_with_system())
+            .await
+            .unwrap();
+
+        let body = captured_body.lock().unwrap().take().expect("request body captured");
+        assert_eq!(body["model"], "claude-3-5-sonnet");
+        assert_eq!(body["system"], "You are a helpful assistant.");
+        assert_eq!(body["max_tokens"], 4096);
+        assert_eq!(body["messages"].as_array().unwrap().len(), 1);
+        assert_eq!(body["messages"][0]["role"], "user");
+        assert_eq!(body["messages"][0]["content"], "Hello");
+    }
+
+    #[tokio::test]
+    async fn chat_parses_non_streaming_response() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "msg_01",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-3-5-sonnet-20241022",
+                "content": [{"type": "text", "text": "Hello, world!"}],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 10, "output_tokens": 5}
+            })))
+            .mount(&server)
+            .await;
+
+        let client = AnthropicProvider::new("fake-key", &server.uri());
+        let req = ChatCompletionRequest {
+            model: "claude-3-5-sonnet".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: "Hi".to_string(),
             }],
-            usage: AnthropicUsage {
-                input_tokens: 1,
-                output_tokens: 2,
-            },
+            stream: Some(false),
+            temperature: None,
+            max_tokens: None,
         };
-        let openai = to_openai_response(ar, "claude-sonnet");
-        assert_eq!(openai.choices[0].message.content, "Hi there");
-        assert_eq!(openai.usage.unwrap().total_tokens, 3);
+
+        let (ProviderResponse::Chat(resp), usage_report) = client.chat(&dummy_profile(), &dummy_model(), req).await.unwrap() else {
+            panic!("expected chat response");
+        };
+
+        assert_eq!(resp.choices[0].message.content, "Hello, world!");
+        assert_eq!(resp.choices[0].message.role, "assistant");
+        assert_eq!(resp.choices[0].finish_reason.as_deref().unwrap(), "end_turn");
+        let usage = resp.usage.unwrap();
+        assert_eq!(usage.prompt_tokens, 10);
+        assert_eq!(usage.completion_tokens, 5);
+        assert_eq!(usage.total_tokens, 15);
+        assert_eq!(usage_report.prompt_tokens, Some(10));
+        assert_eq!(usage_report.completion_tokens, Some(5));
+    }
+
+    #[tokio::test]
+    async fn chat_stream_emits_delta_and_finish_events() {
+        let server = MockServer::start().await;
+        let sse_body = concat!(
+            "event: message_start\n",
+            "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_01\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-3-5-sonnet-20241022\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":10,\"output_tokens\":0}}}\n\n",
+            "event: content_block_delta\n",
+            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\n",
+            "event: content_block_delta\n",
+            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" world\"}}\n\n",
+            "event: message_delta\n",
+            "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":5}}\n\n",
+            "event: message_stop\n",
+            "data: {\"type\":\"message_stop\"}\n\n"
+        );
+
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(sse_body),
+            )
+            .mount(&server)
+            .await;
+
+        let client = AnthropicProvider::new("fake-key", &server.uri());
+        let req = ChatCompletionRequest {
+            model: "claude-3-5-sonnet".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: "Hi".to_string(),
+            }],
+            stream: Some(true),
+            temperature: None,
+            max_tokens: None,
+        };
+
+        let stream = client.chat_stream(&dummy_profile(), &dummy_model(), req).await.unwrap();
+        let events: Vec<SseEvent> = stream.filter_map(|r| async move { r.ok() }).collect().await;
+
+        assert_eq!(events.len(), 3);
+
+        let delta1: serde_json::Value = serde_json::from_str(&events[0].data).unwrap();
+        assert_eq!(delta1["type"], "delta");
+        assert_eq!(delta1["delta"], "Hello");
+
+        let delta2: serde_json::Value = serde_json::from_str(&events[1].data).unwrap();
+        assert_eq!(delta2["type"], "delta");
+        assert_eq!(delta2["delta"], " world");
+
+        let finish: serde_json::Value = serde_json::from_str(&events[2].data).unwrap();
+        assert_eq!(finish["type"], "finish");
+        assert_eq!(finish["usage"]["prompt_tokens"], 0);
+        assert_eq!(finish["usage"]["completion_tokens"], 5);
+        assert_eq!(finish["usage"]["total_tokens"], 5);
+    }
+
+    #[tokio::test]
+    async fn unsupported_capabilities_return_error() {
+        let client = AnthropicProvider::new("fake-key", "https://example.com");
+        let profile = dummy_profile();
+        let model = dummy_model();
+
+        let image_req = ImageGenerationRequest {
+            model: "claude".to_string(),
+            prompt: "a cat".to_string(),
+            n: None,
+            size: None,
+            quality: None,
+            style: None,
+        };
+        let err = client
+            .image_generation(&profile, &model, image_req)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ProviderError::CapabilityNotSupported(_)));
+
+        let audio_req = AudioTtsRequest {
+            model: "claude".to_string(),
+            input: "hello".to_string(),
+            voice: "default".to_string(),
+            response_format: None,
+        };
+        let err = client.audio_tts(&profile, &model, audio_req).await.unwrap_err();
+        assert!(matches!(err, ProviderError::CapabilityNotSupported(_)));
+
+        let embedding_req = EmbeddingRequest {
+            model: "claude".to_string(),
+            input: vec!["hello".to_string()],
+        };
+        let err = client.embedding(&profile, &model, embedding_req).await.unwrap_err();
+        assert!(matches!(err, ProviderError::CapabilityNotSupported(_)));
     }
 }

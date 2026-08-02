@@ -9,7 +9,9 @@ use godwit_db::{
     },
     run_migrations,
 };
-use godwit_providers::{openai::OpenAiAdapter, AdapterRegistry};
+use godwit_providers::{
+    anthropic::AnthropicAdapter, gemini::GeminiAdapter, openai::OpenAiAdapter, AdapterRegistry,
+};
 use std::sync::Arc;
 
 #[tokio::main]
@@ -28,9 +30,20 @@ async fn main() -> anyhow::Result<()> {
             &config.providers.openai.base_url,
         )),
     );
-    // Anthropic adapter is implemented in Lot 3. Until then, profiles with
-    // protocol "anthropic" will resolve to a clear "unknown protocol" error
-    // rather than sending OpenAI-shaped requests to an Anthropic endpoint.
+    registry.register(
+        Protocol::anthropic(),
+        Arc::new(AnthropicAdapter::new(
+            &config.providers.anthropic.api_key,
+            &config.providers.anthropic.base_url,
+        )),
+    );
+    registry.register(
+        Protocol::gemini(),
+        Arc::new(GeminiAdapter::new(
+            &config.providers.gemini.api_key,
+            &config.providers.gemini.base_url,
+        )),
+    );
 
     let adapter_registry = Arc::new(registry);
     let state = Arc::new(AppState {

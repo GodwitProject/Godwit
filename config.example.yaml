@@ -20,3 +20,6 @@ providers:
   anthropic:
     api_key: "${ANTHROPIC_API_KEY}"
     base_url: https://api.anthropic.com/v1
+  gemini:
+    api_key: "${GEMINI_API_KEY}"
+    base_url: https://generativelanguage.googleapis.com

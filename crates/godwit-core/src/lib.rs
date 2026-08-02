@@ -71,6 +71,7 @@ pub struct SamlProviderConfig {
 pub struct ProvidersConfig {
     pub openai: ProviderConfig,
     pub anthropic: ProviderConfig,
+    pub gemini: ProviderConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -333,6 +334,9 @@ providers:
   anthropic:
     api_key: sk-anthropic
     base_url: https://api.anthropic.com/v1
+  gemini:
+    api_key: sk-gemini
+    base_url: https://generativelanguage.googleapis.com
 "#;
         let config: AppConfig = serde_yaml::from_str(yaml).expect("parse yaml");
         assert_eq!(config.server.port, 3000);

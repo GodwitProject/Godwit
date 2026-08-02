@@ -55,6 +55,8 @@ impl DbModelRouter {
             found.ok_or(PasteurError::NotFound)?
         } else if candidates.len() == 1 {
             candidates.into_iter().next().unwrap()
+        } else if candidates.is_empty() {
+            return Err(PasteurError::NotFound);
         } else {
             return Err(PasteurError::Validation(
                 format!("ambiguous model '{}'; use 'profile_name/{}'", public_id, public_id)

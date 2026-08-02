@@ -1,6 +1,5 @@
 use axum::{routing::get, Json, Router};
 use godwit_core::Capability;
-use godwit_core::Usage;
 use godwit_db::models::Model;
 use godwit_providers::UsageReport;
 use rust_decimal::Decimal;
@@ -16,13 +15,7 @@ pub fn router() -> Router<Arc<AppState>> {
     )
 }
 
-pub fn compute_cost(usage: &Usage, input_price: Decimal, output_price: Decimal) -> Decimal {
-    let input = Decimal::from(usage.prompt_tokens) * input_price / Decimal::from(1000);
-    let output = Decimal::from(usage.completion_tokens) * output_price / Decimal::from(1000);
-    input + output
-}
-
-pub fn compute_cost_model(model: &Model, usage: &UsageReport) -> Option<Decimal> {
+pub fn compute_cost(model: &Model, usage: &UsageReport) -> Option<Decimal> {
     let pricing = model.pricing.as_object()?;
     match Capability::from_str(&model.capability).ok()? {
         Capability::Chat => {
@@ -37,22 +30,10 @@ pub fn compute_cost_model(model: &Model, usage: &UsageReport) -> Option<Decimal>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use godwit_core::Usage;
     use rust_decimal_macros::dec;
 
     #[test]
     fn cost_computation() {
-        let usage = Usage {
-            prompt_tokens: 1000,
-            completion_tokens: 500,
-            total_tokens: 1500,
-        };
-        let cost = compute_cost(&usage, dec!(0.005), dec!(0.015));
-        assert_eq!(cost, dec!(0.0125));
-    }
-
-    #[test]
-    fn cost_computation_from_model() {
         let model = Model {
             id: uuid::Uuid::nil(),
             organization_id: uuid::Uuid::nil(),
@@ -73,7 +54,7 @@ mod tests {
             completion_tokens: Some(500),
             ..Default::default()
         };
-        let cost = compute_cost_model(&model, &usage).expect("cost");
+        let cost = compute_cost(&model, &usage).expect("cost");
         assert_eq!(cost, dec!(0.0125));
     }
 }

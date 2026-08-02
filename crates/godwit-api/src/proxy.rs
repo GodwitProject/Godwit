@@ -14,7 +14,7 @@ use rust_decimal::Decimal;
 use std::sync::Arc;
 
 use crate::model_router::DbModelRouter;
-use crate::{admin::spend::compute_cost_model, state::AppState};
+use crate::{admin::spend::compute_cost, state::AppState};
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
@@ -124,7 +124,7 @@ async fn chat_completions(
     };
 
     // Asynchronous logging to avoid blocking the response.
-    let cost_usd = usage.and_then(|u| compute_cost_model(&resolved.model, &u));
+    let cost_usd = usage.and_then(|u| compute_cost(&resolved.model, &u));
     let log = RequestLogEntry {
         api_key_id: api_key.id,
         user_id: api_key.user_id,

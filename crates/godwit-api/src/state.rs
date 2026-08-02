@@ -1,3 +1,4 @@
+use crate::model_router::DbModelRouter;
 use godwit_cache::MemoryCache;
 use godwit_core::AppConfig;
 use godwit_db::models::{ApiKey, Model};
@@ -12,6 +13,7 @@ pub struct AppState {
     pub config: AppConfig,
     pub pool: PgPool,
     pub adapter_registry: Arc<AdapterRegistry>,
+    pub model_router: DbModelRouter,
     pub user_repo: UserRepository,
     pub org_repo: OrganizationRepository,
     pub api_key_repo: ApiKeyRepository,

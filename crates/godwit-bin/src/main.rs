@@ -1,5 +1,5 @@
 use axum::{middleware, routing::Router};
-use godwit_api::{admin, proxy, state::AppState};
+use godwit_api::{admin, model_router::DbModelRouter, proxy, state::AppState};
 use godwit_cache::MemoryCache;
 use godwit_core::{AppConfig, Protocol};
 use godwit_db::{
@@ -38,10 +38,12 @@ async fn main() -> anyhow::Result<()> {
         )),
     );
 
+    let adapter_registry = Arc::new(registry);
     let state = Arc::new(AppState {
         config: config.clone(),
         pool: pool.clone(),
-        adapter_registry: Arc::new(registry),
+        adapter_registry: adapter_registry.clone(),
+        model_router: DbModelRouter::new(pool.clone(), adapter_registry),
         user_repo: UserRepository::new(pool.clone()),
         org_repo: OrganizationRepository::new(pool.clone()),
         api_key_repo: ApiKeyRepository::new(pool.clone()),

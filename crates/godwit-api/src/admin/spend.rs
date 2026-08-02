@@ -8,6 +8,9 @@ use std::sync::Arc;
 
 use crate::state::AppState;
 
+const PRICING_INPUT_PER_1K: &str = "input_per_1k";
+const PRICING_OUTPUT_PER_1K: &str = "output_per_1k";
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new().route(
         "/spend",
@@ -17,13 +20,30 @@ pub fn router() -> Router<Arc<AppState>> {
 
 pub fn compute_cost(model: &Model, usage: &UsageReport) -> Option<Decimal> {
     let pricing = model.pricing.as_object()?;
-    match Capability::from_str(&model.capability).ok()? {
+    let capability = Capability::from_str(&model.capability)
+        .inspect_err(|e| tracing::warn!(%e, capability = %model.capability, "unsupported capability for cost computation"))
+        .ok()?;
+    match capability {
         Capability::Chat => {
-            let input = Decimal::from(usage.prompt_tokens.unwrap_or(0)) * Decimal::from_str(pricing.get("input_per_1k")?.as_str()?).ok()? / Decimal::from(1000);
-            let output = Decimal::from(usage.completion_tokens.unwrap_or(0)) * Decimal::from_str(pricing.get("output_per_1k")?.as_str()?).ok()? / Decimal::from(1000);
+            let input_price = pricing.get(PRICING_INPUT_PER_1K)?;
+            let output_price = pricing.get(PRICING_OUTPUT_PER_1K)?;
+            let input_rate = Decimal::from_str(input_price.as_str()?)
+                .inspect_err(|e| tracing::warn!(%e, "malformed input_per_1k pricing"))
+                .ok()?;
+            let output_rate = Decimal::from_str(output_price.as_str()?)
+                .inspect_err(|e| tracing::warn!(%e, "malformed output_per_1k pricing"))
+                .ok()?;
+            let input = Decimal::from(usage.prompt_tokens.unwrap_or(0)) * input_rate / Decimal::from(1000);
+            let output = Decimal::from(usage.completion_tokens.unwrap_or(0)) * output_rate / Decimal::from(1000);
             Some(input + output)
         }
-        _ => None,
+        _ => {
+            tracing::warn!(
+                capability = %capability,
+                "cost computation not supported for capability"
+            );
+            None
+        }
     }
 }
 

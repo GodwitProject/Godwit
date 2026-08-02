@@ -13,7 +13,6 @@ use godwit_providers::ProviderResponse;
 use rust_decimal::Decimal;
 use std::sync::Arc;
 
-use crate::model_router::DbModelRouter;
 use crate::{admin::spend::compute_cost, state::AppState};
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -71,8 +70,8 @@ async fn chat_completions(
 ) -> Result<Response, crate::error::ApiError> {
     let start = std::time::Instant::now();
 
-    let router = DbModelRouter::new(state.pool.clone(), state.adapter_registry.clone());
-    let resolved = router
+    let resolved = state
+        .model_router
         .resolve(api_key.organization_id, &req.model)
         .await?;
 

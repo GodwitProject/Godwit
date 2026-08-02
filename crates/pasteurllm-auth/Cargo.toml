@@ -1,0 +1,11 @@
+[package]
+name = "pasteurllm-auth"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pasteurllm-core = { path = "../pasteurllm-core" }
+argon2 = { version = "0.5", features = ["std"] }
+rand = "0.8"
+bs58 = "0.5"
+serde_json = { workspace = true }

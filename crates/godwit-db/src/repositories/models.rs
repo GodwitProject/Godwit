@@ -17,14 +17,16 @@ impl ModelRepository {
         organization_id: Uuid,
         public_id: &str,
         provider: &str,
+        provider_profile_id: Uuid,
         provider_model_id: &str,
     ) -> Result<Model, PasteurError> {
         sqlx::query_as::<_, Model>(
-            "INSERT INTO models (organization_id, public_id, provider, provider_model_id) VALUES ($1, $2, $3, $4) RETURNING *"
+            "INSERT INTO models (organization_id, public_id, provider, provider_profile_id, provider_model_id) VALUES ($1, $2, $3, $4, $5) RETURNING *"
         )
         .bind(organization_id)
         .bind(public_id)
         .bind(provider)
+        .bind(provider_profile_id)
         .bind(provider_model_id)
         .fetch_one(&self.pool)
         .await

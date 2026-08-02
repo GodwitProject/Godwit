@@ -76,8 +76,26 @@ pub struct Model {
     pub id: Uuid,
     pub organization_id: Uuid,
     pub public_id: String,
+    // Kept for backward compatibility during the transition to provider profiles.
+    // Will be removed once all code uses `provider_profile_id`.
     pub provider: String,
+    pub provider_profile_id: Uuid,
     pub provider_model_id: String,
+    pub capability: String,
+    pub pricing: serde_json::Value,
     pub config: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct ProviderProfile {
+    pub id: Uuid,
+    pub organization_id: Uuid,
+    pub name: String,
+    pub protocol: String,
+    pub base_url: Option<String>,
+    pub auth: serde_json::Value,
+    pub config: serde_json::Value,
+    pub enabled: bool,
     pub created_at: DateTime<Utc>,
 }

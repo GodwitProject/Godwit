@@ -1400,11 +1400,14 @@ dependencies = [
  "criterion",
  "futures",
  "godwit-core",
+ "godwit-db",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
+ "uuid",
  "wiremock",
 ]
 

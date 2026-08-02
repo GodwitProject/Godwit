@@ -6,8 +6,14 @@ fn bench_anthropic_mapping(c: &mut Criterion) {
     let req = ChatCompletionRequest {
         model: "claude-sonnet".to_string(),
         messages: vec![
-            ChatMessage { role: "system".to_string(), content: "You are helpful".to_string() },
-            ChatMessage { role: "user".to_string(), content: "Hello".to_string() },
+            ChatMessage {
+                role: "system".to_string(),
+                content: "You are helpful".to_string(),
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: "Hello".to_string(),
+            },
         ],
         stream: Some(false),
         temperature: Some(0.7),

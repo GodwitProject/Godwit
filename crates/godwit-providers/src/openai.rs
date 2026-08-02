@@ -1,8 +1,9 @@
+use crate::adapter::{Adapter, ProviderError, ProviderResponse, SseEvent, UsageReport};
 use crate::streaming::parse_sse_events;
-use crate::{Provider, ProviderError, ProviderResponse, SseEvent};
 use async_trait::async_trait;
 use futures::stream::{self, BoxStream, StreamExt};
-use godwit_core::{ChatCompletionRequest, ChatCompletionResponse, ProviderConfig};
+use godwit_core::{Capability, ChatCompletionRequest, ChatCompletionResponse, ProviderConfig};
+use godwit_db::models::{Model, ProviderProfile};
 use reqwest::Client;
 
 pub struct OpenAiProvider {
@@ -32,11 +33,17 @@ impl OpenAiProvider {
 }
 
 #[async_trait]
-impl Provider for OpenAiProvider {
-    async fn chat_completion(
+impl Adapter for OpenAiProvider {
+    fn supported_capabilities(&self) -> Vec<Capability> {
+        vec![Capability::Chat]
+    }
+
+    async fn chat(
         &self,
+        _profile: &ProviderProfile,
+        _model: &Model,
         request: ChatCompletionRequest,
-    ) -> Result<ProviderResponse, ProviderError> {
+    ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
         let url = format!("{}/chat/completions", self.base_url);
         let res = self
             .client
@@ -45,20 +52,29 @@ impl Provider for OpenAiProvider {
             .json(&request)
             .send()
             .await
-            .map_err(|e| ProviderError::Http(e.to_string()))?;
+            .map_err(|e| ProviderError::Http {
+                status: 0,
+                message: e.to_string(),
+            })?;
         if !res.status().is_success() {
+            let status = res.status().as_u16();
             let text = res.text().await.unwrap_or_default();
-            return Err(ProviderError::Provider(text));
+            return Err(ProviderError::Http {
+                status,
+                message: text,
+            });
         }
         let body: ChatCompletionResponse = res
             .json()
             .await
             .map_err(|e| ProviderError::Serialization(e.to_string()))?;
-        Ok(ProviderResponse::Json(body))
+        Ok((ProviderResponse::Chat(body), UsageReport::default()))
     }
 
-    async fn stream_chat_completion(
+    async fn chat_stream(
         &self,
+        _profile: &ProviderProfile,
+        _model: &Model,
         mut request: ChatCompletionRequest,
     ) -> Result<BoxStream<'static, Result<SseEvent, ProviderError>>, ProviderError> {
         request.stream = Some(true);
@@ -70,11 +86,15 @@ impl Provider for OpenAiProvider {
             .json(&request)
             .send()
             .await
-            .map_err(|e| ProviderError::Http(e.to_string()))?;
+            .map_err(|e| ProviderError::Http {
+                status: 0,
+                message: e.to_string(),
+            })?;
         if !res.status().is_success() {
-            return Err(ProviderError::Provider(
-                res.text().await.unwrap_or_default(),
-            ));
+            return Err(ProviderError::Http {
+                status: res.status().as_u16(),
+                message: res.text().await.unwrap_or_default(),
+            });
         }
         let byte_stream = res.bytes_stream();
         let event_stream = byte_stream.flat_map(|bytes| {
@@ -86,16 +106,95 @@ impl Provider for OpenAiProvider {
         });
         Ok(event_stream.boxed())
     }
+
+    async fn image_generation(
+        &self,
+        _profile: &ProviderProfile,
+        _model: &Model,
+        _request: godwit_core::ImageGenerationRequest,
+    ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        Err(ProviderError::CapabilityNotSupported)
+    }
+
+    async fn video_generation(
+        &self,
+        _profile: &ProviderProfile,
+        _model: &Model,
+        _request: godwit_core::VideoGenerationRequest,
+    ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        Err(ProviderError::CapabilityNotSupported)
+    }
+
+    async fn audio_tts(
+        &self,
+        _profile: &ProviderProfile,
+        _model: &Model,
+        _request: godwit_core::AudioTtsRequest,
+    ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        Err(ProviderError::CapabilityNotSupported)
+    }
+
+    async fn audio_stt(
+        &self,
+        _profile: &ProviderProfile,
+        _model: &Model,
+        _request: godwit_core::AudioSttRequest,
+        _file_bytes: Vec<u8>,
+        _filename: String,
+        _content_type: String,
+    ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        Err(ProviderError::CapabilityNotSupported)
+    }
+
+    async fn embedding(
+        &self,
+        _profile: &ProviderProfile,
+        _model: &Model,
+        _request: godwit_core::EmbeddingRequest,
+    ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        Err(ProviderError::CapabilityNotSupported)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
     use godwit_core::{ChatCompletionRequest, ChatMessage};
+    use uuid::Uuid;
     use wiremock::{matchers::*, Mock, MockServer, ResponseTemplate};
 
+    fn dummy_profile() -> ProviderProfile {
+        ProviderProfile {
+            id: Uuid::nil(),
+            organization_id: Uuid::nil(),
+            name: "openai".to_string(),
+            protocol: "openai".to_string(),
+            base_url: None,
+            auth: serde_json::json!({}),
+            config: serde_json::json!({}),
+            enabled: true,
+            created_at: Utc::now(),
+        }
+    }
+
+    fn dummy_model() -> Model {
+        Model {
+            id: Uuid::nil(),
+            organization_id: Uuid::nil(),
+            public_id: "gpt-4o".to_string(),
+            provider: "openai".to_string(),
+            provider_profile_id: Uuid::nil(),
+            provider_model_id: "gpt-4o".to_string(),
+            capability: "chat".to_string(),
+            pricing: serde_json::json!({}),
+            config: serde_json::json!({}),
+            created_at: Utc::now(),
+        }
+    }
+
     #[tokio::test]
-    async fn chat_completion_returns_openai_shape() {
+    async fn chat_returns_openai_shape() {
         let server = MockServer::start().await;
         let body = serde_json::json!({
             "id": "chatcmpl-123",
@@ -112,6 +211,8 @@ mod tests {
             .await;
 
         let client = OpenAiProvider::new("fake-key", &server.uri());
+        let profile = dummy_profile();
+        let model = dummy_model();
         let req = ChatCompletionRequest {
             model: "gpt-4o".to_string(),
             messages: vec![ChatMessage {
@@ -122,7 +223,10 @@ mod tests {
             temperature: None,
             max_tokens: None,
         };
-        let ProviderResponse::Json(resp) = client.chat_completion(req).await.unwrap();
+        let (ProviderResponse::Chat(resp), _) = client.chat(&profile, &model, req).await.unwrap()
+        else {
+            panic!("expected chat response");
+        };
         assert_eq!(resp.choices[0].message.content, "Hello");
     }
 }

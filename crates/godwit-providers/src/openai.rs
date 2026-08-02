@@ -149,6 +149,7 @@ impl Adapter for OpenAiProvider {
             .json()
             .await
             .map_err(|e| ProviderError::Serialization(e.to_string()))?;
+        // TODO: Populate UsageReport once OpenAI exposes usage metadata for image generation.
         Ok((ProviderResponse::Image(body), UsageReport::default()))
     }
 
@@ -199,6 +200,7 @@ impl Adapter for OpenAiProvider {
                 message: e.to_string(),
             })?
             .to_vec();
+        // TODO: Populate UsageReport once OpenAI exposes usage metadata for audio TTS.
         Ok((
             ProviderResponse::AudioTts(AudioTtsResponse {
                 bytes,
@@ -252,6 +254,7 @@ impl Adapter for OpenAiProvider {
             .json()
             .await
             .map_err(|e| ProviderError::Serialization(e.to_string()))?;
+        // TODO: Populate UsageReport once OpenAI exposes usage metadata for audio STT.
         Ok((ProviderResponse::AudioStt(body), UsageReport::default()))
     }
 
@@ -283,7 +286,13 @@ impl Adapter for OpenAiProvider {
             .json()
             .await
             .map_err(|e| ProviderError::Serialization(e.to_string()))?;
-        Ok((ProviderResponse::Embedding(body), UsageReport::default()))
+        Ok((
+            ProviderResponse::Embedding(body.clone()),
+            UsageReport {
+                embedding_tokens: Some(body.usage.total_tokens as i64),
+                ..Default::default()
+            },
+        ))
     }
 }
 
@@ -400,6 +409,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn openai_image_generation_propagates_http_error() {
+        let server = MockServer::start().await;
+        let body = serde_json::json!({ "error": "Internal Server Error" });
+        Mock::given(method("POST"))
+            .and(path("/images/generations"))
+            .respond_with(ResponseTemplate::new(500).set_body_json(body))
+            .mount(&server)
+            .await;
+
+        let client = OpenAiProvider::new("fake-key", &server.uri());
+        let req = ImageGenerationRequest {
+            model: "dall-e-3".to_string(),
+            prompt: "a cat in a hat".to_string(),
+            n: None,
+            size: None,
+            quality: None,
+            style: None,
+        };
+        let err = client
+            .image_generation(&dummy_profile(), &dummy_model(), req)
+            .await
+            .unwrap_err();
+        match err {
+            ProviderError::Http { status, .. } => assert_eq!(status, 500),
+            _ => panic!("expected http error, got {err:?}"),
+        }
+    }
+
+    #[tokio::test]
     async fn openai_audio_tts() {
         let server = MockServer::start().await;
         let audio = b"fake-audio-bytes".to_vec();
@@ -437,6 +475,9 @@ mod tests {
         let body = serde_json::json!({ "text": "hello there" });
         Mock::given(method("POST"))
             .and(path("/audio/transcriptions"))
+            .and(body_string_contains("whisper-1"))
+            .and(body_string_contains("recording.mp3"))
+            .and(body_string_contains("audio/mpeg"))
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&server)
             .await;

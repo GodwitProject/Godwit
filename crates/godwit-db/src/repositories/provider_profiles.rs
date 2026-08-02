@@ -43,6 +43,19 @@ impl ProviderProfileRepository {
         .await
         .map_err(|e| PasteurError::Database(e.to_string()))
     }
+
+    pub async fn get(&self, id: Uuid) -> Result<ProviderProfile, PasteurError> {
+        sqlx::query_as::<_, ProviderProfile>(
+            "SELECT * FROM provider_profiles WHERE id = $1"
+        )
+        .bind(id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => PasteurError::NotFound,
+            _ => PasteurError::Database(e.to_string()),
+        })
+    }
 }
 
 #[cfg(test)]

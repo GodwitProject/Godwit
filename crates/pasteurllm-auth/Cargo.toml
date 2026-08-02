@@ -13,3 +13,5 @@ jsonwebtoken = "9"
 chrono = { workspace = true }
 uuid = { workspace = true }
 serde = { workspace = true }
+openidconnect = "3"
+url = "2"

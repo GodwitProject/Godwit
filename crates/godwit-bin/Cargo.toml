@@ -1,0 +1,24 @@
+[package]
+name = "godwit-bin"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "godwit"
+path = "src/main.rs"
+
+[dependencies]
+godwit-core = { path = "../godwit-core" }
+godwit-db = { path = "../godwit-db" }
+godwit-auth = { path = "../godwit-auth" }
+godwit-providers = { path = "../godwit-providers" }
+godwit-cache = { path = "../godwit-cache" }
+godwit-api = { path = "../godwit-api" }
+axum = "0.7"
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = "0.3"
+serde_yaml = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true }
+async-trait = "0.1"

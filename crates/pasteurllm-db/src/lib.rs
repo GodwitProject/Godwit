@@ -1,6 +1,9 @@
 use pasteurllm_core::PasteurError;
 use sqlx::{migrate::Migrator, PgPool};
 
+pub mod models;
+pub mod repositories;
+
 pub static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
 pub async fn run_migrations(pool: &PgPool) -> Result<(), PasteurError> {

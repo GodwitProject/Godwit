@@ -12,6 +12,8 @@ pub struct OpenAiProvider {
     base_url: String,
 }
 
+pub type OpenAiAdapter = OpenAiProvider;
+
 impl OpenAiProvider {
     pub fn new(api_key: &str, base_url: &str) -> Self {
         let client = Client::builder()

@@ -27,3 +27,17 @@ impl Default for AdapterRegistry {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::openai::OpenAiAdapter;
+    use std::sync::Arc;
+
+    #[test]
+    fn registry_stores_adapter() {
+        let mut registry = AdapterRegistry::new();
+        registry.register(Protocol::openai(), Arc::new(OpenAiAdapter::new("", "")));
+        assert!(registry.get(&Protocol::openai()).is_some());
+    }
+}

@@ -1,8 +1,8 @@
-# PasteurLLM MVP — Design Specification
+# Godwit MVP — Design Specification
 
 ## 1. Goal
 
-Build a minimal but production-grade Rust clone of LiteLLM named **PasteurLLM**. The MVP exposes an OpenAI-compatible chat-completions proxy, supports OpenAI and Anthropic backends, manages users/teams/organizations, and authenticates requests via API keys, OIDC, and SAML with role-based access control.
+Build a minimal but production-grade Rust clone of LiteLLM named **Godwit**. The MVP exposes an OpenAI-compatible chat-completions proxy, supports OpenAI and Anthropic backends, manages users/teams/organizations, and authenticates requests via API keys, OIDC, and SAML with role-based access control.
 
 ## 2. Scope
 
@@ -55,12 +55,12 @@ Workspace Cargo with the following crates:
 
 | Crate | Responsibility |
 |-------|----------------|
-| `pasteurllm-core` | Domain models, error types, provider trait, configuration structs. No external I/O. |
-| `pasteurllm-db` | SQLx migrations, connection pool, repositories for users/orgs/teams/keys/models/logs. |
-| `pasteurllm-auth` | API-key hashing/validation, JWT issue/verify, OIDC client, SAML ACS, RBAC enforcement. |
-| `pasteurllm-providers` | HTTP clients for OpenAI and Anthropic, request/response mapping, streaming SSE handling. |
-| `pasteurllm-api` | Axum routers, middleware, state assembly, OpenAPI-compatible request/response DTOs. |
-| `pasteurllm-bin` | `main.rs`, CLI argument parsing, configuration loading, graceful shutdown. |
+| `godwit-core` | Domain models, error types, provider trait, configuration structs. No external I/O. |
+| `godwit-db` | SQLx migrations, connection pool, repositories for users/orgs/teams/keys/models/logs. |
+| `godwit-auth` | API-key hashing/validation, JWT issue/verify, OIDC client, SAML ACS, RBAC enforcement. |
+| `godwit-providers` | HTTP clients for OpenAI and Anthropic, request/response mapping, streaming SSE handling. |
+| `godwit-api` | Axum routers, middleware, state assembly, OpenAPI-compatible request/response DTOs. |
+| `godwit-bin` | `main.rs`, CLI argument parsing, configuration loading, graceful shutdown. |
 
 ## 4. Technology Choices
 
@@ -222,7 +222,7 @@ All errors return `application/problem+json` per RFC 7807:
 
 ```json
 {
-  "type": "https://api.pasteurllm.local/errors/validation-error",
+  "type": "https://api.godwit.local/errors/validation-error",
   "title": "Validation Error",
   "status": 422,
   "detail": "The 'email' field must be a valid email address.",
@@ -233,7 +233,7 @@ All errors return `application/problem+json` per RFC 7807:
 ## 7. Authentication & Authorization
 
 ### 7.1 API keys
-- Format: `sk-pasteur-{base58(24 random bytes)}`.
+- Format: `sk-godwit-{base58(24 random bytes)}`.
 - Storage: store the first 16 characters as `key_prefix` (lookup only) and the full-key Argon2id hash as `key_hash`. The plaintext is returned only once at creation.
 - Middleware extracts `Authorization: Bearer <key>`, looks up candidate keys by prefix, verifies Argon2id hash, then validates scopes, expiry, and budget.
 
@@ -312,12 +312,12 @@ auth:
       issuer_url: "https://accounts.google.com"
       client_id: "${GOOGLE_CLIENT_ID}"
       client_secret: "${GOOGLE_CLIENT_SECRET}"
-      redirect_uri: "https://api.pasteurllm.local/api/v1/auth/oidc/google/callback"
+      redirect_uri: "https://api.godwit.local/api/v1/auth/oidc/google/callback"
   saml_providers:
     - id: okta
       idp_metadata_url: "${OKTA_SAML_METADATA_URL}"
-      sp_entity_id: "pasteurllm"
-      acs_url: "https://api.pasteurllm.local/api/v1/auth/saml/okta/acs"
+      sp_entity_id: "godwit"
+      acs_url: "https://api.godwit.local/api/v1/auth/saml/okta/acs"
 
 providers:
   openai:
@@ -356,7 +356,7 @@ providers:
 ### 11.1 Local development
 ```bash
 docker compose up db
-cargo run --bin pasteurllm
+cargo run --bin godwit
 ```
 
 ### 11.2 Production

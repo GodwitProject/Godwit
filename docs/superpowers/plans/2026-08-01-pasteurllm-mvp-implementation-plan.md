@@ -1,8 +1,8 @@
-# PasteurLLM MVP Implementation Plan
+# Godwit MVP Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build PasteurLLM, an ultra-low-latency OpenAI-compatible LLM proxy in Rust, supporting OpenAI and Anthropic backends, with user/team/org management, API-key/OIDC/SAML authentication, RBAC, PostgreSQL persistence, and unit/integration tests. The hot path (`/v1/chat/completions`) must avoid synchronous DB calls and minimize allocations.
+**Goal:** Build Godwit, an ultra-low-latency OpenAI-compatible LLM proxy in Rust, supporting OpenAI and Anthropic backends, with user/team/org management, API-key/OIDC/SAML authentication, RBAC, PostgreSQL persistence, and unit/integration tests. The hot path (`/v1/chat/completions`) must avoid synchronous DB calls and minimize allocations.
 
 **Architecture:** Modular monolith optimized for a fast proxy path. One Cargo workspace with crates for core domain, database, authentication, LLM providers, HTTP API, and the binary. The proxy uses in-memory caches for API keys and model routing, persistent HTTP connection pools to providers, and asynchronous request logging. Admin operations use the database directly.
 
@@ -13,21 +13,21 @@
 ## File Structure Overview
 
 ```
-pasteurllm/
+godwit/
 ├── Cargo.toml
 ├── Dockerfile
 ├── docker-compose.yml
 ├── .dockerignore
 ├── config.example.yaml
 ├── crates/
-│   ├── pasteurllm-core/
+│   ├── godwit-core/
 │   │   ├── Cargo.toml
 │   │   └── src/lib.rs
-│   ├── pasteurllm-db/
+│   ├── godwit-db/
 │   │   ├── Cargo.toml
 │   │   ├── migrations/
 │   │   └── src/lib.rs
-│   ├── pasteurllm-auth/
+│   ├── godwit-auth/
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs
@@ -36,17 +36,17 @@ pasteurllm/
 │   │       ├── rbac.rs
 │   │       ├── oidc.rs
 │   │       └── saml.rs
-│   ├── pasteurllm-providers/
+│   ├── godwit-providers/
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs
 │   │       ├── openai.rs
 │   │       ├── anthropic.rs
 │   │       └── streaming.rs
-│   ├── pasteurllm-cache/
+│   ├── godwit-cache/
 │   │   ├── Cargo.toml
 │   │   └── src/lib.rs
-│   ├── pasteurllm-api/
+│   ├── godwit-api/
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs
@@ -62,7 +62,7 @@ pasteurllm/
 │   │           ├── api_keys.rs
 │   │           ├── models.rs
 │   │           └── spend.rs
-│   └── pasteurllm-bin/
+│   └── godwit-bin/
 │       ├── Cargo.toml
 │       └── src/main.rs
 └── tests/
@@ -76,13 +76,13 @@ pasteurllm/
 
 **Files:**
 - Create: `Cargo.toml`
-- Create: `crates/pasteurllm-core/Cargo.toml`
-- Create: `crates/pasteurllm-core/src/lib.rs`
-- Test: `crates/pasteurllm-core/src/lib.rs` (inline unit tests)
+- Create: `crates/godwit-core/Cargo.toml`
+- Create: `crates/godwit-core/src/lib.rs`
+- Test: `crates/godwit-core/src/lib.rs` (inline unit tests)
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `crates/pasteurllm-core/src/lib.rs`:
+Add to `crates/godwit-core/src/lib.rs`:
 
 ```rust
 #[cfg(test)]
@@ -115,7 +115,7 @@ providers:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p pasteurllm-core config_parses_from_yaml`
+Run: `cargo test -p godwit-core config_parses_from_yaml`
 Expected: FAIL with `cannot find type AppConfig`.
 
 - [ ] **Step 3: Create workspace Cargo.toml**
@@ -142,7 +142,7 @@ reqwest = { version = "0.12", features = ["json"] }
 
 ```toml
 [package]
-name = "pasteurllm-core"
+name = "godwit-core"
 version = "0.1.0"
 edition = "2021"
 
@@ -156,7 +156,7 @@ chrono = { workspace = true }
 
 - [ ] **Step 5: Implement core config and errors**
 
-Create `crates/pasteurllm-core/src/lib.rs`:
+Create `crates/godwit-core/src/lib.rs`:
 
 ```rust
 use serde::{Deserialize, Serialize};
@@ -270,13 +270,13 @@ providers:
 
 - [ ] **Step 6: Run tests**
 
-Run: `cargo test -p pasteurllm-core`
+Run: `cargo test -p godwit-core`
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add Cargo.toml crates/pasteurllm-core
+git add Cargo.toml crates/godwit-core
 git commit -m "feat(core): workspace, config, and errors"
 ```
 
@@ -285,14 +285,14 @@ git commit -m "feat(core): workspace, config, and errors"
 ## Task 2: Database Migrations
 
 **Files:**
-- Create: `crates/pasteurllm-db/Cargo.toml`
-- Create: `crates/pasteurllm-db/src/lib.rs`
-- Create: `crates/pasteurllm-db/migrations/*.sql`
-- Test: `crates/pasteurllm-db/src/lib.rs`
+- Create: `crates/godwit-db/Cargo.toml`
+- Create: `crates/godwit-db/src/lib.rs`
+- Create: `crates/godwit-db/migrations/*.sql`
+- Test: `crates/godwit-db/src/lib.rs`
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `crates/pasteurllm-db/src/lib.rs`:
+Add to `crates/godwit-db/src/lib.rs`:
 
 ```rust
 #[cfg(test)]
@@ -310,19 +310,19 @@ mod tests {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p pasteurllm-db migrations_run_successfully`
+Run: `cargo test -p godwit-db migrations_run_successfully`
 Expected: FAIL (no `run_migrations` function, connection invalid).
 
 - [ ] **Step 3: Create DB crate Cargo.toml**
 
 ```toml
 [package]
-name = "pasteurllm-db"
+name = "godwit-db"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-pasteurllm-core = { path = "../pasteurllm-core" }
+godwit-core = { path = "../godwit-core" }
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate"] }
 tokio = { workspace = true }
 uuid = { workspace = true }
@@ -333,7 +333,7 @@ tracing = { workspace = true }
 
 - [ ] **Step 4: Write migrations**
 
-Create `crates/pasteurllm-db/migrations/20260801000001_initial.sql`:
+Create `crates/godwit-db/migrations/20260801000001_initial.sql`:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
@@ -430,10 +430,10 @@ CREATE TABLE request_logs (
 
 - [ ] **Step 5: Implement migrator wrapper**
 
-Create `crates/pasteurllm-db/src/lib.rs`:
+Create `crates/godwit-db/src/lib.rs`:
 
 ```rust
-use pasteurllm_core::PasteurError;
+use godwit_core::PasteurError;
 use sqlx::{migrate::Migrator, PgPool};
 
 pub static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
@@ -469,17 +469,17 @@ mod tests {
 }
 ```
 
-Note: `sqlx::test` requires `DATABASE_URL` set or a running test database. Document this in `crates/pasteurllm-db/README.md` or `.env.example` later.
+Note: `sqlx::test` requires `DATABASE_URL` set or a running test database. Document this in `crates/godwit-db/README.md` or `.env.example` later.
 
 - [ ] **Step 7: Run tests**
 
-Run: `cargo test -p pasteurllm-db`
+Run: `cargo test -p godwit-db`
 Expected: PASS (requires `DATABASE_URL` env var pointing to a PostgreSQL DB).
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add crates/pasteurllm-db
+git add crates/godwit-db
 git commit -m "feat(db): initial schema and migrations"
 ```
 
@@ -488,18 +488,18 @@ git commit -m "feat(db): initial schema and migrations"
 ## Task 3: Database Repositories
 
 **Files:**
-- Create: `crates/pasteurllm-db/src/models.rs`
-- Create: `crates/pasteurllm-db/src/repositories/mod.rs`
-- Create: `crates/pasteurllm-db/src/repositories/users.rs`
-- Create: `crates/pasteurllm-db/src/repositories/organizations.rs`
-- Create: `crates/pasteurllm-db/src/repositories/api_keys.rs`
-- Create: `crates/pasteurllm-db/src/repositories/models.rs`
-- Modify: `crates/pasteurllm-db/src/lib.rs`
+- Create: `crates/godwit-db/src/models.rs`
+- Create: `crates/godwit-db/src/repositories/mod.rs`
+- Create: `crates/godwit-db/src/repositories/users.rs`
+- Create: `crates/godwit-db/src/repositories/organizations.rs`
+- Create: `crates/godwit-db/src/repositories/api_keys.rs`
+- Create: `crates/godwit-db/src/repositories/models.rs`
+- Modify: `crates/godwit-db/src/lib.rs`
 - Test: repository files
 
 - [ ] **Step 1: Write a failing unit test for user repository**
 
-Add to `crates/pasteurllm-db/src/repositories/users.rs`:
+Add to `crates/godwit-db/src/repositories/users.rs`:
 
 ```rust
 #[cfg(test)]
@@ -524,12 +524,12 @@ mod tests {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p pasteurllm-db create_and_fetch_user`
+Run: `cargo test -p godwit-db create_and_fetch_user`
 Expected: FAIL (types and functions undefined).
 
 - [ ] **Step 3: Define DB models**
 
-Create `crates/pasteurllm-db/src/models.rs`:
+Create `crates/godwit-db/src/models.rs`:
 
 ```rust
 use chrono::{DateTime, Utc};
@@ -609,11 +609,11 @@ pub struct Model {
 
 - [ ] **Step 4: Implement UserRepository**
 
-Create `crates/pasteurllm-db/src/repositories/users.rs`:
+Create `crates/godwit-db/src/repositories/users.rs`:
 
 ```rust
 use crate::models::{User, UserRole};
-use pasteurllm_core::PasteurError;
+use godwit_core::PasteurError;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -671,11 +671,11 @@ impl UserRepository {
 
 - [ ] **Step 5: Implement OrganizationRepository**
 
-Create `crates/pasteurllm-db/src/repositories/organizations.rs`:
+Create `crates/godwit-db/src/repositories/organizations.rs`:
 
 ```rust
 use crate::models::Organization;
-use pasteurllm_core::PasteurError;
+use godwit_core::PasteurError;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -713,11 +713,11 @@ impl OrganizationRepository {
 
 - [ ] **Step 6: Implement ApiKeyRepository**
 
-Create `crates/pasteurllm-db/src/repositories/api_keys.rs`:
+Create `crates/godwit-db/src/repositories/api_keys.rs`:
 
 ```rust
 use crate::models::ApiKey;
-use pasteurllm_core::PasteurError;
+use godwit_core::PasteurError;
 use rust_decimal::Decimal;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -771,11 +771,11 @@ impl ApiKeyRepository {
 
 - [ ] **Step 7: Implement ModelRepository**
 
-Create `crates/pasteurllm-db/src/repositories/models.rs`:
+Create `crates/godwit-db/src/repositories/models.rs`:
 
 ```rust
 use crate::models::Model;
-use pasteurllm_core::PasteurError;
+use godwit_core::PasteurError;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -838,7 +838,7 @@ impl ModelRepository {
 
 - [ ] **Step 8: Wire up repositories module**
 
-Create `crates/pasteurllm-db/src/repositories/mod.rs`:
+Create `crates/godwit-db/src/repositories/mod.rs`:
 
 ```rust
 pub mod api_keys;
@@ -847,7 +847,7 @@ pub mod organizations;
 pub mod users;
 ```
 
-Modify `crates/pasteurllm-db/src/lib.rs`:
+Modify `crates/godwit-db/src/lib.rs`:
 
 ```rust
 pub mod models;
@@ -856,13 +856,13 @@ pub mod repositories;
 
 - [ ] **Step 8: Run repository tests**
 
-Run: `cargo test -p pasteurllm-db create_and_fetch_user`
+Run: `cargo test -p godwit-db create_and_fetch_user`
 Expected: PASS.
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add crates/pasteurllm-db
+git add crates/godwit-db
 git commit -m "feat(db): repositories for users, orgs, api keys, models"
 ```
 
@@ -871,14 +871,14 @@ git commit -m "feat(db): repositories for users, orgs, api keys, models"
 ## Task 4: API Key Authentication
 
 **Files:**
-- Create: `crates/pasteurllm-auth/Cargo.toml`
-- Create: `crates/pasteurllm-auth/src/api_keys.rs`
-- Modify: `crates/pasteurllm-auth/src/lib.rs`
-- Test: `crates/pasteurllm-auth/src/api_keys.rs`
+- Create: `crates/godwit-auth/Cargo.toml`
+- Create: `crates/godwit-auth/src/api_keys.rs`
+- Modify: `crates/godwit-auth/src/lib.rs`
+- Test: `crates/godwit-auth/src/api_keys.rs`
 
 - [ ] **Step 1: Write failing unit test**
 
-Create `crates/pasteurllm-auth/src/api_keys.rs` with test first:
+Create `crates/godwit-auth/src/api_keys.rs` with test first:
 
 ```rust
 #[cfg(test)]
@@ -888,7 +888,7 @@ mod tests {
     #[test]
     fn generate_and_verify_key() {
         let (plaintext, hash, prefix) = generate_api_key();
-        assert!(plaintext.starts_with("sk-pasteur-"));
+        assert!(plaintext.starts_with("sk-godwit-"));
         assert!(verify_key(&plaintext, &hash));
         assert_eq!(extract_prefix(&plaintext), prefix);
     }
@@ -897,19 +897,19 @@ mod tests {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p pasteurllm-auth generate_and_verify_key`
+Run: `cargo test -p godwit-auth generate_and_verify_key`
 Expected: FAIL.
 
 - [ ] **Step 3: Create auth crate Cargo.toml**
 
 ```toml
 [package]
-name = "pasteurllm-auth"
+name = "godwit-auth"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-pasteurllm-core = { path = "../pasteurllm-core" }
+godwit-core = { path = "../godwit-core" }
 argon2 = { version = "0.5", features = ["std"] }
 rand = "0.8"
 bs58 = "0.5"
@@ -918,7 +918,7 @@ serde_json = { workspace = true }
 
 - [ ] **Step 4: Implement API key functions**
 
-Create `crates/pasteurllm-auth/src/api_keys.rs`:
+Create `crates/godwit-auth/src/api_keys.rs`:
 
 ```rust
 use argon2::{
@@ -927,7 +927,7 @@ use argon2::{
 };
 use rand::rngs::OsRng;
 
-const PREFIX: &str = "sk-pasteur-";
+const PREFIX: &str = "sk-godwit-";
 const PREFIX_LEN: usize = 16; // characters after PREFIX used for lookup
 
 pub fn generate_api_key() -> (String, String, String) {
@@ -997,7 +997,7 @@ mod tests {
     #[test]
     fn verify_rejects_wrong_key() {
         let (_, hash, _) = generate_api_key();
-        assert!(!verify_key("sk-pasteur-wrong", &hash));
+        assert!(!verify_key("sk-godwit-wrong", &hash));
     }
 
     #[test]
@@ -1011,7 +1011,7 @@ mod tests {
 
 - [ ] **Step 5: Wire up lib.rs**
 
-Create `crates/pasteurllm-auth/src/lib.rs`:
+Create `crates/godwit-auth/src/lib.rs`:
 
 ```rust
 pub mod api_keys;
@@ -1021,13 +1021,13 @@ pub mod rbac;
 
 - [ ] **Step 6: Run tests**
 
-Run: `cargo test -p pasteurllm-auth`
+Run: `cargo test -p godwit-auth`
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add crates/pasteurllm-auth
+git add crates/godwit-auth
 git commit -m "feat(auth): api key generation and verification"
 ```
 
@@ -1036,14 +1036,14 @@ git commit -m "feat(auth): api key generation and verification"
 ## Task 5: JWT and RBAC
 
 **Files:**
-- Create: `crates/pasteurllm-auth/src/jwt.rs`
-- Create: `crates/pasteurllm-auth/src/rbac.rs`
-- Modify: `crates/pasteurllm-auth/Cargo.toml`
+- Create: `crates/godwit-auth/src/jwt.rs`
+- Create: `crates/godwit-auth/src/rbac.rs`
+- Modify: `crates/godwit-auth/Cargo.toml`
 - Test: both files
 
 - [ ] **Step 1: Write failing unit tests**
 
-Create `crates/pasteurllm-auth/src/jwt.rs`:
+Create `crates/godwit-auth/src/jwt.rs`:
 
 ```rust
 #[cfg(test)]
@@ -1062,12 +1062,12 @@ mod tests {
 
 - [ ] **Step 2: Run tests to verify failure**
 
-Run: `cargo test -p pasteurllm-auth issue_and_verify_token`
+Run: `cargo test -p godwit-auth issue_and_verify_token`
 Expected: FAIL.
 
 - [ ] **Step 3: Add dependencies**
 
-Modify `crates/pasteurllm-auth/Cargo.toml`:
+Modify `crates/godwit-auth/Cargo.toml`:
 
 ```toml
 [dependencies]
@@ -1079,12 +1079,12 @@ serde = { workspace = true }
 
 - [ ] **Step 4: Implement JWT**
 
-Create `crates/pasteurllm-auth/src/jwt.rs`:
+Create `crates/godwit-auth/src/jwt.rs`:
 
 ```rust
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
-use pasteurllm_core::PasteurError;
+use godwit_core::PasteurError;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -1138,7 +1138,7 @@ pub fn verify(secret: &str, token: &str) -> Result<Claims, PasteurError> {
 
 - [ ] **Step 5: Implement RBAC**
 
-Create `crates/pasteurllm-auth/src/rbac.rs`:
+Create `crates/godwit-auth/src/rbac.rs`:
 
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1189,13 +1189,13 @@ mod tests {
 
 - [ ] **Step 6: Run tests**
 
-Run: `cargo test -p pasteurllm-auth`
+Run: `cargo test -p godwit-auth`
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add crates/pasteurllm-auth
+git add crates/godwit-auth
 git commit -m "feat(auth): jwt issue/verify and rbac roles"
 ```
 
@@ -1204,13 +1204,13 @@ git commit -m "feat(auth): jwt issue/verify and rbac roles"
 ## Task 6: OIDC Authentication
 
 **Files:**
-- Create: `crates/pasteurllm-auth/src/oidc.rs`
-- Modify: `crates/pasteurllm-auth/Cargo.toml`
-- Test: `crates/pasteurllm-auth/src/oidc.rs`
+- Create: `crates/godwit-auth/src/oidc.rs`
+- Modify: `crates/godwit-auth/Cargo.toml`
+- Test: `crates/godwit-auth/src/oidc.rs`
 
 - [ ] **Step 1: Add OIDC dependency**
 
-Modify `crates/pasteurllm-auth/Cargo.toml`:
+Modify `crates/godwit-auth/Cargo.toml`:
 
 ```toml
 [dependencies]
@@ -1220,7 +1220,7 @@ url = "2"
 
 - [ ] **Step 2: Implement OIDC client wrapper**
 
-Create `crates/pasteurllm-auth/src/oidc.rs`:
+Create `crates/godwit-auth/src/oidc.rs`:
 
 ```rust
 use openidconnect::{
@@ -1228,7 +1228,7 @@ use openidconnect::{
     reqwest::async_http_client,
     AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce, RedirectUrl, Scope,
 };
-use pasteurllm_core::{OidcProviderConfig, PasteurError};
+use godwit_core::{OidcProviderConfig, PasteurError};
 use url::Url;
 
 pub struct OidcClient {
@@ -1328,7 +1328,7 @@ mod tests {
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/pasteurllm-auth
+git add crates/godwit-auth
 git commit -m "feat(auth): oidc discovery and code exchange"
 ```
 
@@ -1337,12 +1337,12 @@ git commit -m "feat(auth): oidc discovery and code exchange"
 ## Task 7: SAML Authentication
 
 **Files:**
-- Create: `crates/pasteurllm-auth/src/saml.rs`
-- Modify: `crates/pasteurllm-auth/Cargo.toml`
+- Create: `crates/godwit-auth/src/saml.rs`
+- Modify: `crates/godwit-auth/Cargo.toml`
 
 - [ ] **Step 1: Add SAML dependency**
 
-Modify `crates/pasteurllm-auth/Cargo.toml`:
+Modify `crates/godwit-auth/Cargo.toml`:
 
 ```toml
 [dependencies]
@@ -1351,10 +1351,10 @@ samael = "0.9"
 
 - [ ] **Step 2: Implement SAML ACS helper**
 
-Create `crates/pasteurllm-auth/src/saml.rs`:
+Create `crates/godwit-auth/src/saml.rs`:
 
 ```rust
-use pasteurllm_core::{PasteurError, SamlProviderConfig};
+use godwit_core::{PasteurError, SamlProviderConfig};
 
 pub struct SamlService {
     provider_id: String,
@@ -1385,7 +1385,7 @@ Add a note in the plan: full SAML round-trip requires an IdP fixture; cover in i
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/pasteurllm-auth
+git add crates/godwit-auth
 git commit -m "feat(auth): saml scaffolding"
 ```
 
@@ -1394,15 +1394,15 @@ git commit -m "feat(auth): saml scaffolding"
 ## Task 8: OpenAI Provider Client
 
 **Files:**
-- Create: `crates/pasteurllm-providers/Cargo.toml`
-- Create: `crates/pasteurllm-providers/src/lib.rs`
-- Create: `crates/pasteurllm-providers/src/openai.rs`
-- Modify: `crates/pasteurllm-core/src/lib.rs` (add ChatCompletionRequest DTO)
-- Test: `crates/pasteurllm-providers/src/openai.rs`
+- Create: `crates/godwit-providers/Cargo.toml`
+- Create: `crates/godwit-providers/src/lib.rs`
+- Create: `crates/godwit-providers/src/openai.rs`
+- Modify: `crates/godwit-core/src/lib.rs` (add ChatCompletionRequest DTO)
+- Test: `crates/godwit-providers/src/openai.rs`
 
 - [ ] **Step 1: Add ChatCompletion DTOs to core**
 
-Modify `crates/pasteurllm-core/src/lib.rs` to add:
+Modify `crates/godwit-core/src/lib.rs` to add:
 
 ```rust
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -1447,13 +1447,13 @@ pub struct Usage {
 
 - [ ] **Step 2: Write failing provider test**
 
-Create `crates/pasteurllm-providers/src/openai.rs`:
+Create `crates/godwit-providers/src/openai.rs`:
 
 ```rust
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pasteurllm_core::{ChatCompletionRequest, ChatMessage};
+    use godwit_core::{ChatCompletionRequest, ChatMessage};
     use wiremock::{matchers::*, Mock, MockServer, ResponseTemplate};
 
     #[tokio::test]
@@ -1489,19 +1489,19 @@ mod tests {
 
 - [ ] **Step 3: Run test to verify failure**
 
-Run: `cargo test -p pasteurllm-providers chat_completion_returns_openai_shape`
+Run: `cargo test -p godwit-providers chat_completion_returns_openai_shape`
 Expected: FAIL.
 
 - [ ] **Step 4: Create providers crate Cargo.toml**
 
 ```toml
 [package]
-name = "pasteurllm-providers"
+name = "godwit-providers"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-pasteurllm-core = { path = "../pasteurllm-core" }
+godwit-core = { path = "../godwit-core" }
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -1519,11 +1519,11 @@ Note: ensure `futures` and `async-trait` versions are compatible with Rust 1.80+
 
 - [ ] **Step 5: Implement OpenAI provider**
 
-Create `crates/pasteurllm-providers/src/openai.rs`:
+Create `crates/godwit-providers/src/openai.rs`:
 
 ```rust
 use async_trait::async_trait;
-use pasteurllm_core::{ChatCompletionRequest, ChatCompletionResponse, PasteurError, ProviderConfig};
+use godwit_core::{ChatCompletionRequest, ChatCompletionResponse, PasteurError, ProviderConfig};
 use reqwest::Client;
 
 pub struct OpenAiProvider {
@@ -1590,7 +1590,7 @@ impl Provider for OpenAiProvider {
 
 - [ ] **Step 6: Define provider trait and types in lib.rs**
 
-Create `crates/pasteurllm-providers/src/lib.rs`:
+Create `crates/godwit-providers/src/lib.rs`:
 
 ```rust
 pub mod anthropic;
@@ -1598,7 +1598,7 @@ pub mod openai;
 
 use async_trait::async_trait;
 use futures::stream::BoxStream;
-use pasteurllm_core::{ChatCompletionRequest, ChatCompletionResponse};
+use godwit_core::{ChatCompletionRequest, ChatCompletionResponse};
 
 #[derive(Debug)]
 pub enum ProviderError {
@@ -1634,13 +1634,13 @@ pub trait Provider: Send + Sync {
 
 - [ ] **Step 7: Run tests**
 
-Run: `cargo test -p pasteurllm-providers`
+Run: `cargo test -p godwit-providers`
 Expected: PASS.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add crates/pasteurllm-providers crates/pasteurllm-core
+git add crates/godwit-providers crates/godwit-core
 git commit -m "feat(providers): openai client and provider trait"
 ```
 
@@ -1649,18 +1649,18 @@ git commit -m "feat(providers): openai client and provider trait"
 ## Task 9: Anthropic Mapping
 
 **Files:**
-- Create: `crates/pasteurllm-providers/src/anthropic.rs`
+- Create: `crates/godwit-providers/src/anthropic.rs`
 - Test: same file
 
 - [ ] **Step 1: Write failing mapping test**
 
-Create `crates/pasteurllm-providers/src/anthropic.rs`:
+Create `crates/godwit-providers/src/anthropic.rs`:
 
 ```rust
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pasteurllm_core::{ChatCompletionRequest, ChatMessage};
+    use godwit_core::{ChatCompletionRequest, ChatMessage};
 
     #[test]
     fn openai_to_anthropic_request() {
@@ -1697,15 +1697,15 @@ mod tests {
 
 - [ ] **Step 2: Run tests to verify failure**
 
-Run: `cargo test -p pasteurllm-providers openai_to_anthropic_request`
+Run: `cargo test -p godwit-providers openai_to_anthropic_request`
 Expected: FAIL.
 
 - [ ] **Step 3: Implement Anthropic mapping**
 
-Create `crates/pasteurllm-providers/src/anthropic.rs`:
+Create `crates/godwit-providers/src/anthropic.rs`:
 
 ```rust
-use pasteurllm_core::{
+use godwit_core::{
     ChatCompletionChoice, ChatCompletionRequest, ChatCompletionResponse, ChatMessage, Usage,
 };
 use serde::{Deserialize, Serialize};
@@ -1805,12 +1805,12 @@ pub fn to_openai_response(resp: AnthropicResponse, public_model: &str) -> ChatCo
 
 - [ ] **Step 4: Implement Anthropic provider struct**
 
-Add to `crates/pasteurllm-providers/src/anthropic.rs`:
+Add to `crates/godwit-providers/src/anthropic.rs`:
 
 ```rust
 use crate::{Provider, ProviderError, ProviderResponse, SseEvent};
 use async_trait::async_trait;
-use pasteurllm_core::{ChatCompletionRequest, ProviderConfig};
+use godwit_core::{ChatCompletionRequest, ProviderConfig};
 use reqwest::Client;
 
 pub struct AnthropicProvider {
@@ -1874,13 +1874,13 @@ impl Provider for AnthropicProvider {
 
 - [ ] **Step 5: Run tests**
 
-Run: `cargo test -p pasteurllm-providers anthropic`
+Run: `cargo test -p godwit-providers anthropic`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add crates/pasteurllm-providers
+git add crates/godwit-providers
 git commit -m "feat(providers): anthropic mapping and client"
 ```
 
@@ -1889,14 +1889,14 @@ git commit -m "feat(providers): anthropic mapping and client"
 ## Task 10: Streaming Support
 
 **Files:**
-- Modify: `crates/pasteurllm-providers/src/openai.rs`
-- Modify: `crates/pasteurllm-providers/src/anthropic.rs`
-- Create: `crates/pasteurllm-providers/src/streaming.rs`
+- Modify: `crates/godwit-providers/src/openai.rs`
+- Modify: `crates/godwit-providers/src/anthropic.rs`
+- Create: `crates/godwit-providers/src/streaming.rs`
 - Test: streaming file
 
 - [ ] **Step 1: Write streaming test**
 
-Create `crates/pasteurllm-providers/src/streaming.rs`:
+Create `crates/godwit-providers/src/streaming.rs`:
 
 ```rust
 #[cfg(test)]
@@ -1922,12 +1922,12 @@ mod tests {
 
 - [ ] **Step 2: Run test to verify failure**
 
-Run: `cargo test -p pasteurllm-providers parse_openai_sse_chunk`
+Run: `cargo test -p godwit-providers parse_openai_sse_chunk`
 Expected: FAIL.
 
 - [ ] **Step 3: Implement SSE parser**
 
-Create `crates/pasteurllm-providers/src/streaming.rs`:
+Create `crates/godwit-providers/src/streaming.rs`:
 
 ```rust
 use crate::SseEvent;
@@ -1954,7 +1954,7 @@ pub fn parse_sse_events(chunk: &str) -> Vec<SseEvent> {
 
 - [ ] **Step 4: Implement OpenAI streaming**
 
-Modify `OpenAiProvider` in `crates/pasteurllm-providers/src/openai.rs`:
+Modify `OpenAiProvider` in `crates/godwit-providers/src/openai.rs`:
 
 ```rust
 use crate::streaming::parse_sse_events;
@@ -1993,13 +1993,13 @@ Similar mapping for Anthropic SSE; map each Anthropic SSE chunk to OpenAI `chat.
 
 - [ ] **Step 6: Run tests**
 
-Run: `cargo test -p pasteurllm-providers streaming`
+Run: `cargo test -p godwit-providers streaming`
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add crates/pasteurllm-providers
+git add crates/godwit-providers
 git commit -m "feat(providers): sse streaming for openai and anthropic"
 ```
 
@@ -2008,15 +2008,15 @@ git commit -m "feat(providers): sse streaming for openai and anthropic"
 ## Task 11: API State and Middleware
 
 **Files:**
-- Create: `crates/pasteurllm-api/Cargo.toml`
-- Create: `crates/pasteurllm-api/src/lib.rs`
-- Create: `crates/pasteurllm-api/src/state.rs`
-- Create: `crates/pasteurllm-api/src/middleware.rs`
+- Create: `crates/godwit-api/Cargo.toml`
+- Create: `crates/godwit-api/src/lib.rs`
+- Create: `crates/godwit-api/src/state.rs`
+- Create: `crates/godwit-api/src/middleware.rs`
 - Test: middleware file
 
 - [ ] **Step 1: Write failing middleware test**
 
-Create `crates/pasteurllm-api/src/middleware.rs`:
+Create `crates/godwit-api/src/middleware.rs`:
 
 ```rust
 #[cfg(test)]
@@ -2026,8 +2026,8 @@ mod tests {
     #[test]
     fn extract_bearer_token() {
         assert_eq!(
-            extract_token("Bearer sk-pasteur-abc123"),
-            Some("sk-pasteur-abc123")
+            extract_token("Bearer sk-godwit-abc123"),
+            Some("sk-godwit-abc123")
         );
         assert_eq!(extract_token("Basic abc"), None);
     }
@@ -2036,23 +2036,23 @@ mod tests {
 
 - [ ] **Step 2: Run test to verify failure**
 
-Run: `cargo test -p pasteurllm-api extract_bearer_token`
+Run: `cargo test -p godwit-api extract_bearer_token`
 Expected: FAIL.
 
 - [ ] **Step 3: Create API crate Cargo.toml**
 
 ```toml
 [package]
-name = "pasteurllm-api"
+name = "godwit-api"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-pasteurllm-core = { path = "../pasteurllm-core" }
-pasteurllm-db = { path = "../pasteurllm-db" }
-pasteurllm-auth = { path = "../pasteurllm-auth" }
-pasteurllm-providers = { path = "../pasteurllm-providers" }
-pasteurllm-cache = { path = "../pasteurllm-cache" }
+godwit-core = { path = "../godwit-core" }
+godwit-db = { path = "../godwit-db" }
+godwit-auth = { path = "../godwit-auth" }
+godwit-providers = { path = "../godwit-providers" }
+godwit-cache = { path = "../godwit-cache" }
 axum = "0.7"
 async-trait = "0.1"
 tower = "0.5"
@@ -2072,15 +2072,15 @@ rust_decimal_macros = "1.35"
 
 - [ ] **Step 4: Implement state and middleware**
 
-Create `crates/pasteurllm-api/src/state.rs`:
+Create `crates/godwit-api/src/state.rs`:
 
 ```rust
-use pasteurllm_auth::jwt::Claims;
-use pasteurllm_cache::MemoryCache;
-use pasteurllm_core::AppConfig;
-use pasteurllm_db::models::{ApiKey, Model};
-use pasteurllm_db::repositories::{api_keys::ApiKeyRepository, organizations::OrganizationRepository, users::UserRepository};
-use pasteurllm_providers::Provider;
+use godwit_auth::jwt::Claims;
+use godwit_cache::MemoryCache;
+use godwit_core::AppConfig;
+use godwit_db::models::{ApiKey, Model};
+use godwit_db::repositories::{api_keys::ApiKeyRepository, organizations::OrganizationRepository, users::UserRepository};
+use godwit_providers::Provider;
 use sqlx::PgPool;
 use std::sync::Arc;
 
@@ -2101,7 +2101,7 @@ pub trait ProviderRouter: Send + Sync {
 }
 ```
 
-Create `crates/pasteurllm-api/src/error.rs`:
+Create `crates/godwit-api/src/error.rs`:
 
 ```rust
 use axum::{
@@ -2109,7 +2109,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use pasteurllm_core::PasteurError;
+use godwit_core::PasteurError;
 use serde_json::json;
 
 pub enum ApiError {
@@ -2142,7 +2142,7 @@ impl IntoResponse for ApiError {
             ApiError::Internal | ApiError::Core(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error", "An unexpected error occurred."),
         };
         let body = Json(json!({
-            "type": format!("https://api.pasteurllm.local/errors/{}", title.to_lowercase().replace(' ', "-")),
+            "type": format!("https://api.godwit.local/errors/{}", title.to_lowercase().replace(' ', "-")),
             "title": title,
             "status": status.as_u16(),
             "detail": detail,
@@ -2153,7 +2153,7 @@ impl IntoResponse for ApiError {
 }
 ```
 
-Create `crates/pasteurllm-api/src/middleware.rs`:
+Create `crates/godwit-api/src/middleware.rs`:
 
 ```rust
 use axum::{
@@ -2163,7 +2163,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use pasteurllm_auth::{api_keys::verify_key, jwt::verify};
+use godwit_auth::{api_keys::verify_key, jwt::verify};
 
 use crate::state::AppState;
 
@@ -2192,7 +2192,7 @@ pub async fn api_key_auth(
     }
 
     // Fallback: database lookup by prefix.
-    let prefix = pasteurllm_auth::api_keys::extract_prefix(auth);
+    let prefix = godwit_auth::api_keys::extract_prefix(auth);
     let candidates = state
         .api_key_repo
         .get_by_prefix(&prefix)
@@ -2230,7 +2230,7 @@ pub async fn jwt_auth(
 
 - [ ] **Step 5: Wire up lib.rs**
 
-Create `crates/pasteurllm-api/src/lib.rs`:
+Create `crates/godwit-api/src/lib.rs`:
 
 ```rust
 pub mod admin;
@@ -2242,13 +2242,13 @@ pub mod state;
 
 - [ ] **Step 6: Run tests**
 
-Run: `cargo test -p pasteurllm-api extract_bearer_token`
+Run: `cargo test -p godwit-api extract_bearer_token`
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add crates/pasteurllm-api
+git add crates/godwit-api
 git commit -m "feat(api): app state and auth middleware"
 ```
 
@@ -2257,13 +2257,13 @@ git commit -m "feat(api): app state and auth middleware"
 ## Task 11.5: In-Memory Cache for Fast Proxy Path
 
 **Files:**
-- Create: `crates/pasteurllm-cache/Cargo.toml`
-- Create: `crates/pasteurllm-cache/src/lib.rs`
+- Create: `crates/godwit-cache/Cargo.toml`
+- Create: `crates/godwit-cache/src/lib.rs`
 - Test: same file
 
 - [ ] **Step 1: Write failing cache test**
 
-Create `crates/pasteurllm-cache/src/lib.rs`:
+Create `crates/godwit-cache/src/lib.rs`:
 
 ```rust
 #[cfg(test)]
@@ -2281,14 +2281,14 @@ mod tests {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p pasteurllm-cache cache_stores_and_retrieves`
+Run: `cargo test -p godwit-cache cache_stores_and_retrieves`
 Expected: FAIL.
 
 - [ ] **Step 3: Create cache crate Cargo.toml**
 
 ```toml
 [package]
-name = "pasteurllm-cache"
+name = "godwit-cache"
 version = "0.1.0"
 edition = "2021"
 
@@ -2299,7 +2299,7 @@ tokio = { workspace = true }
 
 - [ ] **Step 4: Implement MemoryCache**
 
-Create `crates/pasteurllm-cache/src/lib.rs`:
+Create `crates/godwit-cache/src/lib.rs`:
 
 ```rust
 use dashmap::DashMap;
@@ -2339,13 +2339,13 @@ impl<K, V> Default for MemoryCache<K, V> {
 
 - [ ] **Step 5: Run tests**
 
-Run: `cargo test -p pasteurllm-cache`
+Run: `cargo test -p godwit-cache`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add crates/pasteurllm-cache
+git add crates/godwit-cache
 git commit -m "feat(cache): in-memory cache for proxy fast path"
 ```
 
@@ -2354,19 +2354,19 @@ git commit -m "feat(cache): in-memory cache for proxy fast path"
 ## Task 12: Proxy Routes
 
 **Files:**
-- Create: `crates/pasteurllm-api/src/proxy.rs`
+- Create: `crates/godwit-api/src/proxy.rs`
 - Test: same file
 
 - [ ] **Step 1: Write failing proxy test**
 
-Create `crates/pasteurllm-api/src/proxy.rs`:
+Create `crates/godwit-api/src/proxy.rs`:
 
 ```rust
 #[cfg(test)]
 mod tests {
     use super::*;
     use axum::{body::Body, http::Request, routing::Router};
-    use pasteurllm_db::models::ApiKey;
+    use godwit_db::models::ApiKey;
     use std::sync::Arc;
     use tower::ServiceExt;
 
@@ -2400,7 +2400,7 @@ mod tests {
 
 - [ ] **Step 2: Implement proxy router**
 
-Create `crates/pasteurllm-api/src/proxy.rs`:
+Create `crates/godwit-api/src/proxy.rs`:
 
 ```rust
 use axum::{
@@ -2410,9 +2410,9 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use pasteurllm_core::{ChatCompletionRequest, ChatMessage, ChatCompletionResponse};
-use pasteurllm_db::models::ApiKey;
-use pasteurllm_db::repositories::models::ModelRepository;
+use godwit_core::{ChatCompletionRequest, ChatMessage, ChatCompletionResponse};
+use godwit_db::models::ApiKey;
+use godwit_db::repositories::models::ModelRepository;
 use std::sync::Arc;
 
 use crate::state::AppState;
@@ -2423,7 +2423,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/v1/chat/completions", post(chat_completions))
 }
 
-pub fn models_response(models: &[pasteurllm_db::models::Model]) -> serde_json::Value {
+pub fn models_response(models: &[godwit_db::models::Model]) -> serde_json::Value {
     let data: Vec<serde_json::Value> = models
         .iter()
         .map(|m| {
@@ -2495,7 +2495,7 @@ async fn chat_completions(
             .await
             .map_err(|_| StatusCode::BAD_GATEWAY)?;
         match resp {
-            pasteurllm_providers::ProviderResponse::Json(json) => Ok(Json(json).into_response()),
+            godwit_providers::ProviderResponse::Json(json) => Ok(Json(json).into_response()),
         }
     };
 
@@ -2553,13 +2553,13 @@ struct RequestLogEntry {
 
 - [ ] **Step 3: Run tests**
 
-Run: `cargo test -p pasteurllm-api proxy`
+Run: `cargo test -p godwit-api proxy`
 Expected: PASS.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/pasteurllm-api
+git add crates/godwit-api
 git commit -m "feat(api): high-performance proxy routes with caching and async logging"
 ```
 
@@ -2568,12 +2568,12 @@ git commit -m "feat(api): high-performance proxy routes with caching and async l
 ## Task 13: Admin Auth Routes
 
 **Files:**
-- Create: `crates/pasteurllm-api/src/admin/auth.rs`
+- Create: `crates/godwit-api/src/admin/auth.rs`
 - Test: auth routes
 
 - [ ] **Step 1: Implement login, OIDC, and SAML routes**
 
-Create `crates/pasteurllm-api/src/admin/auth.rs`:
+Create `crates/godwit-api/src/admin/auth.rs`:
 
 ```rust
 use axum::{
@@ -2582,7 +2582,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use pasteurllm_auth::{
+use godwit_auth::{
     api_keys::verify_password,
     jwt::{issue, Claims},
 };
@@ -2645,7 +2645,7 @@ async fn oidc_start(
         .find(|p| p.id == provider_id)
         .cloned()
         .ok_or(crate::error::ApiError::NotFound)?;
-    let client = pasteurllm_auth::oidc::OidcClient::new(&config)
+    let client = godwit_auth::oidc::OidcClient::new(&config)
         .await
         .map_err(|_| crate::error::ApiError::Internal)?;
     let (url, _csrf, _nonce) = client.authorize_url(vec!["openid".to_string(), "email".to_string(), "profile".to_string()]);
@@ -2665,7 +2665,7 @@ async fn oidc_callback(
         .find(|p| p.id == provider_id)
         .cloned()
         .ok_or(crate::error::ApiError::NotFound)?;
-    let client = pasteurllm_auth::oidc::OidcClient::new(&config)
+    let client = godwit_auth::oidc::OidcClient::new(&config)
         .await
         .map_err(|_| crate::error::ApiError::Internal)?;
     let (email, _subject, name) = client
@@ -2677,7 +2677,7 @@ async fn oidc_callback(
         Ok(u) => u,
         Err(_) => state
             .user_repo
-            .create(&email, name.as_deref(), pasteurllm_db::models::UserRole::User, None)
+            .create(&email, name.as_deref(), godwit_db::models::UserRole::User, None)
             .await
             .map_err(|_| crate::error::ApiError::Internal)?,
     };
@@ -2700,7 +2700,7 @@ async fn saml_acs(
 - [ ] **Step 2: Commit**
 
 ```bash
-git add crates/pasteurllm-api
+git add crates/godwit-api
 git commit -m "feat(api): admin auth routes (login, oidc, saml acs)"
 ```
 
@@ -2709,15 +2709,15 @@ git commit -m "feat(api): admin auth routes (login, oidc, saml acs)"
 ## Task 14: Admin Users/Orgs/Teams Routes
 
 **Files:**
-- Create: `crates/pasteurllm-api/src/admin/users.rs`
-- Create: `crates/pasteurllm-api/src/admin/organizations.rs`
-- Create: `crates/pasteurllm-api/src/admin/teams.rs`
-- Modify: `crates/pasteurllm-api/src/admin/mod.rs`
+- Create: `crates/godwit-api/src/admin/users.rs`
+- Create: `crates/godwit-api/src/admin/organizations.rs`
+- Create: `crates/godwit-api/src/admin/teams.rs`
+- Modify: `crates/godwit-api/src/admin/mod.rs`
 - Test: each file
 
 - [ ] **Step 1: Implement users router with RBAC**
 
-Create `crates/pasteurllm-api/src/admin/users.rs`:
+Create `crates/godwit-api/src/admin/users.rs`:
 
 ```rust
 use axum::{
@@ -2725,7 +2725,7 @@ use axum::{
     routing::{delete, get, patch, post},
     Json, Router,
 };
-use pasteurllm_auth::{jwt::Claims, rbac::Role};
+use godwit_auth::{jwt::Claims, rbac::Role};
 use serde::Deserialize;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -2773,7 +2773,7 @@ async fn create_user(
     Json(req): Json<CreateUserRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     require_role(&claims, &[Role::SuperAdmin, Role::OrgAdmin])?;
-    let role = pasteurllm_db::models::UserRole::from_str(&req.role).ok_or(ApiError::BadRequest("invalid role".to_string()))?;
+    let role = godwit_db::models::UserRole::from_str(&req.role).ok_or(ApiError::BadRequest("invalid role".to_string()))?;
     let org_id = claims.organization_id;
     let user = state
         .user_repo
@@ -2810,7 +2810,7 @@ async fn delete_user(
 
 - [ ] **Step 2: Add UserRole::from_str to DB models**
 
-Modify `crates/pasteurllm-db/src/models.rs`:
+Modify `crates/godwit-db/src/models.rs`:
 
 ```rust
 impl UserRole {
@@ -2828,7 +2828,7 @@ impl UserRole {
 
 - [ ] **Step 3: Add list_for_organization to UserRepository**
 
-Modify `crates/pasteurllm-db/src/repositories/users.rs`:
+Modify `crates/godwit-db/src/repositories/users.rs`:
 
 ```rust
 pub async fn list_for_organization(
@@ -2849,7 +2849,7 @@ Create `organizations.rs`, `teams.rs`, `api_keys.rs`, `models.rs`, and `spend.rs
 
 - [ ] **Step 5: Wire admin module with JWT middleware**
 
-Modify `crates/pasteurllm-api/src/admin/mod.rs`:
+Modify `crates/godwit-api/src/admin/mod.rs`:
 
 ```rust
 pub mod api_keys;
@@ -2883,7 +2883,7 @@ pub fn router() -> Router<Arc<AppState>> {
 - [ ] **Step 6: Commit**
 
 ```bash
-git add crates/pasteurllm-api
+git add crates/godwit-api
 git commit -m "feat(api): admin users, orgs, teams crud with rbac"
 ```
 
@@ -2892,13 +2892,13 @@ git commit -m "feat(api): admin users, orgs, teams crud with rbac"
 ## Task 15: Admin API Keys and Models Routes
 
 **Files:**
-- Create: `crates/pasteurllm-api/src/admin/api_keys.rs`
-- Create: `crates/pasteurllm-api/src/admin/models.rs`
+- Create: `crates/godwit-api/src/admin/api_keys.rs`
+- Create: `crates/godwit-api/src/admin/models.rs`
 - Test: both files
 
 - [ ] **Step 1: Implement API key creation**
 
-Create `crates/pasteurllm-api/src/admin/api_keys.rs`:
+Create `crates/godwit-api/src/admin/api_keys.rs`:
 
 ```rust
 use axum::{
@@ -2906,7 +2906,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use pasteurllm_auth::{api_keys::generate_api_key, jwt::Claims, rbac::Role};
+use godwit_auth::{api_keys::generate_api_key, jwt::Claims, rbac::Role};
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -2973,7 +2973,7 @@ async fn create_api_key(
 
 - [ ] **Step 2: Add list_for_organization to ApiKeyRepository**
 
-Modify `crates/pasteurllm-db/src/repositories/api_keys.rs`:
+Modify `crates/godwit-db/src/repositories/api_keys.rs`:
 
 ```rust
 pub async fn list_for_organization(
@@ -2990,12 +2990,12 @@ pub async fn list_for_organization(
 
 - [ ] **Step 3: Implement model routes**
 
-Create `crates/pasteurllm-api/src/admin/models.rs` with CRUD for `models` table following the same JWT + RBAC pattern.
+Create `crates/godwit-api/src/admin/models.rs` with CRUD for `models` table following the same JWT + RBAC pattern.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add crates/pasteurllm-api
+git add crates/godwit-api
 git commit -m "feat(api): admin api keys and models"
 ```
 
@@ -3004,17 +3004,17 @@ git commit -m "feat(api): admin api keys and models"
 ## Task 16: Spend Tracking
 
 **Files:**
-- Create: `crates/pasteurllm-api/src/admin/spend.rs`
+- Create: `crates/godwit-api/src/admin/spend.rs`
 - Modify: proxy route to log requests
 - Test: spend calculation
 
 - [ ] **Step 1: Add spend calculation helper**
 
-Create `crates/pasteurllm-api/src/admin/spend.rs`:
+Create `crates/godwit-api/src/admin/spend.rs`:
 
 ```rust
 use rust_decimal::Decimal;
-use pasteurllm_core::Usage;
+use godwit_core::Usage;
 
 pub fn compute_cost(usage: &Usage, input_price: Decimal, output_price: Decimal) -> Decimal {
     let input = Decimal::from(usage.prompt_tokens) * input_price / Decimal::from(1000);
@@ -3025,7 +3025,7 @@ pub fn compute_cost(usage: &Usage, input_price: Decimal, output_price: Decimal) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pasteurllm_core::Usage;
+    use godwit_core::Usage;
     use rust_decimal_macros::dec;
 
     #[test]
@@ -3043,12 +3043,12 @@ mod tests {
 
 - [ ] **Step 2: Update proxy handler with cost tracking**
 
-Modify `chat_completions` in `crates/pasteurllm-api/src/proxy.rs` to compute cost from `usage` on non-streaming responses, update the async log entry with tokens/cost, and increment `api_keys.budget_spent_usd`. For streaming responses, skip cost attribution in MVP.
+Modify `chat_completions` in `crates/godwit-api/src/proxy.rs` to compute cost from `usage` on non-streaming responses, update the async log entry with tokens/cost, and increment `api_keys.budget_spent_usd`. For streaming responses, skip cost attribution in MVP.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add crates/pasteurllm-api
+git add crates/godwit-api
 git commit -m "feat(api): spend tracking and budget updates"
 ```
 
@@ -3057,8 +3057,8 @@ git commit -m "feat(api): spend tracking and budget updates"
 ## Task 17: Binary, Configuration, and Startup
 
 **Files:**
-- Create: `crates/pasteurllm-bin/Cargo.toml`
-- Create: `crates/pasteurllm-bin/src/main.rs`
+- Create: `crates/godwit-bin/Cargo.toml`
+- Create: `crates/godwit-bin/src/main.rs`
 - Create: `config.example.yaml`
 - Test: smoke test
 
@@ -3066,21 +3066,21 @@ git commit -m "feat(api): spend tracking and budget updates"
 
 ```toml
 [package]
-name = "pasteurllm-bin"
+name = "godwit-bin"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "pasteurllm"
+name = "godwit"
 path = "src/main.rs"
 
 [dependencies]
-pasteurllm-core = { path = "../pasteurllm-core" }
-pasteurllm-db = { path = "../pasteurllm-db" }
-pasteurllm-auth = { path = "../pasteurllm-auth" }
-pasteurllm-providers = { path = "../pasteurllm-providers" }
-pasteurllm-cache = { path = "../pasteurllm-cache" }
-pasteurllm-api = { path = "../pasteurllm-api" }
+godwit-core = { path = "../godwit-core" }
+godwit-db = { path = "../godwit-db" }
+godwit-auth = { path = "../godwit-auth" }
+godwit-providers = { path = "../godwit-providers" }
+godwit-cache = { path = "../godwit-cache" }
+godwit-api = { path = "../godwit-api" }
 axum = "0.7"
 tokio = { workspace = true }
 tracing = { workspace = true }
@@ -3093,14 +3093,14 @@ async-trait = "0.1"
 
 - [ ] **Step 2: Implement main**
 
-Create `crates/pasteurllm-bin/src/main.rs`:
+Create `crates/godwit-bin/src/main.rs`:
 
 ```rust
-use pasteurllm_api::{admin, proxy, state::{AppState, ProviderRouter}};
-use pasteurllm_cache::MemoryCache;
-use pasteurllm_core::{AppConfig, ProviderConfig};
-use pasteurllm_db::{connect, run_migrations, repositories::{api_keys::ApiKeyRepository, organizations::OrganizationRepository, users::UserRepository}};
-use pasteurllm_providers::{anthropic::AnthropicProvider, openai::OpenAiProvider, Provider};
+use godwit_api::{admin, proxy, state::{AppState, ProviderRouter}};
+use godwit_cache::MemoryCache;
+use godwit_core::{AppConfig, ProviderConfig};
+use godwit_db::{connect, run_migrations, repositories::{api_keys::ApiKeyRepository, organizations::OrganizationRepository, users::UserRepository}};
+use godwit_providers::{anthropic::AnthropicProvider, openai::OpenAiProvider, Provider};
 use std::sync::Arc;
 use axum::{middleware, routing::Router};
 
@@ -3110,7 +3110,7 @@ pub struct SimpleProviderRouter {
 }
 
 impl SimpleProviderRouter {
-    pub fn new(providers: &pasteurllm_core::ProvidersConfig) -> Self {
+    pub fn new(providers: &godwit_core::ProvidersConfig) -> Self {
         Self {
             openai: Arc::new(OpenAiProvider::from_config(&providers.openai)),
             anthropic: Arc::new(AnthropicProvider::new(
@@ -3154,12 +3154,12 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .merge(proxy::router())
-        .route_layer(middleware::from_fn_with_state(state.clone(), pasteurllm_api::middleware::api_key_auth))
+        .route_layer(middleware::from_fn_with_state(state.clone(), godwit_api::middleware::api_key_auth))
         .nest("/api/v1", admin::router())
         .with_state(state.clone());
 
     let listener = tokio::net::TcpListener::bind(format!("{}:{}", config.server.host, config.server.port)).await?;
-    tracing::info!("PasteurLLM listening on {}:{}", config.server.host, config.server.port);
+    tracing::info!("Godwit listening on {}:{}", config.server.host, config.server.port);
     axum::serve(listener, app).await?;
     Ok(())
 }
@@ -3201,13 +3201,13 @@ providers:
 
 - [ ] **Step 4: Build and smoke test**
 
-Run: `cargo build --bin pasteurllm`
+Run: `cargo build --bin godwit`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add crates/pasteurllm-bin config.example.yaml
+git add crates/godwit-bin config.example.yaml
 git commit -m "feat(bin): main startup, config loading, router assembly"
 ```
 
@@ -3235,16 +3235,16 @@ FROM chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 COPY . .
-RUN cargo build --release --bin pasteurllm
+RUN cargo build --release --bin godwit
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY --from=builder /app/target/release/pasteurllm /usr/local/bin/pasteurllm
+COPY --from=builder /app/target/release/godwit /usr/local/bin/godwit
 COPY config.example.yaml /app/config.yaml
 ENV CONFIG_PATH=/app/config.yaml
 EXPOSE 3000
-CMD ["pasteurllm"]
+CMD ["godwit"]
 ```
 
 - [ ] **Step 2: Create docker-compose.yml**
@@ -3254,15 +3254,15 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: pasteurllm
-      POSTGRES_PASSWORD: pasteurllm
-      POSTGRES_DB: pasteurllm
+      POSTGRES_USER: godwit
+      POSTGRES_PASSWORD: godwit
+      POSTGRES_DB: godwit
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pasteurllm"]
+      test: ["CMD-SHELL", "pg_isready -U godwit"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -3321,7 +3321,7 @@ git commit -m "chore(deploy): dockerfile and compose"
 Create `tests/proxy_integration.rs`:
 
 ```rust
-use pasteurllm_core::{ChatCompletionRequest, ChatMessage};
+use godwit_core::{ChatCompletionRequest, ChatMessage};
 use reqwest::Client;
 
 #[tokio::test]
@@ -3330,7 +3330,7 @@ async fn proxy_chat_completion_smoke() {
     let client = Client::new();
     let resp = client
         .post("http://localhost:3000/v1/chat/completions")
-        .header("Authorization", "Bearer sk-pasteur-test")
+        .header("Authorization", "Bearer sk-godwit-test")
         .json(&ChatCompletionRequest {
             model: "gpt-4o".to_string(),
             messages: vec![ChatMessage { role: "user".to_string(), content: "Hi".to_string() }],
@@ -3386,7 +3386,7 @@ Modify `Cargo.toml` workspace to add Criterion:
 criterion = { version = "0.5", features = ["async_tokio"] }
 ```
 
-Create `crates/pasteurllm-providers/Cargo.toml` dev dependency:
+Create `crates/godwit-providers/Cargo.toml` dev dependency:
 
 ```toml
 [dev-dependencies]
@@ -3399,8 +3399,8 @@ Create `benches/proxy_latency.rs`:
 
 ```rust
 use criterion::{criterion_group, criterion_main, Criterion};
-use pasteurllm_core::{ChatCompletionRequest, ChatMessage};
-use pasteurllm_providers::anthropic::to_anthropic_request;
+use godwit_core::{ChatCompletionRequest, ChatMessage};
+use godwit_providers::anthropic::to_anthropic_request;
 
 fn bench_anthropic_mapping(c: &mut Criterion) {
     let req = ChatCompletionRequest {
@@ -3431,14 +3431,14 @@ Create `scripts/bench.sh`:
 set -e
 which oha || cargo install oha
 oha -z 30s -c 50 --no-tui \
-  -H "Authorization: Bearer sk-pasteur-test" \
+  -H "Authorization: Bearer sk-godwit-test" \
   -d '{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}' \
   http://localhost:3000/v1/chat/completions
 ```
 
 - [ ] **Step 4: Run benchmark**
 
-Run: `cargo bench -p pasteurllm-providers`
+Run: `cargo bench -p godwit-providers`
 Expected: PASS and report latencies.
 
 - [ ] **Step 5: Commit**

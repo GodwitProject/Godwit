@@ -6,12 +6,11 @@ use godwit_api::{
 use godwit_cache::MemoryCache;
 use godwit_core::AppConfig;
 use godwit_db::{
-    connect, run_migrations,
+    connect,
     repositories::{
-        api_keys::ApiKeyRepository,
-        organizations::OrganizationRepository,
-        users::UserRepository,
+        api_keys::ApiKeyRepository, organizations::OrganizationRepository, users::UserRepository,
     },
+    run_migrations,
 };
 use godwit_providers::{anthropic::AnthropicProvider, openai::OpenAiProvider, Provider};
 use std::sync::Arc;

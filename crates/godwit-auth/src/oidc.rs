@@ -1,9 +1,9 @@
+use godwit_core::{OidcProviderConfig, PasteurError};
 use openidconnect::{
     core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata, CoreResponseType},
     reqwest::async_http_client,
     AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce, RedirectUrl, Scope,
 };
-use godwit_core::{OidcProviderConfig, PasteurError};
 use url::Url;
 
 pub struct OidcClient {
@@ -34,13 +34,11 @@ impl OidcClient {
     }
 
     pub fn authorize_url(&self, scopes: Vec<String>) -> (Url, CsrfToken, Nonce) {
-        let mut request = self
-            .inner
-            .authorize_url(
-                CoreAuthenticationFlow::AuthorizationCode,
-                CsrfToken::new_random,
-                Nonce::new_random,
-            );
+        let mut request = self.inner.authorize_url(
+            CoreAuthenticationFlow::AuthorizationCode,
+            CsrfToken::new_random,
+            Nonce::new_random,
+        );
         for scope in scopes {
             request = request.add_scope(Scope::new(scope));
         }
@@ -71,7 +69,10 @@ impl OidcClient {
             .email()
             .map(|e| e.as_str().to_string())
             .ok_or_else(|| PasteurError::Auth("missing email".to_string()))?;
-        let name = claims.name().and_then(|n| n.get(None)).map(|s| s.to_string());
+        let name = claims
+            .name()
+            .and_then(|n| n.get(None))
+            .map(|s| s.to_string());
         let subject = claims.subject().to_string();
         Ok((email, subject, name))
     }

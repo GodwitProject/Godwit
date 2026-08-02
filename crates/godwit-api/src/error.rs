@@ -39,11 +39,7 @@ impl IntoResponse for ApiError {
                 "Forbidden",
                 "Insufficient permissions.",
             ),
-            ApiError::NotFound => (
-                StatusCode::NOT_FOUND,
-                "Not Found",
-                "Resource not found.",
-            ),
+            ApiError::NotFound => (StatusCode::NOT_FOUND, "Not Found", "Resource not found."),
             ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "Bad Request", msg.as_str()),
             ApiError::Internal | ApiError::Core(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,

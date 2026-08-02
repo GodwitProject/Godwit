@@ -39,7 +39,11 @@ async fn list_models(
     State(state): State<Arc<AppState>>,
     Extension(api_key): Extension<ApiKey>,
 ) -> Result<impl IntoResponse, crate::error::ApiError> {
-    let models = if let Some(cached) = state.model_cache.get(&(api_key.organization_id, "".to_string())).await {
+    let models = if let Some(cached) = state
+        .model_cache
+        .get(&(api_key.organization_id, "".to_string()))
+        .await
+    {
         vec![cached]
     } else {
         let repo = ModelRepository::new(state.pool.clone());
@@ -48,7 +52,10 @@ async fn list_models(
             .await
             .map_err(crate::error::ApiError::Core)?;
         for m in &models {
-            state.model_cache.insert((api_key.organization_id, m.public_id.clone()), m.clone()).await;
+            state
+                .model_cache
+                .insert((api_key.organization_id, m.public_id.clone()), m.clone())
+                .await;
         }
         models
     };
@@ -75,22 +82,27 @@ async fn chat_completions(
 
     let streamed = req.stream == Some(true);
     let (result, usage) = if streamed {
-        let stream = provider
-            .stream_chat_completion(req)
-            .await
-            .map_err(|_| crate::error::ApiError::Core(godwit_core::PasteurError::Provider("provider request failed".to_string())))?;
+        let stream = provider.stream_chat_completion(req).await.map_err(|_| {
+            crate::error::ApiError::Core(godwit_core::PasteurError::Provider(
+                "provider request failed".to_string(),
+            ))
+        })?;
         let sse_stream = stream.map(move |event| {
             let event = event
                 .map(|e| axum::response::sse::Event::default().data(e.data))
                 .unwrap_or_else(|_| axum::response::sse::Event::default().data("[ERROR]"));
             Ok::<_, std::convert::Infallible>(event)
         });
-        (Ok(axum::response::Sse::new(sse_stream).into_response()), None)
+        (
+            Ok(axum::response::Sse::new(sse_stream).into_response()),
+            None,
+        )
     } else {
-        let resp = provider
-            .chat_completion(req)
-            .await
-            .map_err(|_| crate::error::ApiError::Core(godwit_core::PasteurError::Provider("provider request failed".to_string())))?;
+        let resp = provider.chat_completion(req).await.map_err(|_| {
+            crate::error::ApiError::Core(godwit_core::PasteurError::Provider(
+                "provider request failed".to_string(),
+            ))
+        })?;
         match resp {
             godwit_providers::ProviderResponse::Json(completion) => {
                 let usage = completion.usage.clone();

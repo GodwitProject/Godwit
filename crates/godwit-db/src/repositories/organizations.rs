@@ -14,7 +14,7 @@ impl OrganizationRepository {
 
     pub async fn create(&self, name: &str) -> Result<Organization, PasteurError> {
         sqlx::query_as::<_, Organization>(
-            "INSERT INTO organizations (name) VALUES ($1) RETURNING *"
+            "INSERT INTO organizations (name) VALUES ($1) RETURNING *",
         )
         .bind(name)
         .fetch_one(&self.pool)

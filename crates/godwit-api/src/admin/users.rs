@@ -20,7 +20,10 @@ pub struct CreateUserRequest {
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/users", get(list_users).post(create_user))
-        .route("/users/:id", get(get_user).patch(update_user).delete(delete_user))
+        .route(
+            "/users/:id",
+            get(get_user).patch(update_user).delete(delete_user),
+        )
 }
 
 fn require_role(claims: &Claims, allowed: &[Role]) -> Result<Role, ApiError> {
@@ -50,7 +53,8 @@ async fn create_user(
     Json(req): Json<CreateUserRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     require_role(&claims, &[Role::SuperAdmin, Role::OrgAdmin])?;
-    let role = godwit_db::models::UserRole::from_str(&req.role).ok_or(ApiError::BadRequest("invalid role".to_string()))?;
+    let role = godwit_db::models::UserRole::from_str(&req.role)
+        .ok_or(ApiError::BadRequest("invalid role".to_string()))?;
     let org_id = claims.organization_id;
     let user = state
         .user_repo

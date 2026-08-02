@@ -42,11 +42,13 @@ impl ApiKeyRepository {
     }
 
     pub async fn get_by_prefix(&self, prefix: &str) -> Result<Vec<ApiKey>, PasteurError> {
-        sqlx::query_as::<_, ApiKey>("SELECT * FROM api_keys WHERE key_prefix = $1 AND disabled = FALSE")
-            .bind(prefix)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| PasteurError::Database(e.to_string()))
+        sqlx::query_as::<_, ApiKey>(
+            "SELECT * FROM api_keys WHERE key_prefix = $1 AND disabled = FALSE",
+        )
+        .bind(prefix)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| PasteurError::Database(e.to_string()))
     }
 
     pub async fn list_for_organization(

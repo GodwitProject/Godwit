@@ -6,9 +6,9 @@ pub mod spend;
 pub mod teams;
 pub mod users;
 
+use crate::{middleware::jwt_auth, state::AppState};
 use axum::{middleware, Router};
 use std::sync::Arc;
-use crate::{middleware::jwt_auth, state::AppState};
 
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     let protected = Router::new()
@@ -20,7 +20,5 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .nest("/spend", spend::router())
         .route_layer(middleware::from_fn_with_state(state, jwt_auth));
 
-    Router::new()
-        .merge(auth::router())
-        .merge(protected)
+    Router::new().merge(auth::router()).merge(protected)
 }

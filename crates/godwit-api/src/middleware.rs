@@ -28,7 +28,12 @@ pub async fn api_key_auth(
 
     // Fast path: cache lookup by raw key.
     if let Some(key) = state.api_key_cache.get(&auth.to_string()).await {
-        if !key.disabled && key.expires_at.map(|e| e > chrono::Utc::now()).unwrap_or(true) {
+        if !key.disabled
+            && key
+                .expires_at
+                .map(|e| e > chrono::Utc::now())
+                .unwrap_or(true)
+        {
             req.extensions_mut().insert(key);
             return Ok(next.run(req).await);
         }
@@ -45,10 +50,18 @@ pub async fn api_key_auth(
         .into_iter()
         .find(|k| verify_key(auth, &k.key_hash))
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    if key.disabled || key.expires_at.map(|e| e < chrono::Utc::now()).unwrap_or(false) {
+    if key.disabled
+        || key
+            .expires_at
+            .map(|e| e < chrono::Utc::now())
+            .unwrap_or(false)
+    {
         return Err(StatusCode::UNAUTHORIZED);
     }
-    state.api_key_cache.insert(auth.to_string(), key.clone()).await;
+    state
+        .api_key_cache
+        .insert(auth.to_string(), key.clone())
+        .await;
     req.extensions_mut().insert(key);
     Ok(next.run(req).await)
 }
@@ -64,8 +77,8 @@ pub async fn jwt_auth(
         .and_then(|h| h.to_str().ok())
         .and_then(extract_token)
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    let claims = verify(&state.config.auth.jwt_secret, auth)
-        .map_err(|_| StatusCode::UNAUTHORIZED)?;
+    let claims =
+        verify(&state.config.auth.jwt_secret, auth).map_err(|_| StatusCode::UNAUTHORIZED)?;
     req.extensions_mut().insert(claims);
     Ok(next.run(req).await)
 }

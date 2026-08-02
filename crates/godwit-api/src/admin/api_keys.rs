@@ -16,8 +16,7 @@ pub struct CreateApiKeyRequest {
 }
 
 pub fn router() -> Router<Arc<AppState>> {
-    Router::new()
-        .route("/api-keys", get(list_api_keys).post(create_api_key))
+    Router::new().route("/api-keys", get(list_api_keys).post(create_api_key))
 }
 
 async fn list_api_keys(

@@ -49,9 +49,17 @@ async fn login(
     if !verify_password(&req.password, password_hash) {
         return Err(crate::error::ApiError::Unauthorized);
     }
-    let claims = Claims::new(user.id, user.organization_id.unwrap_or_default(), &user.role);
-    let token = issue(&state.config.auth.jwt_secret, claims, chrono::Duration::minutes(15))
-        .map_err(|_| crate::error::ApiError::Internal)?;
+    let claims = Claims::new(
+        user.id,
+        user.organization_id.unwrap_or_default(),
+        &user.role,
+    );
+    let token = issue(
+        &state.config.auth.jwt_secret,
+        claims,
+        chrono::Duration::minutes(15),
+    )
+    .map_err(|_| crate::error::ApiError::Internal)?;
     Ok(Json(serde_json::json!({ "access_token": token })))
 }
 
@@ -70,7 +78,11 @@ async fn oidc_start(
     let client = godwit_auth::oidc::OidcClient::new(&config)
         .await
         .map_err(|_| crate::error::ApiError::Internal)?;
-    let (url, _csrf, _nonce) = client.authorize_url(vec!["openid".to_string(), "email".to_string(), "profile".to_string()]);
+    let (url, _csrf, _nonce) = client.authorize_url(vec![
+        "openid".to_string(),
+        "email".to_string(),
+        "profile".to_string(),
+    ]);
     Ok(Redirect::temporary(url.as_str()))
 }
 
@@ -98,13 +110,26 @@ async fn oidc_callback(
         Ok(u) => u,
         Err(_) => state
             .user_repo
-            .create(&email, name.as_deref(), godwit_db::models::UserRole::User, None)
+            .create(
+                &email,
+                name.as_deref(),
+                godwit_db::models::UserRole::User,
+                None,
+            )
             .await
             .map_err(|_| crate::error::ApiError::Internal)?,
     };
-    let claims = Claims::new(user.id, user.organization_id.unwrap_or_default(), &user.role);
-    let token = issue(&state.config.auth.jwt_secret, claims, chrono::Duration::minutes(15))
-        .map_err(|_| crate::error::ApiError::Internal)?;
+    let claims = Claims::new(
+        user.id,
+        user.organization_id.unwrap_or_default(),
+        &user.role,
+    );
+    let token = issue(
+        &state.config.auth.jwt_secret,
+        claims,
+        chrono::Duration::minutes(15),
+    )
+    .map_err(|_| crate::error::ApiError::Internal)?;
     Ok(Json(serde_json::json!({ "access_token": token })))
 }
 

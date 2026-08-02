@@ -40,6 +40,9 @@ mod tests {
     async fn cache_stores_and_retrieves() {
         let cache = MemoryCache::new();
         cache.insert("key".to_string(), "value".to_string()).await;
-        assert_eq!(cache.get(&"key".to_string()).await, Some("value".to_string()));
+        assert_eq!(
+            cache.get(&"key".to_string()).await,
+            Some("value".to_string())
+        );
     }
 }

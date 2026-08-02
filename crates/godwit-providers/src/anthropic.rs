@@ -147,7 +147,9 @@ impl Provider for AnthropicProvider {
             .await
             .map_err(|e| ProviderError::Http(e.to_string()))?;
         if !res.status().is_success() {
-            return Err(ProviderError::Provider(res.text().await.unwrap_or_default()));
+            return Err(ProviderError::Provider(
+                res.text().await.unwrap_or_default(),
+            ));
         }
         let anthropic_resp: AnthropicResponse = res
             .json()
@@ -174,7 +176,9 @@ impl Provider for AnthropicProvider {
             .await
             .map_err(|e| ProviderError::Http(e.to_string()))?;
         if !res.status().is_success() {
-            return Err(ProviderError::Provider(res.text().await.unwrap_or_default()));
+            return Err(ProviderError::Provider(
+                res.text().await.unwrap_or_default(),
+            ));
         }
         let byte_stream = res.bytes_stream();
         let event_stream = byte_stream.flat_map(|bytes| {
@@ -198,8 +202,14 @@ mod tests {
         let req = ChatCompletionRequest {
             model: "claude-sonnet".to_string(),
             messages: vec![
-                ChatMessage { role: "system".to_string(), content: "You are helpful".to_string() },
-                ChatMessage { role: "user".to_string(), content: "Hello".to_string() },
+                ChatMessage {
+                    role: "system".to_string(),
+                    content: "You are helpful".to_string(),
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: "Hello".to_string(),
+                },
             ],
             stream: Some(false),
             temperature: Some(0.7),
@@ -216,8 +226,14 @@ mod tests {
         let ar = AnthropicResponse {
             id: "msg-1".to_string(),
             model: "claude-3-5-sonnet-20240620".to_string(),
-            content: vec![ContentBlock { text: "Hi there".to_string(), type_: "text".to_string() }],
-            usage: AnthropicUsage { input_tokens: 1, output_tokens: 2 },
+            content: vec![ContentBlock {
+                text: "Hi there".to_string(),
+                type_: "text".to_string(),
+            }],
+            usage: AnthropicUsage {
+                input_tokens: 1,
+                output_tokens: 2,
+            },
         };
         let openai = to_openai_response(ar, "claude-sonnet");
         assert_eq!(openai.choices[0].message.content, "Hi there");

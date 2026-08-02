@@ -35,11 +35,13 @@ impl ModelRepository {
         &self,
         organization_id: Uuid,
     ) -> Result<Vec<Model>, PasteurError> {
-        sqlx::query_as::<_, Model>("SELECT * FROM models WHERE organization_id = $1 ORDER BY public_id")
-            .bind(organization_id)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| PasteurError::Database(e.to_string()))
+        sqlx::query_as::<_, Model>(
+            "SELECT * FROM models WHERE organization_id = $1 ORDER BY public_id",
+        )
+        .bind(organization_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| PasteurError::Database(e.to_string()))
     }
 
     pub async fn get_by_public_id(
@@ -47,14 +49,16 @@ impl ModelRepository {
         organization_id: Uuid,
         public_id: &str,
     ) -> Result<Model, PasteurError> {
-        sqlx::query_as::<_, Model>("SELECT * FROM models WHERE organization_id = $1 AND public_id = $2")
-            .bind(organization_id)
-            .bind(public_id)
-            .fetch_one(&self.pool)
-            .await
-            .map_err(|e| match e {
-                sqlx::Error::RowNotFound => PasteurError::NotFound,
-                _ => PasteurError::Database(e.to_string()),
-            })
+        sqlx::query_as::<_, Model>(
+            "SELECT * FROM models WHERE organization_id = $1 AND public_id = $2",
+        )
+        .bind(organization_id)
+        .bind(public_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => PasteurError::NotFound,
+            _ => PasteurError::Database(e.to_string()),
+        })
     }
 }

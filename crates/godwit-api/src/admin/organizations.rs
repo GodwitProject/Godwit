@@ -20,10 +20,6 @@ async fn list_organizations(
     if role != Role::SuperAdmin {
         return Err(ApiError::Forbidden);
     }
-    let orgs = state
-        .org_repo
-        .list()
-        .await
-        .map_err(ApiError::Core)?;
+    let orgs = state.org_repo.list().await.map_err(ApiError::Core)?;
     Ok(Json(serde_json::json!({ "data": orgs })))
 }

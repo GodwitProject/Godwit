@@ -72,7 +72,9 @@ impl Provider for OpenAiProvider {
             .await
             .map_err(|e| ProviderError::Http(e.to_string()))?;
         if !res.status().is_success() {
-            return Err(ProviderError::Provider(res.text().await.unwrap_or_default()));
+            return Err(ProviderError::Provider(
+                res.text().await.unwrap_or_default(),
+            ));
         }
         let byte_stream = res.bytes_stream();
         let event_stream = byte_stream.flat_map(|bytes| {
@@ -112,7 +114,10 @@ mod tests {
         let client = OpenAiProvider::new("fake-key", &server.uri());
         let req = ChatCompletionRequest {
             model: "gpt-4o".to_string(),
-            messages: vec![ChatMessage { role: "user".to_string(), content: "Hi".to_string() }],
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: "Hi".to_string(),
+            }],
             stream: Some(false),
             temperature: None,
             max_tokens: None,

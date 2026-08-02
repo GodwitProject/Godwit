@@ -17,6 +17,8 @@ impl SamlService {
     ) -> Result<(String, String, Option<String>), PasteurError> {
         // Placeholder: real implementation uses samael to decode and validate
         // the XML signature against IdP metadata.
-        Err(PasteurError::Auth("SAML not fully implemented in MVP".to_string()))
+        Err(PasteurError::Auth(
+            "SAML not fully implemented in MVP".to_string(),
+        ))
     }
 }

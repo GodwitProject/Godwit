@@ -6,7 +6,10 @@ use std::sync::Arc;
 use crate::state::AppState;
 
 pub fn router() -> Router<Arc<AppState>> {
-    Router::new().route("/spend", get(|| async { Json(serde_json::json!({"data": []})) }))
+    Router::new().route(
+        "/spend",
+        get(|| async { Json(serde_json::json!({"data": []})) }),
+    )
 }
 
 pub fn compute_cost(usage: &Usage, input_price: Decimal, output_price: Decimal) -> Decimal {

@@ -71,3 +71,28 @@ cargo bench -p godwit-providers
 ## Remote
 
 Upstream is `https://github.com/GodwitProject/Godwit.git`. The local branch `pasteurllm-mvp` tracks `origin/main` because the `main` branch name is already used by another worktree.
+
+## Dependency freshness
+
+Always verify dependencies before a release. The MVP pins several crates that have newer major versions available:
+
+| Crate | Current | Latest (checked 2026-08-02) | Notes |
+|-------|---------|------------------------------|-------|
+| axum | 0.7 | 0.8.9 | API changes likely |
+| sqlx | 0.7 | 0.9.0 | Query macros and migration API may change |
+| thiserror | 1.0 | 2.0.19 | Major API changes |
+| reqwest | 0.12 | 0.13.4 | Used transitively via features |
+| jsonwebtoken | 9 | 11.0.0 | JWT signing/validation |
+| openidconnect | 3 | 4.0.1 | OIDC flow types |
+| criterion | 0.5 | 0.8.2 | Benchmark harness |
+| serde_yaml | 0.9 | 0.9.34+deprecated | Deprecated; consider `serde_yml` or alternatives |
+
+Patch/minor updates are applied automatically by `cargo update`. Run it regularly:
+
+```bash
+export PATH="/usr/local/opt/rustup/bin:$PATH"
+cargo update
+cargo test --workspace
+```
+
+For major upgrades, bump versions in each `Cargo.toml`, fix compile errors, and re-run the full test suite before committing.

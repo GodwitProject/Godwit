@@ -1,6 +1,4 @@
-use crate::adapter::{
-    Adapter, AudioTtsResponse, ProviderError, ProviderResponse, SseEvent, UsageReport,
-};
+use crate::adapter::{Adapter, ProviderError, ProviderResponse, SseEvent, UsageReport};
 use crate::streaming::parse_sse_events;
 use async_trait::async_trait;
 use futures::stream::{self, BoxStream, StreamExt};
@@ -203,13 +201,7 @@ impl Adapter for OpenAiProvider {
             })?
             .to_vec();
         // TODO: Populate UsageReport once OpenAI exposes usage metadata for audio TTS.
-        Ok((
-            ProviderResponse::AudioTts(AudioTtsResponse {
-                bytes,
-                content_type,
-            }),
-            UsageReport::default(),
-        ))
+        Ok((ProviderResponse::Bytes(bytes, content_type), UsageReport::default()))
     }
 
     async fn audio_stt(
@@ -331,7 +323,7 @@ mod tests {
             provider: "openai".to_string(),
             provider_profile_id: Uuid::nil(),
             provider_model_id: "gpt-4o".to_string(),
-            capability: "chat".to_string(),
+            capabilities: vec!["chat".to_string()],
             pricing: serde_json::json!({}),
             config: serde_json::json!({}),
             created_at: Utc::now(),
@@ -460,15 +452,15 @@ mod tests {
             voice: "alloy".to_string(),
             response_format: Some("mp3".to_string()),
         };
-        let (ProviderResponse::AudioTts(resp), _) = client
+        let (ProviderResponse::Bytes(resp_bytes, resp_content_type), _) = client
             .audio_tts(&dummy_profile(), &dummy_model(), req)
             .await
             .unwrap()
         else {
             panic!("expected audio tts response");
         };
-        assert_eq!(resp.bytes, audio);
-        assert_eq!(resp.content_type, "audio/mpeg");
+        assert_eq!(resp_bytes, audio);
+        assert_eq!(resp_content_type, "audio/mpeg");
     }
 
     #[tokio::test]

@@ -119,8 +119,8 @@ mod tests {
             .expect("create profile");
 
         let result = sqlx::query(
-            "INSERT INTO models (organization_id, public_id, provider, provider_profile_id, provider_model_id, capability)
-             VALUES ($1, 'bad-cap', 'openai', $2, 'gpt-4', 'time_travel')"
+            "INSERT INTO models (organization_id, public_id, provider, provider_profile_id, provider_model_id, capabilities)
+             VALUES ($1, 'bad-cap', 'openai', $2, 'gpt-4', ARRAY['time_travel'])"
         )
         .bind(org.id)
         .bind(profile.id)
@@ -130,7 +130,7 @@ mod tests {
         assert!(result.is_err(), "invalid capability should violate check constraint");
         let err = result.unwrap_err().to_string();
         assert!(
-            err.contains("chk_models_capability") || err.contains("check constraint"),
+            err.contains("chk_models_capabilities") || err.contains("check constraint"),
             "expected check constraint error, got: {err}"
         );
     }
@@ -148,7 +148,7 @@ mod tests {
 
         let models = ModelRepository::new(pool);
         let created = models
-            .create(org.id, "my-model", "openai", profile.id, "gpt-4")
+            .create(org.id, "my-model", "openai", profile.id, "gpt-4", "chat,image_generation")
             .await
             .expect("create model");
 
@@ -157,7 +157,7 @@ mod tests {
         assert_eq!(created.provider, "openai");
         assert_eq!(created.provider_profile_id, profile.id);
         assert_eq!(created.provider_model_id, "gpt-4");
-        assert_eq!(created.capability, "chat");
+        assert_eq!(created.capabilities, vec!["chat".to_string(), "image_generation".to_string()]);
         assert_eq!(created.pricing, json!({}));
         assert_eq!(created.config, json!({}));
 
@@ -167,6 +167,6 @@ mod tests {
             .expect("fetch model");
         assert_eq!(fetched.id, created.id);
         assert_eq!(fetched.provider_profile_id, profile.id);
-        assert_eq!(fetched.capability, "chat");
+        assert_eq!(fetched.capabilities, vec!["chat".to_string(), "image_generation".to_string()]);
     }
 }

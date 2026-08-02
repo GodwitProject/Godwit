@@ -15,7 +15,8 @@ pub enum ProviderResponse {
     Video(VideoGenerationResponse),
     AudioStt(AudioSttResponse),
     Embedding(EmbeddingResponse),
-    AudioTts(AudioTtsResponse),
+    Bytes(Vec<u8>, String),
+    Json(serde_json::Value),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -32,12 +33,6 @@ pub struct UsageReport {
 #[derive(Debug, Clone)]
 pub struct SseEvent {
     pub data: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct AudioTtsResponse {
-    pub bytes: Vec<u8>,
-    pub content_type: String,
 }
 
 #[derive(Debug, Error)]

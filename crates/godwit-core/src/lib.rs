@@ -307,6 +307,33 @@ pub struct VideoData {
     pub b64_json: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MultimodalCapability {
+    ImageGeneration,
+    AudioTts,
+    AudioStt,
+    Embedding,
+}
+
+impl From<MultimodalCapability> for Capability {
+    fn from(capability: MultimodalCapability) -> Self {
+        match capability {
+            MultimodalCapability::ImageGeneration => Capability::ImageGeneration,
+            MultimodalCapability::AudioTts => Capability::AudioTts,
+            MultimodalCapability::AudioStt => Capability::AudioStt,
+            MultimodalCapability::Embedding => Capability::Embedding,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct MultimodalRequest {
+    pub model: String,
+    pub capability: MultimodalCapability,
+    pub body: serde_json::Value,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

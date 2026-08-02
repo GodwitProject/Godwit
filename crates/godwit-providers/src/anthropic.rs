@@ -431,7 +431,7 @@ mod tests {
             provider: "anthropic".to_string(),
             provider_profile_id: Uuid::nil(),
             provider_model_id: "claude-3-5-sonnet-20241022".to_string(),
-            capability: "chat".to_string(),
+            capabilities: vec!["chat".to_string()],
             pricing: serde_json::json!({}),
             config: serde_json::json!({}),
             created_at: Utc::now(),

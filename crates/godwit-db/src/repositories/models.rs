@@ -19,15 +19,26 @@ impl ModelRepository {
         provider: &str,
         provider_profile_id: Uuid,
         provider_model_id: &str,
+        capabilities: &str,
     ) -> Result<Model, PasteurError> {
+        let mut caps: Vec<String> = capabilities
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if caps.is_empty() {
+            caps.push("chat".to_string());
+        }
+
         sqlx::query_as::<_, Model>(
-            "INSERT INTO models (organization_id, public_id, provider, provider_profile_id, provider_model_id) VALUES ($1, $2, $3, $4, $5) RETURNING *"
+            "INSERT INTO models (organization_id, public_id, provider, provider_profile_id, provider_model_id, capabilities) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *"
         )
         .bind(organization_id)
         .bind(public_id)
         .bind(provider)
         .bind(provider_profile_id)
         .bind(provider_model_id)
+        .bind(caps)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| PasteurError::Database(e.to_string()))

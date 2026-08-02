@@ -81,10 +81,16 @@ pub struct Model {
     pub provider: String,
     pub provider_profile_id: Uuid,
     pub provider_model_id: String,
-    pub capability: String,
+    pub capabilities: Vec<String>,
     pub pricing: serde_json::Value,
     pub config: serde_json::Value,
     pub created_at: DateTime<Utc>,
+}
+
+impl Model {
+    pub fn has_capability(&self, capability: godwit_core::Capability) -> bool {
+        self.capabilities.iter().any(|c| c == capability.as_str())
+    }
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]

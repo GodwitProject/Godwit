@@ -116,7 +116,7 @@ mod tests {
 
         let models = ModelRepository::new(pool.clone());
         let model = models
-            .create(org.id, "gpt-4o", "openai", profile.id, "gpt-4o")
+            .create(org.id, "gpt-4o", "openai", profile.id, "gpt-4o", "chat")
             .await
             .expect("create model");
 
@@ -143,11 +143,11 @@ mod tests {
 
         let models = ModelRepository::new(pool.clone());
         models
-            .create(org.id, "gpt-4o", "openai", profile_a.id, "gpt-4o")
+            .create(org.id, "gpt-4o", "openai", profile_a.id, "gpt-4o", "chat")
             .await
             .expect("create model a");
         models
-            .create(org.id, "gpt-4o", "openai", profile_b.id, "gpt-4o")
+            .create(org.id, "gpt-4o", "openai", profile_b.id, "gpt-4o", "chat")
             .await
             .expect("create model b");
 
@@ -177,11 +177,11 @@ mod tests {
 
         let models = ModelRepository::new(pool.clone());
         models
-            .create(org.id, "gpt-4o", "openai", profile_a.id, "gpt-4o")
+            .create(org.id, "gpt-4o", "openai", profile_a.id, "gpt-4o", "chat")
             .await
             .expect("create model a");
         let model_b = models
-            .create(org.id, "gpt-4o", "openai", profile_b.id, "gpt-4o")
+            .create(org.id, "gpt-4o", "openai", profile_b.id, "gpt-4o", "chat")
             .await
             .expect("create model b");
 
@@ -217,7 +217,7 @@ mod tests {
 
         let models = ModelRepository::new(pool.clone());
         models
-            .create(org.id, "gpt-4o", "openai", profile.id, "gpt-4o")
+            .create(org.id, "gpt-4o", "openai", profile.id, "gpt-4o", "chat")
             .await
             .expect("create model");
 

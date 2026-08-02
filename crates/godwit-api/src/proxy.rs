@@ -75,7 +75,7 @@ async fn chat_completions(
         .resolve(api_key.organization_id, &req.model)
         .await?;
 
-    if resolved.model.capability != Capability::Chat.as_str() {
+    if !resolved.model.has_capability(Capability::Chat) {
         return Err(crate::error::ApiError::BadRequest(format!(
             "model {} does not support chat completions",
             req.model
@@ -123,7 +123,7 @@ async fn chat_completions(
     };
 
     // Asynchronous logging to avoid blocking the response.
-    let cost_usd = usage.and_then(|u| compute_cost(&resolved.model, &u));
+    let cost_usd = usage.and_then(|u| compute_cost(&resolved.model, Capability::Chat, &u));
     let log = RequestLogEntry {
         api_key_id: api_key.id,
         user_id: api_key.user_id,
@@ -132,7 +132,7 @@ async fn chat_completions(
         model: resolved.model.public_id.clone(),
         provider: resolved.model.provider.clone(),
         provider_model_id: resolved.model.provider_model_id.clone(),
-        capability: resolved.model.capability.clone(),
+        capability: Capability::Chat.as_str().to_string(),
         duration_ms: start.elapsed().as_millis() as i32,
         streamed,
         status: "success".to_string(),

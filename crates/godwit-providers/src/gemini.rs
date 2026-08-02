@@ -351,7 +351,7 @@ mod tests {
             provider: "gemini".to_string(),
             provider_profile_id: Uuid::nil(),
             provider_model_id: "gemini-1.5-flash".to_string(),
-            capability: "chat".to_string(),
+            capabilities: vec!["chat".to_string()],
             pricing: serde_json::json!({}),
             config: serde_json::json!({}),
             created_at: Utc::now(),

@@ -124,6 +124,7 @@ pub struct Usage {
 pub enum Capability {
     Chat,
     ImageGeneration,
+    ImageEdit,
     VideoGeneration,
     AudioTts,
     AudioStt,
@@ -135,6 +136,7 @@ impl Capability {
         match self {
             Capability::Chat => "chat",
             Capability::ImageGeneration => "image_generation",
+            Capability::ImageEdit => "image_edit",
             Capability::VideoGeneration => "video_generation",
             Capability::AudioTts => "audio_tts",
             Capability::AudioStt => "audio_stt",
@@ -150,6 +152,7 @@ impl std::str::FromStr for Capability {
         match s {
             "chat" => Ok(Self::Chat),
             "image_generation" => Ok(Self::ImageGeneration),
+            "image_edit" => Ok(Self::ImageEdit),
             "video_generation" => Ok(Self::VideoGeneration),
             "audio_tts" => Ok(Self::AudioTts),
             "audio_stt" => Ok(Self::AudioStt),
@@ -375,6 +378,7 @@ providers:
         let capabilities = [
             Capability::Chat,
             Capability::ImageGeneration,
+            Capability::ImageEdit,
             Capability::VideoGeneration,
             Capability::AudioTts,
             Capability::AudioStt,
@@ -393,6 +397,7 @@ providers:
         for cap in [
             Capability::Chat,
             Capability::ImageGeneration,
+            Capability::ImageEdit,
             Capability::VideoGeneration,
             Capability::AudioTts,
             Capability::AudioStt,

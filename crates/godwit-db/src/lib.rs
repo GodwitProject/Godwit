@@ -135,6 +135,28 @@ mod tests {
         );
     }
 
+    #[sqlx::test(migrations = "./migrations")]
+    async fn models_capabilities_check_constraint_accepts_image_edit(pool: PgPool) {
+        let orgs = crate::repositories::organizations::OrganizationRepository::new(pool.clone());
+        let org = orgs.create("test-org").await.expect("create org");
+        let profiles =
+            crate::repositories::provider_profiles::ProviderProfileRepository::new(pool.clone());
+        let profile = profiles
+            .create(org.id, "openai", "openai", None)
+            .await
+            .expect("create profile");
+
+        let result = sqlx::query(
+            "INSERT INTO models (organization_id, public_id, provider, provider_profile_id, provider_model_id, capabilities)
+             VALUES ($1, 'edit-model', 'openai', $2, 'gpt-image-1', ARRAY['image_edit'])"
+        )
+        .bind(org.id)
+        .bind(profile.id)
+        .execute(&pool)
+        .await;
+        assert!(result.is_ok(), "image_edit should be a legal capability value, got: {:?}", result.err());
+    }
+
     #[sqlx::test]
     async fn model_repository_create_round_trips_new_fields(pool: PgPool) {
         let orgs = OrganizationRepository::new(pool.clone());

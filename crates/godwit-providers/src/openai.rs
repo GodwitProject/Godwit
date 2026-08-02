@@ -1,4 +1,6 @@
-use crate::adapter::{Adapter, AudioTtsResponse, ProviderError, ProviderResponse, SseEvent, UsageReport};
+use crate::adapter::{
+    Adapter, AudioTtsResponse, ProviderError, ProviderResponse, SseEvent, UsageReport,
+};
 use crate::streaming::parse_sse_events;
 use async_trait::async_trait;
 use futures::stream::{self, BoxStream, StreamExt};
@@ -198,7 +200,10 @@ impl Adapter for OpenAiProvider {
             })?
             .to_vec();
         Ok((
-            ProviderResponse::AudioTts(AudioTtsResponse { bytes, content_type }),
+            ProviderResponse::AudioTts(AudioTtsResponse {
+                bytes,
+                content_type,
+            }),
             UsageReport::default(),
         ))
     }
@@ -388,7 +393,10 @@ mod tests {
         else {
             panic!("expected image response");
         };
-        assert_eq!(resp.data[0].url.as_deref().unwrap(), "https://example.com/image.png");
+        assert_eq!(
+            resp.data[0].url.as_deref().unwrap(),
+            "https://example.com/image.png"
+        );
     }
 
     #[tokio::test]

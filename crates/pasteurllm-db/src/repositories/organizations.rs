@@ -32,4 +32,11 @@ impl OrganizationRepository {
                 _ => PasteurError::Database(e.to_string()),
             })
     }
+
+    pub async fn list(&self) -> Result<Vec<Organization>, PasteurError> {
+        sqlx::query_as::<_, Organization>("SELECT * FROM organizations ORDER BY name")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| PasteurError::Database(e.to_string()))
+    }
 }

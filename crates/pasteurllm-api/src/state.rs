@@ -1,4 +1,3 @@
-use pasteurllm_auth::jwt::Claims;
 use pasteurllm_cache::MemoryCache;
 use pasteurllm_core::AppConfig;
 use pasteurllm_db::models::{ApiKey, Model};

@@ -16,3 +16,5 @@ serde = { workspace = true }
 openidconnect = "3"
 url = "2"
 samael = "0.0.22"
+aes-gcm = "0.10"
+base64 = "0.22"

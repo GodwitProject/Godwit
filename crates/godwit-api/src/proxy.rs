@@ -6,13 +6,15 @@ use axum::{
     Router,
 };
 use futures::StreamExt;
-use godwit_core::ChatCompletionRequest;
+use godwit_core::{Capability, ChatCompletionRequest};
 use godwit_db::models::ApiKey;
 use godwit_db::repositories::models::ModelRepository;
+use godwit_providers::ProviderResponse;
 use rust_decimal::Decimal;
 use std::sync::Arc;
 
-use crate::{admin::spend::compute_cost, state::AppState};
+use crate::model_router::DbModelRouter;
+use crate::{admin::spend::compute_cost_model, state::AppState};
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
@@ -68,25 +70,28 @@ async fn chat_completions(
     Json(req): Json<ChatCompletionRequest>,
 ) -> Result<Response, crate::error::ApiError> {
     let start = std::time::Instant::now();
-    let model = state
-        .model_cache
-        .get(&(api_key.organization_id, req.model.clone()))
-        .await
-        .ok_or(crate::error::ApiError::NotFound)?;
 
-    let provider = state
-        .provider_router
-        .route(api_key.organization_id, &model.provider_model_id)
-        .await
-        .ok_or(crate::error::ApiError::NotFound)?;
+    let router = DbModelRouter::new(state.pool.clone(), state.adapter_registry.clone());
+    let resolved = router
+        .resolve(api_key.organization_id, &req.model)
+        .await?;
+
+    if resolved.model.capability != Capability::Chat.as_str() {
+        return Err(crate::error::ApiError::BadRequest(format!(
+            "model {} does not support chat completions",
+            req.model
+        )));
+    }
 
     let streamed = req.stream == Some(true);
     let (result, usage) = if streamed {
-        let stream = provider.stream_chat_completion(req).await.map_err(|_| {
-            crate::error::ApiError::Core(godwit_core::PasteurError::Provider(
-                "provider request failed".to_string(),
-            ))
-        })?;
+        let stream = resolved
+            .adapter
+            .chat_stream(&resolved.profile, &resolved.model, req)
+            .await
+            .map_err(|e| {
+                crate::error::ApiError::Core(godwit_core::PasteurError::Provider(e.to_string()))
+            })?;
         let sse_stream = stream.map(move |event| {
             let event = event
                 .map(|e| axum::response::sse::Event::default().data(e.data))
@@ -98,29 +103,37 @@ async fn chat_completions(
             None,
         )
     } else {
-        let resp = provider.chat_completion(req).await.map_err(|_| {
-            crate::error::ApiError::Core(godwit_core::PasteurError::Provider(
-                "provider request failed".to_string(),
-            ))
-        })?;
+        let (resp, report) = resolved
+            .adapter
+            .chat(&resolved.profile, &resolved.model, req)
+            .await
+            .map_err(|e| {
+                crate::error::ApiError::Core(godwit_core::PasteurError::Provider(e.to_string()))
+            })?;
         match resp {
-            godwit_providers::ProviderResponse::Json(completion) => {
-                let usage = completion.usage.clone();
-                (Ok(Json(completion).into_response()), usage)
+            ProviderResponse::Chat(completion) => {
+                (Ok(Json(completion).into_response()), Some(report))
             }
+            _ => (
+                Err(crate::error::ApiError::Core(godwit_core::PasteurError::Provider(
+                    "unexpected provider response variant".to_string(),
+                ))),
+                None,
+            ),
         }
     };
 
     // Asynchronous logging to avoid blocking the response.
-    let cost_usd = usage.map(|u| compute_cost(&u, Decimal::new(5, 3), Decimal::new(15, 3)));
+    let cost_usd = usage.and_then(|u| compute_cost_model(&resolved.model, &u));
     let log = RequestLogEntry {
         api_key_id: api_key.id,
         user_id: api_key.user_id,
         organization_id: api_key.organization_id,
         team_id: api_key.team_id,
-        model: model.public_id.clone(),
-        provider: model.provider.clone(),
-        provider_model_id: model.provider_model_id.clone(),
+        model: resolved.model.public_id.clone(),
+        provider: resolved.model.provider.clone(),
+        provider_model_id: resolved.model.provider_model_id.clone(),
+        capability: resolved.model.capability.clone(),
         duration_ms: start.elapsed().as_millis() as i32,
         streamed,
         status: "success".to_string(),
@@ -129,8 +142,8 @@ async fn chat_completions(
     let pool = state.pool.clone();
     tokio::spawn(async move {
         let _ = sqlx::query(
-            "INSERT INTO request_logs (api_key_id, user_id, organization_id, team_id, model, provider, provider_model_id, duration_ms, streamed, status, cost_usd)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
+            "INSERT INTO request_logs (api_key_id, user_id, organization_id, team_id, model, provider, provider_model_id, capability, duration_ms, streamed, status, cost_usd)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"
         )
         .bind(log.api_key_id)
         .bind(log.user_id)
@@ -139,6 +152,7 @@ async fn chat_completions(
         .bind(log.model)
         .bind(log.provider)
         .bind(log.provider_model_id)
+        .bind(log.capability)
         .bind(log.duration_ms)
         .bind(log.streamed)
         .bind(log.status)
@@ -159,6 +173,7 @@ struct RequestLogEntry {
     model: String,
     provider: String,
     provider_model_id: String,
+    capability: String,
     duration_ms: i32,
     streamed: bool,
     status: String,

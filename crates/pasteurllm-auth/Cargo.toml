@@ -9,3 +9,7 @@ argon2 = { version = "0.5", features = ["std"] }
 rand = "0.8"
 bs58 = "0.5"
 serde_json = { workspace = true }
+jsonwebtoken = "9"
+chrono = { workspace = true }
+uuid = { workspace = true }
+serde = { workspace = true }

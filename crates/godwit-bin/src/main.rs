@@ -28,15 +28,9 @@ async fn main() -> anyhow::Result<()> {
             &config.providers.openai.base_url,
         )),
     );
-    // Anthropic adapter will be added in Lot 3; for now register OpenAI for both
-    // protocols to keep the workspace compiling.
-    registry.register(
-        Protocol::anthropic(),
-        Arc::new(OpenAiAdapter::new(
-            &config.providers.anthropic.api_key,
-            &config.providers.anthropic.base_url,
-        )),
-    );
+    // Anthropic adapter is implemented in Lot 3. Until then, profiles with
+    // protocol "anthropic" will resolve to a clear "unknown protocol" error
+    // rather than sending OpenAI-shaped requests to an Anthropic endpoint.
 
     let adapter_registry = Arc::new(registry);
     let state = Arc::new(AppState {

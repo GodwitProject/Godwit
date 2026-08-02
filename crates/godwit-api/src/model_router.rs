@@ -52,14 +52,17 @@ impl DbModelRouter {
             .filter(|m| m.public_id == public_id)
             .collect();
 
-        let model = if let Some(name) = profile_name {
+        let (model, profile) = if let Some(name) = profile_name {
             let profile = profile_repo.get_by_name(organization_id, name).await?;
-            candidates
+            let model = candidates
                 .into_iter()
                 .find(|m| m.provider_profile_id == profile.id)
-                .ok_or(PasteurError::NotFound)?
+                .ok_or(PasteurError::NotFound)?;
+            (model, profile)
         } else if candidates.len() == 1 {
-            candidates.into_iter().next().unwrap()
+            let model = candidates.into_iter().next().unwrap();
+            let profile = profile_repo.get(model.provider_profile_id).await?;
+            (model, profile)
         } else if candidates.is_empty() {
             return Err(PasteurError::NotFound);
         } else {
@@ -67,8 +70,6 @@ impl DbModelRouter {
                 format!("ambiguous model '{}'; use 'profile_name/{}'", public_id, public_id)
             ));
         };
-
-        let profile = profile_repo.get(model.provider_profile_id).await?;
         let protocol = Protocol(profile.protocol.clone());
         let adapter = self
             .registry

@@ -40,4 +40,30 @@ mod tests {
         registry.register(Protocol::openai(), Arc::new(OpenAiAdapter::new("", "")));
         assert!(registry.get(&Protocol::openai()).is_some());
     }
+
+    #[test]
+    fn get_returns_none_for_unknown_protocol() {
+        let registry = AdapterRegistry::new();
+        assert!(registry.get(&Protocol::anthropic()).is_none());
+    }
+
+    #[test]
+    fn register_overwrites_existing_adapter() {
+        let mut registry = AdapterRegistry::new();
+        let first: Arc<dyn Adapter> = Arc::new(OpenAiAdapter::new("", ""));
+        let second: Arc<dyn Adapter> = Arc::new(OpenAiAdapter::new("", ""));
+        registry.register(Protocol::openai(), first.clone());
+        let before = registry.get(&Protocol::openai()).expect("adapter stored");
+        assert!(Arc::ptr_eq(&before, &first));
+        registry.register(Protocol::openai(), second.clone());
+        let after = registry.get(&Protocol::openai()).expect("adapter stored");
+        assert!(Arc::ptr_eq(&after, &second));
+        assert!(!Arc::ptr_eq(&after, &first));
+    }
+
+    #[test]
+    fn default_creates_empty_registry() {
+        let registry: AdapterRegistry = Default::default();
+        assert!(registry.get(&Protocol::openai()).is_none());
+    }
 }

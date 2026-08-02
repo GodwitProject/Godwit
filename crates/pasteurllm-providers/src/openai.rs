@@ -1,6 +1,7 @@
+use crate::streaming::parse_sse_events;
 use crate::{Provider, ProviderError, ProviderResponse, SseEvent};
 use async_trait::async_trait;
-use futures::stream::BoxStream;
+use futures::stream::{self, BoxStream, StreamExt};
 use pasteurllm_core::{ChatCompletionRequest, ChatCompletionResponse, ProviderConfig};
 use reqwest::Client;
 
@@ -58,9 +59,30 @@ impl Provider for OpenAiProvider {
 
     async fn stream_chat_completion(
         &self,
-        _request: ChatCompletionRequest,
+        mut request: ChatCompletionRequest,
     ) -> Result<BoxStream<'static, Result<SseEvent, ProviderError>>, ProviderError> {
-        Err(ProviderError::NotImplemented)
+        request.stream = Some(true);
+        let url = format!("{}/chat/completions", self.base_url);
+        let res = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Http(e.to_string()))?;
+        if !res.status().is_success() {
+            return Err(ProviderError::Provider(res.text().await.unwrap_or_default()));
+        }
+        let byte_stream = res.bytes_stream();
+        let event_stream = byte_stream.flat_map(|bytes| {
+            let text = bytes
+                .map(|b| String::from_utf8_lossy(&b).to_string())
+                .unwrap_or_default();
+            let events = parse_sse_events(&text);
+            stream::iter(events.into_iter().map(Ok))
+        });
+        Ok(event_stream.boxed())
     }
 }
 

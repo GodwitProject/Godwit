@@ -1,5 +1,6 @@
 pub mod anthropic;
 pub mod openai;
+pub mod streaming;
 
 use async_trait::async_trait;
 use futures::stream::BoxStream;

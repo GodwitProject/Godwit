@@ -1,10 +1,7 @@
 use axum::{middleware, routing::Router};
-use godwit_api::{
-    admin, proxy,
-    state::{AppState, ProviderRouter},
-};
+use godwit_api::{admin, proxy, state::AppState};
 use godwit_cache::MemoryCache;
-use godwit_core::AppConfig;
+use godwit_core::{AppConfig, Protocol};
 use godwit_db::{
     connect,
     repositories::{
@@ -12,40 +9,8 @@ use godwit_db::{
     },
     run_migrations,
 };
-use godwit_providers::{anthropic::AnthropicProvider, openai::OpenAiProvider, Provider};
+use godwit_providers::{openai::OpenAiAdapter, AdapterRegistry};
 use std::sync::Arc;
-
-pub struct SimpleProviderRouter {
-    openai: Arc<dyn Provider>,
-    anthropic: Arc<dyn Provider>,
-}
-
-impl SimpleProviderRouter {
-    pub fn new(providers: &godwit_core::ProvidersConfig) -> Self {
-        Self {
-            openai: Arc::new(OpenAiProvider::from_config(&providers.openai)),
-            anthropic: Arc::new(AnthropicProvider::new(
-                &providers.anthropic.api_key,
-                &providers.anthropic.base_url,
-            )),
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl ProviderRouter for SimpleProviderRouter {
-    async fn route(
-        &self,
-        _organization_id: uuid::Uuid,
-        provider_model_id: &str,
-    ) -> Option<Arc<dyn Provider>> {
-        if provider_model_id.starts_with("claude") {
-            Some(self.anthropic.clone())
-        } else {
-            Some(self.openai.clone())
-        }
-    }
-}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -55,10 +20,28 @@ async fn main() -> anyhow::Result<()> {
     let pool = connect(&config.database.url).await?;
     run_migrations(&pool).await?;
 
+    let mut registry = AdapterRegistry::new();
+    registry.register(
+        Protocol::openai(),
+        Arc::new(OpenAiAdapter::new(
+            &config.providers.openai.api_key,
+            &config.providers.openai.base_url,
+        )),
+    );
+    // Anthropic adapter will be added in Lot 3; for now register OpenAI for both
+    // protocols to keep the workspace compiling.
+    registry.register(
+        Protocol::anthropic(),
+        Arc::new(OpenAiAdapter::new(
+            &config.providers.anthropic.api_key,
+            &config.providers.anthropic.base_url,
+        )),
+    );
+
     let state = Arc::new(AppState {
         config: config.clone(),
         pool: pool.clone(),
-        provider_router: Arc::new(SimpleProviderRouter::new(&config.providers)),
+        adapter_registry: Arc::new(registry),
         user_repo: UserRepository::new(pool.clone()),
         org_repo: OrganizationRepository::new(pool.clone()),
         api_key_repo: ApiKeyRepository::new(pool.clone()),

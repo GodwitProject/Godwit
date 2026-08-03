@@ -20,7 +20,12 @@ pub async fn bootstrap_provider_profiles(
     }
     for provider in legacy {
         let profile = repo
-            .create(provider.name, provider.protocol, Some(&provider.base_url), false)
+            .create(
+                provider.name,
+                provider.protocol,
+                Some(&provider.base_url),
+                false,
+            )
             .await?;
         let secret = encrypt_api_key(master_key, &provider.api_key);
         repo.set_auth(profile.id, &secret).await?;

@@ -44,7 +44,13 @@ async fn create_model(
     require_super_admin(&claims)?;
     let repo = ModelRepository::new(state.pool.clone());
     let model = repo
-        .create(&req.public_id, &req.provider, req.provider_profile_id, &req.provider_model_id, &req.capabilities)
+        .create(
+            &req.public_id,
+            &req.provider,
+            req.provider_profile_id,
+            &req.provider_model_id,
+            &req.capabilities,
+        )
         .await
         .map_err(ApiError::Core)?;
     Ok(Json(serde_json::json!({ "data": model })))

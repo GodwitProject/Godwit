@@ -1,4 +1,6 @@
-use crate::adapter::{Adapter, ProviderError, ProviderResponse, ResolvedProfile, SseEvent, UsageReport};
+use crate::adapter::{
+    Adapter, ProviderError, ProviderResponse, ResolvedProfile, SseEvent, UsageReport,
+};
 use async_trait::async_trait;
 use chrono::Utc;
 use futures::stream::BoxStream;
@@ -149,11 +151,9 @@ fn gemini_response_to_chat_completion(
     response: GeminiChatResponse,
     model_id: &str,
 ) -> Result<ChatCompletionResponse, ProviderError> {
-    let candidate = response
-        .candidates
-        .into_iter()
-        .next()
-        .ok_or_else(|| ProviderError::Provider("Gemini response contained no candidates".to_string()))?;
+    let candidate = response.candidates.into_iter().next().ok_or_else(|| {
+        ProviderError::Provider("Gemini response contained no candidates".to_string())
+    })?;
 
     let content = candidate
         .content
@@ -224,8 +224,14 @@ impl Adapter for GeminiProvider {
         if !res.status().is_success() {
             let status = res.status().as_u16();
             let text = res.text().await.unwrap_or_default();
-            error!("gemini chat request failed with status {}: {}", status, text);
-            return Err(ProviderError::Http { status, message: text });
+            error!(
+                "gemini chat request failed with status {}: {}",
+                status, text
+            );
+            return Err(ProviderError::Http {
+                status,
+                message: text,
+            });
         }
 
         let body: GeminiChatResponse = res
@@ -424,8 +430,16 @@ mod tests {
 
         let _ = client.chat(&profile, &dummy_model(), req).await.unwrap();
 
-        let url = captured_url.lock().unwrap().take().expect("request url captured");
-        assert!(url.contains("/v1beta/models/gemini-1.5-flash:generateContent"), "url={}", url);
+        let url = captured_url
+            .lock()
+            .unwrap()
+            .take()
+            .expect("request url captured");
+        assert!(
+            url.contains("/v1beta/models/gemini-1.5-flash:generateContent"),
+            "url={}",
+            url
+        );
         assert!(url.contains("?key=fake-key"), "url={}", url);
     }
 
@@ -474,7 +488,11 @@ mod tests {
 
         let _ = client.chat(&profile, &model, req).await.unwrap();
 
-        let url = captured_url.lock().unwrap().take().expect("request url captured");
+        let url = captured_url
+            .lock()
+            .unwrap()
+            .take()
+            .expect("request url captured");
         assert!(
             url.contains("/v1beta/models/gemini-2.0-flash-001:generateContent"),
             "url={url}"
@@ -518,11 +536,12 @@ mod tests {
             .await
             .unwrap();
 
-        let body = captured_body.lock().unwrap().take().expect("request body captured");
-        assert_eq!(
-            body["systemInstruction"],
-            "You are a helpful assistant."
-        );
+        let body = captured_body
+            .lock()
+            .unwrap()
+            .take()
+            .expect("request body captured");
+        assert_eq!(body["systemInstruction"], "You are a helpful assistant.");
         assert_eq!(body["contents"].as_array().unwrap().len(), 2);
         assert_eq!(body["contents"][0]["role"], "user");
         assert_eq!(body["contents"][0]["parts"][0]["text"], "Hello");
@@ -573,10 +592,8 @@ mod tests {
             max_tokens: None,
         };
 
-        let (ProviderResponse::Chat(resp), usage_report) = client
-            .chat(&profile, &dummy_model(), req)
-            .await
-            .unwrap()
+        let (ProviderResponse::Chat(resp), usage_report) =
+            client.chat(&profile, &dummy_model(), req).await.unwrap()
         else {
             panic!("expected chat response");
         };
@@ -657,14 +674,20 @@ mod tests {
             voice: "default".to_string(),
             response_format: None,
         };
-        let err = client.audio_tts(&profile, &model, audio_req).await.unwrap_err();
+        let err = client
+            .audio_tts(&profile, &model, audio_req)
+            .await
+            .unwrap_err();
         assert!(matches!(err, ProviderError::CapabilityNotSupported(_)));
 
         let embedding_req = EmbeddingRequest {
             model: "gemini".to_string(),
             input: vec!["hello".to_string()],
         };
-        let err = client.embedding(&profile, &model, embedding_req).await.unwrap_err();
+        let err = client
+            .embedding(&profile, &model, embedding_req)
+            .await
+            .unwrap_err();
         assert!(matches!(err, ProviderError::CapabilityNotSupported(_)));
     }
 }

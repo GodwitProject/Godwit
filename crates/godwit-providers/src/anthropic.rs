@@ -6,9 +6,8 @@ use async_trait::async_trait;
 use chrono::Utc;
 use futures::stream::{self, BoxStream, StreamExt};
 use godwit_core::{
-    AudioSttRequest, AudioTtsRequest, Capability, ChatCompletionRequest,
-    ChatCompletionResponse, ChatMessage, EmbeddingRequest, ImageGenerationRequest,
-    VideoGenerationRequest,
+    AudioSttRequest, AudioTtsRequest, Capability, ChatCompletionRequest, ChatCompletionResponse,
+    ChatMessage, EmbeddingRequest, ImageGenerationRequest, VideoGenerationRequest,
 };
 use godwit_db::models::Model;
 use reqwest::Client;
@@ -234,12 +233,15 @@ impl Adapter for AnthropicProvider {
         request: ChatCompletionRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
         let url = format!("{}/v1/messages", profile.base_url);
-        let anthropic_request = AnthropicChatRequest::from_chat_request(request, model.provider_model_id.clone());
+        let anthropic_request =
+            AnthropicChatRequest::from_chat_request(request, model.provider_model_id.clone());
 
         info!("sending anthropic chat request to {}", url);
         debug!("anthropic request body: {:?}", anthropic_request);
 
-        let mut req = self.client.post(&url)
+        let mut req = self
+            .client
+            .post(&url)
             .header("anthropic-version", "2023-06-01")
             .json(&anthropic_request);
         if let Some(key) = &profile.api_key {
@@ -253,7 +255,10 @@ impl Adapter for AnthropicProvider {
         if !res.status().is_success() {
             let status = res.status().as_u16();
             let text = res.text().await.unwrap_or_default();
-            error!("anthropic chat request failed with status {}: {}", status, text);
+            error!(
+                "anthropic chat request failed with status {}: {}",
+                status, text
+            );
             return Err(ProviderError::Http {
                 status,
                 message: text,
@@ -290,12 +295,15 @@ impl Adapter for AnthropicProvider {
     ) -> Result<BoxStream<'static, Result<SseEvent, ProviderError>>, ProviderError> {
         request.stream = Some(true);
         let url = format!("{}/v1/messages", profile.base_url);
-        let anthropic_request = AnthropicChatRequest::from_chat_request(request, model.provider_model_id.clone());
+        let anthropic_request =
+            AnthropicChatRequest::from_chat_request(request, model.provider_model_id.clone());
 
         info!("sending anthropic streaming chat request to {}", url);
         debug!("anthropic streaming request body: {:?}", anthropic_request);
 
-        let mut req = self.client.post(&url)
+        let mut req = self
+            .client
+            .post(&url)
             .header("anthropic-version", "2023-06-01")
             .json(&anthropic_request);
         if let Some(key) = &profile.api_key {
@@ -309,7 +317,10 @@ impl Adapter for AnthropicProvider {
         if !res.status().is_success() {
             let status = res.status().as_u16();
             let text = res.text().await.unwrap_or_default();
-            error!("anthropic streaming chat request failed with status {}: {}", status, text);
+            error!(
+                "anthropic streaming chat request failed with status {}: {}",
+                status, text
+            );
             return Err(ProviderError::Http {
                 status,
                 message: text,
@@ -488,7 +499,11 @@ mod tests {
             .await
             .unwrap();
 
-        let body = captured_body.lock().unwrap().take().expect("request body captured");
+        let body = captured_body
+            .lock()
+            .unwrap()
+            .take()
+            .expect("request body captured");
         // The outgoing model must be the fixture's upstream `provider_model_id`, NOT its
         // friendly `public_id` ("claude-sonnet") and not the `request.model` the client
         // sent ("claude-3-5-sonnet"): a catalog row exists precisely to translate those
@@ -536,13 +551,18 @@ mod tests {
             max_tokens: None,
         };
 
-        let (ProviderResponse::Chat(resp), usage_report) = client.chat(&profile, &dummy_model(), req).await.unwrap() else {
+        let (ProviderResponse::Chat(resp), usage_report) =
+            client.chat(&profile, &dummy_model(), req).await.unwrap()
+        else {
             panic!("expected chat response");
         };
 
         assert_eq!(resp.choices[0].message.content, "Hello, world!");
         assert_eq!(resp.choices[0].message.role, "assistant");
-        assert_eq!(resp.choices[0].finish_reason.as_deref().unwrap(), "end_turn");
+        assert_eq!(
+            resp.choices[0].finish_reason.as_deref().unwrap(),
+            "end_turn"
+        );
         let usage = resp.usage.unwrap();
         assert_eq!(usage.prompt_tokens, 10);
         assert_eq!(usage.completion_tokens, 5);
@@ -593,7 +613,10 @@ mod tests {
             max_tokens: None,
         };
 
-        let stream = client.chat_stream(&profile, &dummy_model(), req).await.unwrap();
+        let stream = client
+            .chat_stream(&profile, &dummy_model(), req)
+            .await
+            .unwrap();
         let events: Vec<SseEvent> = stream.filter_map(|r| async move { r.ok() }).collect().await;
 
         assert_eq!(events.len(), 3);
@@ -639,14 +662,20 @@ mod tests {
             voice: "default".to_string(),
             response_format: None,
         };
-        let err = client.audio_tts(&profile, &model, audio_req).await.unwrap_err();
+        let err = client
+            .audio_tts(&profile, &model, audio_req)
+            .await
+            .unwrap_err();
         assert!(matches!(err, ProviderError::CapabilityNotSupported(_)));
 
         let embedding_req = EmbeddingRequest {
             model: "claude".to_string(),
             input: vec!["hello".to_string()],
         };
-        let err = client.embedding(&profile, &model, embedding_req).await.unwrap_err();
+        let err = client
+            .embedding(&profile, &model, embedding_req)
+            .await
+            .unwrap_err();
         assert!(matches!(err, ProviderError::CapabilityNotSupported(_)));
     }
 
@@ -685,10 +714,15 @@ mod tests {
             max_tokens: None,
         };
 
-        let (ProviderResponse::Chat(resp), _) = client.chat(&profile, &dummy_model(), req).await.unwrap() else {
+        let (ProviderResponse::Chat(resp), _) =
+            client.chat(&profile, &dummy_model(), req).await.unwrap()
+        else {
             panic!("expected chat response");
         };
 
-        assert_eq!(resp.choices[0].message.content, "Hello from keyless profile");
+        assert_eq!(
+            resp.choices[0].message.content,
+            "Hello from keyless profile"
+        );
     }
 }

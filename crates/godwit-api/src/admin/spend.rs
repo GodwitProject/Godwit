@@ -30,8 +30,10 @@ pub fn compute_cost(model: &Model, capability: Capability, usage: &UsageReport) 
             let output_rate = Decimal::from_str(output_price.as_str()?)
                 .inspect_err(|e| tracing::warn!(%e, "malformed output_per_1k pricing"))
                 .ok()?;
-            let input = Decimal::from(usage.prompt_tokens.unwrap_or(0)) * input_rate / Decimal::from(1000);
-            let output = Decimal::from(usage.completion_tokens.unwrap_or(0)) * output_rate / Decimal::from(1000);
+            let input =
+                Decimal::from(usage.prompt_tokens.unwrap_or(0)) * input_rate / Decimal::from(1000);
+            let output = Decimal::from(usage.completion_tokens.unwrap_or(0)) * output_rate
+                / Decimal::from(1000);
             Some(input + output)
         }
         _ => {

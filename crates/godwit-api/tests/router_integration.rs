@@ -19,9 +19,7 @@ use axum::{
 };
 use godwit_api::{admin, model_router::DbModelRouter, proxy, state::AppState};
 use godwit_cache::MemoryCache;
-use godwit_core::{
-    AppConfig, AuthConfig, DatabaseConfig, Protocol, ServerConfig,
-};
+use godwit_core::{AppConfig, AuthConfig, DatabaseConfig, Protocol, ServerConfig};
 use godwit_db::models::UserRole;
 use godwit_db::repositories::{
     api_keys::ApiKeyRepository, models::ModelRepository, organizations::OrganizationRepository,
@@ -134,8 +132,7 @@ async fn seed_api_key(pool: &PgPool) -> String {
 /// Issues an admin JWT for the given role without going through the login endpoint.
 fn admin_token(role: &str) -> String {
     let claims = godwit_auth::jwt::Claims::new(Uuid::new_v4(), Uuid::new_v4(), role);
-    godwit_auth::jwt::issue(JWT_SECRET, claims, chrono::Duration::minutes(15))
-        .expect("issue jwt")
+    godwit_auth::jwt::issue(JWT_SECRET, claims, chrono::Duration::minutes(15)).expect("issue jwt")
 }
 
 async fn body_json(response: axum::response::Response) -> serde_json::Value {
@@ -145,8 +142,12 @@ async fn body_json(response: axum::response::Response) -> serde_json::Value {
     if bytes.is_empty() {
         return serde_json::Value::Null;
     }
-    serde_json::from_slice(&bytes)
-        .unwrap_or_else(|e| panic!("body was not JSON ({e}): {}", String::from_utf8_lossy(&bytes)))
+    serde_json::from_slice(&bytes).unwrap_or_else(|e| {
+        panic!(
+            "body was not JSON ({e}): {}",
+            String::from_utf8_lossy(&bytes)
+        )
+    })
 }
 
 // ---------------------------------------------------------------------------------------
@@ -185,7 +186,10 @@ async fn wildcard_chat_completion_sends_bare_upstream_model_id(pool: PgPool) {
         .await
         .expect("create wildcard profile");
     let secret = godwit_auth::credentials::encrypt_api_key(&MASTER_KEY, "sk-upstream");
-    profiles.set_auth(profile.id, &secret).await.expect("set auth");
+    profiles
+        .set_auth(profile.id, &secret)
+        .await
+        .expect("set auth");
 
     let api_key = seed_api_key(&pool).await;
     let app = build_app(pool);
@@ -213,14 +217,21 @@ async fn wildcard_chat_completion_sends_bare_upstream_model_id(pool: PgPool) {
     let status = response.status();
     let body = body_json(response).await;
     assert_eq!(status, StatusCode::OK, "body={body}");
-    assert_eq!(body["choices"][0]["message"]["content"], "Hello from upstream");
+    assert_eq!(
+        body["choices"][0]["message"]["content"],
+        "Hello from upstream"
+    );
 
     // The upstream must have received the *suffix* only.
     let received = upstream
         .received_requests()
         .await
         .expect("request recording enabled");
-    assert_eq!(received.len(), 1, "the upstream should have been called once");
+    assert_eq!(
+        received.len(),
+        1,
+        "the upstream should have been called once"
+    );
     let upstream_body: serde_json::Value =
         serde_json::from_slice(&received[0].body).expect("upstream body is JSON");
     assert_eq!(
@@ -325,7 +336,12 @@ async fn keyless_self_hosted_profile_serves_chat_without_auth_header(pool: PgPoo
 #[sqlx::test(migrations = "../godwit-db/migrations")]
 async fn super_admin_can_create_a_vllm_backed_catalog_model(pool: PgPool) {
     let profile = ProviderProfileRepository::new(pool.clone())
-        .create("local-vllm", "vllm", Some("http://localhost:8000/v1"), false)
+        .create(
+            "local-vllm",
+            "vllm",
+            Some("http://localhost:8000/v1"),
+            false,
+        )
         .await
         .expect("create profile");
 
@@ -368,7 +384,10 @@ async fn super_admin_can_create_a_vllm_backed_catalog_model(pool: PgPool) {
     );
 
     // The row really landed in the database.
-    let models = ModelRepository::new(pool).list().await.expect("list models");
+    let models = ModelRepository::new(pool)
+        .list()
+        .await
+        .expect("list models");
     assert_eq!(models.len(), 1);
     assert_eq!(models[0].provider, "vllm");
 }
@@ -430,7 +449,12 @@ async fn admin_catalog_routes_are_not_double_nested(pool: PgPool) {
 async fn admin_by_id_routes_are_reachable(pool: PgPool) {
     let profiles = ProviderProfileRepository::new(pool.clone());
     let profile = profiles
-        .create("local-vllm", "vllm", Some("http://localhost:8000/v1"), false)
+        .create(
+            "local-vllm",
+            "vllm",
+            Some("http://localhost:8000/v1"),
+            false,
+        )
         .await
         .expect("create profile");
     let model = ModelRepository::new(pool.clone())
@@ -491,12 +515,22 @@ async fn admin_by_id_routes_are_reachable(pool: PgPool) {
 #[sqlx::test(migrations = "../godwit-db/migrations")]
 async fn non_super_admin_roles_are_forbidden_from_catalog_endpoints(pool: PgPool) {
     let profile = ProviderProfileRepository::new(pool.clone())
-        .create("local-vllm", "vllm", Some("http://localhost:8000/v1"), false)
+        .create(
+            "local-vllm",
+            "vllm",
+            Some("http://localhost:8000/v1"),
+            false,
+        )
         .await
         .expect("create profile");
 
     let cases: Vec<(&str, &str, String, Option<serde_json::Value>)> = vec![
-        ("GET", "org_admin", "/api/v1/provider-profiles".to_string(), None),
+        (
+            "GET",
+            "org_admin",
+            "/api/v1/provider-profiles".to_string(),
+            None,
+        ),
         ("GET", "team_admin", "/api/v1/models".to_string(), None),
         ("GET", "user", "/api/v1/models".to_string(), None),
         (
@@ -553,12 +587,19 @@ async fn non_super_admin_roles_are_forbidden_from_catalog_endpoints(pool: PgPool
         .list()
         .await
         .expect("list models");
-    assert!(models.is_empty(), "a forbidden POST must not create a model");
+    assert!(
+        models.is_empty(),
+        "a forbidden POST must not create a model"
+    );
     let profiles = ProviderProfileRepository::new(pool)
         .list()
         .await
         .expect("list profiles");
-    assert_eq!(profiles.len(), 1, "a forbidden POST must not create a profile");
+    assert_eq!(
+        profiles.len(),
+        1,
+        "a forbidden POST must not create a profile"
+    );
 }
 
 #[sqlx::test(migrations = "../godwit-db/migrations")]
@@ -586,7 +627,12 @@ async fn admin_catalog_endpoints_require_a_token(pool: PgPool) {
 async fn image_edit_against_a_vllm_model_returns_400_not_500(pool: PgPool) {
     let profiles = ProviderProfileRepository::new(pool.clone());
     let profile = profiles
-        .create("local-vllm", "vllm", Some("http://localhost:8000/v1"), false)
+        .create(
+            "local-vllm",
+            "vllm",
+            Some("http://localhost:8000/v1"),
+            false,
+        )
         .await
         .expect("create profile");
     // The catalog row claims image_edit; the vllm adapter does not implement it, so the
@@ -655,7 +701,12 @@ async fn disabled_profile_is_hidden_from_v1_models_and_rejected_by_chat(pool: Pg
         .expect("create visible model");
 
     let retired = profiles
-        .create("retired", "openai", Some("https://api.openai.com/v1"), false)
+        .create(
+            "retired",
+            "openai",
+            Some("https://api.openai.com/v1"),
+            false,
+        )
         .await
         .expect("create retired profile");
     models
@@ -726,12 +777,20 @@ async fn disabled_profile_is_hidden_from_v1_models_and_rejected_by_chat(pool: Pg
 async fn undecryptable_provider_credentials_return_500_not_401(pool: PgPool) {
     let profiles = ProviderProfileRepository::new(pool.clone());
     let profile = profiles
-        .create("upstream", "openai", Some("https://api.openai.com/v1"), true)
+        .create(
+            "upstream",
+            "openai",
+            Some("https://api.openai.com/v1"),
+            true,
+        )
         .await
         .expect("create profile");
     // Encrypted under a DIFFERENT master key than the app's MASTER_KEY.
     let secret = godwit_auth::credentials::encrypt_api_key(&[7u8; 32], "sk-upstream");
-    profiles.set_auth(profile.id, &secret).await.expect("set auth");
+    profiles
+        .set_auth(profile.id, &secret)
+        .await
+        .expect("set auth");
 
     let api_key = seed_api_key(&pool).await;
 
@@ -790,7 +849,10 @@ async fn catalog_model_translates_public_id_to_provider_model_id(pool: PgPool) {
         .await
         .expect("create profile");
     let secret = godwit_auth::credentials::encrypt_api_key(&MASTER_KEY, "sk-upstream");
-    profiles.set_auth(profile.id, &secret).await.expect("set auth");
+    profiles
+        .set_auth(profile.id, &secret)
+        .await
+        .expect("set auth");
     ModelRepository::new(pool.clone())
         .create("my-4o", "openai", profile.id, "gpt-4o-2024-08-06", "chat")
         .await

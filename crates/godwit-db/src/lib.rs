@@ -22,7 +22,9 @@ pub async fn connect(database_url: &str) -> Result<PgPool, PasteurError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::repositories::{models::ModelRepository, provider_profiles::ProviderProfileRepository};
+    use crate::repositories::{
+        models::ModelRepository, provider_profiles::ProviderProfileRepository,
+    };
     use serde_json::json;
     use sqlx::PgPool;
 
@@ -65,8 +67,8 @@ mod tests {
             if file_name.starts_with("20260803000002") {
                 break; // stop right before the migration under test
             }
-            let sql = std::fs::read_to_string(path)
-                .unwrap_or_else(|e| panic!("reading {path:?}: {e}"));
+            let sql =
+                std::fs::read_to_string(path).unwrap_or_else(|e| panic!("reading {path:?}: {e}"));
             sqlx::raw_sql(&sql)
                 .execute(&pool)
                 .await
@@ -227,7 +229,10 @@ mod tests {
         .execute(&pool)
         .await;
 
-        assert!(result.is_err(), "invalid capability should violate check constraint");
+        assert!(
+            result.is_err(),
+            "invalid capability should violate check constraint"
+        );
         let err = result.unwrap_err().to_string();
         assert!(
             err.contains("chk_models_capabilities") || err.contains("check constraint"),
@@ -251,7 +256,11 @@ mod tests {
         .bind(profile.id)
         .execute(&pool)
         .await;
-        assert!(result.is_ok(), "image_edit should be a legal capability value, got: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "image_edit should be a legal capability value, got: {:?}",
+            result.err()
+        );
     }
 
     /// `models.provider` was constrained to ('openai','anthropic') by the initial
@@ -262,7 +271,12 @@ mod tests {
     async fn models_provider_check_constraint_accepts_all_protocols(pool: PgPool) {
         let profiles = ProviderProfileRepository::new(pool.clone());
         let profile = profiles
-            .create("local-vllm", "vllm", Some("http://localhost:8000/v1"), false)
+            .create(
+                "local-vllm",
+                "vllm",
+                Some("http://localhost:8000/v1"),
+                false,
+            )
             .await
             .expect("create profile");
 
@@ -281,7 +295,14 @@ mod tests {
         assert_eq!(created.provider_model_id, "meta-llama/Llama-3-70B-Instruct");
 
         // The remaining protocols must be accepted too.
-        for provider in ["openai", "anthropic", "gemini", "sglang", "llama_cpp", "ollama"] {
+        for provider in [
+            "openai",
+            "anthropic",
+            "gemini",
+            "sglang",
+            "llama_cpp",
+            "ollama",
+        ] {
             models
                 .create(
                     &format!("model-{provider}"),
@@ -325,7 +346,13 @@ mod tests {
 
         let models = ModelRepository::new(pool);
         let created = models
-            .create("my-model", "openai", profile.id, "gpt-4", "chat,image_generation")
+            .create(
+                "my-model",
+                "openai",
+                profile.id,
+                "gpt-4",
+                "chat,image_generation",
+            )
             .await
             .expect("create model");
 
@@ -333,7 +360,10 @@ mod tests {
         assert_eq!(created.provider, "openai");
         assert_eq!(created.provider_profile_id, profile.id);
         assert_eq!(created.provider_model_id, "gpt-4");
-        assert_eq!(created.capabilities, vec!["chat".to_string(), "image_generation".to_string()]);
+        assert_eq!(
+            created.capabilities,
+            vec!["chat".to_string(), "image_generation".to_string()]
+        );
         assert_eq!(created.pricing, json!({}));
         assert_eq!(created.config, json!({}));
 
@@ -343,6 +373,9 @@ mod tests {
             .expect("fetch model");
         assert_eq!(fetched.id, created.id);
         assert_eq!(fetched.provider_profile_id, profile.id);
-        assert_eq!(fetched.capabilities, vec!["chat".to_string(), "image_generation".to_string()]);
+        assert_eq!(
+            fetched.capabilities,
+            vec!["chat".to_string(), "image_generation".to_string()]
+        );
     }
 }

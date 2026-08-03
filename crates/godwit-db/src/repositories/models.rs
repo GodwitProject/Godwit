@@ -104,7 +104,7 @@ impl ModelRepository {
             .map(parse_capabilities)
             .unwrap_or(current.capabilities);
         sqlx::query_as::<_, Model>(
-            "UPDATE models SET public_id = $2, capabilities = $3 WHERE id = $1 RETURNING *"
+            "UPDATE models SET public_id = $2, capabilities = $3 WHERE id = $1 RETURNING *",
         )
         .bind(id)
         .bind(new_public_id)
@@ -132,7 +132,10 @@ mod tests {
     #[sqlx::test]
     async fn create_list_and_get_model(pool: PgPool) {
         let profiles = ProviderProfileRepository::new(pool.clone());
-        let profile = profiles.create("openai", "openai", None, false).await.expect("create profile");
+        let profile = profiles
+            .create("openai", "openai", None, false)
+            .await
+            .expect("create profile");
 
         let models = ModelRepository::new(pool);
         let created = models
@@ -145,14 +148,20 @@ mod tests {
         let listed = models.list().await.expect("list models");
         assert_eq!(listed.len(), 1);
 
-        let fetched = models.get_by_public_id("gpt-4o").await.expect("get by public id");
+        let fetched = models
+            .get_by_public_id("gpt-4o")
+            .await
+            .expect("get by public id");
         assert_eq!(fetched.id, created.id);
     }
 
     #[sqlx::test]
     async fn update_and_delete_model(pool: PgPool) {
         let profiles = ProviderProfileRepository::new(pool.clone());
-        let profile = profiles.create("openai", "openai", None, false).await.expect("create profile");
+        let profile = profiles
+            .create("openai", "openai", None, false)
+            .await
+            .expect("create profile");
         let models = ModelRepository::new(pool);
         let created = models
             .create("gpt-4o", "openai", profile.id, "gpt-4o", "chat")
@@ -164,7 +173,10 @@ mod tests {
             .await
             .expect("update model");
         assert_eq!(updated.public_id, "gpt-4o-renamed");
-        assert_eq!(updated.capabilities, vec!["chat".to_string(), "embedding".to_string()]);
+        assert_eq!(
+            updated.capabilities,
+            vec!["chat".to_string(), "embedding".to_string()]
+        );
 
         models.delete(created.id).await.expect("delete model");
         let err = models.get_by_public_id("gpt-4o-renamed").await.unwrap_err();

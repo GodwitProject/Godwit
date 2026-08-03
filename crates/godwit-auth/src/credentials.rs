@@ -24,7 +24,10 @@ pub fn encrypt_api_key(master_key: &[u8; 32], plaintext: &str) -> EncryptedSecre
     }
 }
 
-pub fn decrypt_api_key(master_key: &[u8; 32], secret: &EncryptedSecret) -> Result<String, PasteurError> {
+pub fn decrypt_api_key(
+    master_key: &[u8; 32],
+    secret: &EncryptedSecret,
+) -> Result<String, PasteurError> {
     let cipher = Aes256Gcm::new(master_key.into());
     let nonce_bytes = STANDARD
         .decode(&secret.nonce)
@@ -33,7 +36,9 @@ pub fn decrypt_api_key(master_key: &[u8; 32], secret: &EncryptedSecret) -> Resul
         .decode(&secret.ciphertext)
         .map_err(|e| PasteurError::Auth(format!("invalid credential ciphertext encoding: {e}")))?;
     if nonce_bytes.len() != 12 {
-        return Err(PasteurError::Auth("invalid credential nonce length".to_string()));
+        return Err(PasteurError::Auth(
+            "invalid credential nonce length".to_string(),
+        ));
     }
     let nonce = Nonce::from_slice(&nonce_bytes);
     let plaintext = cipher
@@ -43,13 +48,17 @@ pub fn decrypt_api_key(master_key: &[u8; 32], secret: &EncryptedSecret) -> Resul
 }
 
 pub fn load_master_key_from_env(var: &str) -> Result<[u8; 32], PasteurError> {
-    let encoded = std::env::var(var).map_err(|_| PasteurError::Config(format!("{var} is not set")))?;
+    let encoded =
+        std::env::var(var).map_err(|_| PasteurError::Config(format!("{var} is not set")))?;
     let bytes = STANDARD
         .decode(&encoded)
         .map_err(|e| PasteurError::Config(format!("{var} is not valid base64: {e}")))?;
-    bytes
-        .try_into()
-        .map_err(|v: Vec<u8>| PasteurError::Config(format!("{var} must decode to exactly 32 bytes, got {}", v.len())))
+    bytes.try_into().map_err(|v: Vec<u8>| {
+        PasteurError::Config(format!(
+            "{var} must decode to exactly 32 bytes, got {}",
+            v.len()
+        ))
+    })
 }
 
 #[cfg(test)]
@@ -99,10 +108,10 @@ mod tests {
 
     #[test]
     fn load_master_key_from_env_decodes_base64() {
-        std::env::set_var("TEST_CREDENTIAL_KEY", base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            [1u8; 32],
-        ));
+        std::env::set_var(
+            "TEST_CREDENTIAL_KEY",
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [1u8; 32]),
+        );
         let key = load_master_key_from_env("TEST_CREDENTIAL_KEY").expect("load key");
         assert_eq!(key, [1u8; 32]);
         std::env::remove_var("TEST_CREDENTIAL_KEY");

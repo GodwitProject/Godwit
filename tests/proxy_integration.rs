@@ -71,7 +71,10 @@ async fn proxy_audio_speech_smoke() {
 async fn proxy_audio_transcriptions_smoke() {
     let form = reqwest::multipart::Form::new()
         .text("model", "whisper-1")
-        .part("file", reqwest::multipart::Part::bytes(vec![0u8; 16]).file_name("clip.wav"));
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(vec![0u8; 16]).file_name("clip.wav"),
+        );
     let client = reqwest::Client::new();
     let res = client
         .post("http://localhost:3000/v1/audio/transcriptions")
@@ -89,7 +92,10 @@ async fn proxy_image_edits_smoke() {
     let form = reqwest::multipart::Form::new()
         .text("model", "gpt-image-1")
         .text("prompt", "add a hat")
-        .part("image", reqwest::multipart::Part::bytes(vec![0u8; 16]).file_name("image.png"));
+        .part(
+            "image",
+            reqwest::multipart::Part::bytes(vec![0u8; 16]).file_name("image.png"),
+        );
     let client = reqwest::Client::new();
     let res = client
         .post("http://localhost:3000/v1/images/edits")

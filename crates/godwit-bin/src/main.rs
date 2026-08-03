@@ -26,7 +26,8 @@ async fn main() -> anyhow::Result<()> {
     let pool = connect(&config.database.url).await?;
     run_migrations(&pool).await?;
 
-    let master_key = godwit_auth::credentials::load_master_key_from_env("CREDENTIAL_ENCRYPTION_KEY")?;
+    let master_key =
+        godwit_auth::credentials::load_master_key_from_env("CREDENTIAL_ENCRYPTION_KEY")?;
 
     let legacy_providers = bootstrap::legacy_providers_from_env();
     bootstrap::bootstrap_provider_profiles(&pool, &master_key, &legacy_providers).await?;

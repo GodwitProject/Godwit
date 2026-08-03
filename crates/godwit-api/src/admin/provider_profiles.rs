@@ -13,7 +13,10 @@ use crate::{admin::require_super_admin, error::ApiError, state::AppState};
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/provider-profiles", get(list_profiles).post(create_profile))
+        .route(
+            "/provider-profiles",
+            get(list_profiles).post(create_profile),
+        )
         .route("/provider-profiles/:id", patch(update_profile))
 }
 
@@ -37,7 +40,9 @@ async fn list_profiles(
     require_super_admin(&claims)?;
     let repo = ProviderProfileRepository::new(state.pool.clone());
     let profiles = repo.list().await.map_err(ApiError::Core)?;
-    Ok(Json(serde_json::json!({ "data": profiles.iter().map(profile_json).collect::<Vec<_>>() })))
+    Ok(Json(
+        serde_json::json!({ "data": profiles.iter().map(profile_json).collect::<Vec<_>>() }),
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -58,12 +63,19 @@ async fn create_profile(
     require_super_admin(&claims)?;
     let repo = ProviderProfileRepository::new(state.pool.clone());
     let profile = repo
-        .create(&req.name, &req.protocol, req.base_url.as_deref(), req.allow_wildcard)
+        .create(
+            &req.name,
+            &req.protocol,
+            req.base_url.as_deref(),
+            req.allow_wildcard,
+        )
         .await
         .map_err(ApiError::Core)?;
     let profile = if let Some(api_key) = req.api_key {
         let secret = encrypt_api_key(&state.credential_master_key, &api_key);
-        repo.set_auth(profile.id, &secret).await.map_err(ApiError::Core)?
+        repo.set_auth(profile.id, &secret)
+            .await
+            .map_err(ApiError::Core)?
     } else {
         profile
     };
@@ -92,7 +104,9 @@ async fn update_profile(
         .map_err(ApiError::Core)?;
     let profile = if let Some(api_key) = req.api_key {
         let secret = encrypt_api_key(&state.credential_master_key, &api_key);
-        repo.set_auth(profile.id, &secret).await.map_err(ApiError::Core)?
+        repo.set_auth(profile.id, &secret)
+            .await
+            .map_err(ApiError::Core)?
     } else {
         profile
     };

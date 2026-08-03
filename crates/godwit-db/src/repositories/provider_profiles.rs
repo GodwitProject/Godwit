@@ -81,10 +81,15 @@ impl ProviderProfileRepository {
         .map_err(|e| PasteurError::Database(e.to_string()))
     }
 
-    pub async fn set_auth(&self, id: Uuid, secret: &EncryptedSecret) -> Result<ProviderProfile, PasteurError> {
-        let auth = serde_json::to_value(secret).map_err(|e| PasteurError::Validation(e.to_string()))?;
+    pub async fn set_auth(
+        &self,
+        id: Uuid,
+        secret: &EncryptedSecret,
+    ) -> Result<ProviderProfile, PasteurError> {
+        let auth =
+            serde_json::to_value(secret).map_err(|e| PasteurError::Validation(e.to_string()))?;
         sqlx::query_as::<_, ProviderProfile>(
-            "UPDATE provider_profiles SET auth = $2 WHERE id = $1 RETURNING *"
+            "UPDATE provider_profiles SET auth = $2 WHERE id = $1 RETURNING *",
         )
         .bind(id)
         .bind(auth)
@@ -102,12 +107,20 @@ mod tests {
     async fn create_and_list_provider_profiles(pool: PgPool) {
         let repo = ProviderProfileRepository::new(pool);
         let profile = repo
-            .create("openai-default", "openai", Some("https://api.openai.com/v1"), false)
+            .create(
+                "openai-default",
+                "openai",
+                Some("https://api.openai.com/v1"),
+                false,
+            )
             .await
             .expect("create profile");
         assert_eq!(profile.name, "openai-default");
         assert_eq!(profile.protocol, "openai");
-        assert_eq!(profile.base_url.as_deref(), Some("https://api.openai.com/v1"));
+        assert_eq!(
+            profile.base_url.as_deref(),
+            Some("https://api.openai.com/v1")
+        );
         assert!(!profile.allow_wildcard);
 
         let listed = repo.list().await.expect("list profiles");
@@ -118,7 +131,10 @@ mod tests {
     #[sqlx::test]
     async fn get_profile_by_id(pool: PgPool) {
         let repo = ProviderProfileRepository::new(pool);
-        let profile = repo.create("openai", "openai", None, false).await.expect("create profile");
+        let profile = repo
+            .create("openai", "openai", None, false)
+            .await
+            .expect("create profile");
         let fetched = repo.get(profile.id).await.expect("get profile");
         assert_eq!(fetched.id, profile.id);
     }
@@ -134,10 +150,18 @@ mod tests {
     async fn get_profile_by_name(pool: PgPool) {
         let repo = ProviderProfileRepository::new(pool);
         let profile = repo
-            .create("azure", "azure_openai", Some("https://azure.example.com"), true)
+            .create(
+                "azure",
+                "azure_openai",
+                Some("https://azure.example.com"),
+                true,
+            )
             .await
             .expect("create profile");
-        let fetched = repo.get_by_name("azure").await.expect("get profile by name");
+        let fetched = repo
+            .get_by_name("azure")
+            .await
+            .expect("get profile by name");
         assert_eq!(fetched.id, profile.id);
         assert_eq!(fetched.protocol, "azure_openai");
         assert!(fetched.allow_wildcard);
@@ -153,9 +177,17 @@ mod tests {
     #[sqlx::test]
     async fn update_profile_fields(pool: PgPool) {
         let repo = ProviderProfileRepository::new(pool);
-        let profile = repo.create("openai", "openai", None, false).await.expect("create profile");
+        let profile = repo
+            .create("openai", "openai", None, false)
+            .await
+            .expect("create profile");
         let updated = repo
-            .update(profile.id, Some("https://new.example.com"), Some(true), Some(false))
+            .update(
+                profile.id,
+                Some("https://new.example.com"),
+                Some(true),
+                Some(false),
+            )
             .await
             .expect("update profile");
         assert_eq!(updated.base_url.as_deref(), Some("https://new.example.com"));
@@ -166,7 +198,10 @@ mod tests {
     #[sqlx::test]
     async fn set_auth_stores_encrypted_secret(pool: PgPool) {
         let repo = ProviderProfileRepository::new(pool);
-        let profile = repo.create("openai", "openai", None, false).await.expect("create profile");
+        let profile = repo
+            .create("openai", "openai", None, false)
+            .await
+            .expect("create profile");
         let secret = godwit_auth::credentials::encrypt_api_key(&[3u8; 32], "sk-test");
         let updated = repo.set_auth(profile.id, &secret).await.expect("set auth");
         let stored: godwit_auth::credentials::EncryptedSecret =

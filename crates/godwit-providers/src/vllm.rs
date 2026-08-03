@@ -1,4 +1,6 @@
-use crate::adapter::{Adapter, ProviderError, ProviderResponse, ResolvedProfile, SseEvent, UsageReport};
+use crate::adapter::{
+    Adapter, ProviderError, ProviderResponse, ResolvedProfile, SseEvent, UsageReport,
+};
 use crate::streaming::parse_sse_events;
 use async_trait::async_trait;
 use futures::stream::{self, BoxStream, StreamExt};
@@ -52,11 +54,17 @@ impl Adapter for VllmProvider {
         if let Some(key) = &profile.api_key {
             req = req.header("Authorization", format!("Bearer {key}"));
         }
-        let res = req.send().await.map_err(|e| ProviderError::Http { status: 0, message: e.to_string() })?;
+        let res = req.send().await.map_err(|e| ProviderError::Http {
+            status: 0,
+            message: e.to_string(),
+        })?;
         if !res.status().is_success() {
             let status = res.status().as_u16();
             let text = res.text().await.unwrap_or_default();
-            return Err(ProviderError::Http { status, message: text });
+            return Err(ProviderError::Http {
+                status,
+                message: text,
+            });
         }
         let body: ChatCompletionResponse = res
             .json()
@@ -79,7 +87,10 @@ impl Adapter for VllmProvider {
         if let Some(key) = &profile.api_key {
             req = req.header("Authorization", format!("Bearer {key}"));
         }
-        let res = req.send().await.map_err(|e| ProviderError::Http { status: 0, message: e.to_string() })?;
+        let res = req.send().await.map_err(|e| ProviderError::Http {
+            status: 0,
+            message: e.to_string(),
+        })?;
         if !res.status().is_success() {
             return Err(ProviderError::Http {
                 status: res.status().as_u16(),
@@ -88,7 +99,9 @@ impl Adapter for VllmProvider {
         }
         let byte_stream = res.bytes_stream();
         let event_stream = byte_stream.flat_map(|bytes| {
-            let text = bytes.map(|b| String::from_utf8_lossy(&b).to_string()).unwrap_or_default();
+            let text = bytes
+                .map(|b| String::from_utf8_lossy(&b).to_string())
+                .unwrap_or_default();
             stream::iter(parse_sse_events(&text).into_iter().map(Ok))
         });
         Ok(event_stream.boxed())
@@ -100,7 +113,9 @@ impl Adapter for VllmProvider {
         _model: &Model,
         _request: ImageGenerationRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
-        Err(ProviderError::CapabilityNotSupported("image generation is not supported by vllm".to_string()))
+        Err(ProviderError::CapabilityNotSupported(
+            "image generation is not supported by vllm".to_string(),
+        ))
     }
 
     async fn image_edit(
@@ -112,7 +127,9 @@ impl Adapter for VllmProvider {
         _image_filename: String,
         _mask_bytes: Option<Vec<u8>>,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
-        Err(ProviderError::CapabilityNotSupported("image edit is not supported by vllm".to_string()))
+        Err(ProviderError::CapabilityNotSupported(
+            "image edit is not supported by vllm".to_string(),
+        ))
     }
 
     async fn video_generation(
@@ -121,7 +138,9 @@ impl Adapter for VllmProvider {
         _model: &Model,
         _request: VideoGenerationRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
-        Err(ProviderError::CapabilityNotSupported("video generation is not supported by vllm".to_string()))
+        Err(ProviderError::CapabilityNotSupported(
+            "video generation is not supported by vllm".to_string(),
+        ))
     }
 
     async fn audio_tts(
@@ -130,7 +149,9 @@ impl Adapter for VllmProvider {
         _model: &Model,
         _request: AudioTtsRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
-        Err(ProviderError::CapabilityNotSupported("audio TTS is not supported by vllm".to_string()))
+        Err(ProviderError::CapabilityNotSupported(
+            "audio TTS is not supported by vllm".to_string(),
+        ))
     }
 
     async fn audio_stt(
@@ -142,7 +163,9 @@ impl Adapter for VllmProvider {
         _filename: String,
         _content_type: String,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
-        Err(ProviderError::CapabilityNotSupported("audio STT is not supported by vllm".to_string()))
+        Err(ProviderError::CapabilityNotSupported(
+            "audio STT is not supported by vllm".to_string(),
+        ))
     }
 
     async fn embedding(
@@ -158,7 +181,10 @@ impl Adapter for VllmProvider {
         if let Some(key) = &profile.api_key {
             req = req.header("Authorization", format!("Bearer {key}"));
         }
-        let res = req.send().await.map_err(|e| ProviderError::Http { status: 0, message: e.to_string() })?;
+        let res = req.send().await.map_err(|e| ProviderError::Http {
+            status: 0,
+            message: e.to_string(),
+        })?;
         if !res.status().is_success() {
             return Err(ProviderError::Http {
                 status: res.status().as_u16(),
@@ -171,7 +197,10 @@ impl Adapter for VllmProvider {
             .map_err(|e| ProviderError::Serialization(e.to_string()))?;
         Ok((
             ProviderResponse::Embedding(body.clone()),
-            UsageReport { embedding_tokens: Some(body.usage.total_tokens as i64), ..Default::default() },
+            UsageReport {
+                embedding_tokens: Some(body.usage.total_tokens as i64),
+                ..Default::default()
+            },
         ))
     }
 }
@@ -185,7 +214,10 @@ mod tests {
     use wiremock::{matchers::*, Mock, MockServer, ResponseTemplate};
 
     fn dummy_profile(base_url: String) -> ResolvedProfile {
-        ResolvedProfile { base_url, api_key: None }
+        ResolvedProfile {
+            base_url,
+            api_key: None,
+        }
     }
 
     fn dummy_model() -> Model {
@@ -221,17 +253,25 @@ mod tests {
         let profile = dummy_profile(server.uri());
         let req = ChatCompletionRequest {
             model: "llama-3-70b".to_string(),
-            messages: vec![ChatMessage { role: "user".to_string(), content: "Hi".to_string() }],
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: "Hi".to_string(),
+            }],
             stream: Some(false),
             temperature: None,
             max_tokens: None,
         };
         let (resp, _usage) = client.chat(&profile, &dummy_model(), req).await.unwrap();
-        let ProviderResponse::Chat(completion) = resp else { panic!("expected chat response") };
+        let ProviderResponse::Chat(completion) = resp else {
+            panic!("expected chat response")
+        };
         assert_eq!(completion.choices[0].message.content, "Hi there");
 
         // Verify no Authorization header was sent (since api_key is None)
-        let received = server.received_requests().await.expect("request recording enabled");
+        let received = server
+            .received_requests()
+            .await
+            .expect("request recording enabled");
         assert_eq!(received.len(), 1);
         assert!(
             received[0].headers.get("authorization").is_none(),
@@ -275,14 +315,21 @@ mod tests {
         };
         let req = ChatCompletionRequest {
             model: "local/meta-llama/Llama-3-70B-Instruct".to_string(),
-            messages: vec![ChatMessage { role: "user".to_string(), content: "Hi".to_string() }],
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: "Hi".to_string(),
+            }],
             stream: Some(false),
             temperature: None,
             max_tokens: None,
         };
         let _ = client.chat(&profile, &model, req).await.unwrap();
 
-        let body = captured_body.lock().unwrap().take().expect("request body captured");
+        let body = captured_body
+            .lock()
+            .unwrap()
+            .take()
+            .expect("request body captured");
         assert_eq!(body["model"], "meta-llama/Llama-3-70B-Instruct");
         assert_ne!(body["model"], "local/meta-llama/Llama-3-70B-Instruct");
     }
@@ -292,14 +339,18 @@ mod tests {
         let client = VllmAdapter::new();
         let profile = dummy_profile("http://localhost:8000/v1".to_string());
         let err = client
-            .image_generation(&profile, &dummy_model(), ImageGenerationRequest {
-                model: "llama-3-70b".to_string(),
-                prompt: "a cat".to_string(),
-                n: None,
-                size: None,
-                quality: None,
-                style: None,
-            })
+            .image_generation(
+                &profile,
+                &dummy_model(),
+                ImageGenerationRequest {
+                    model: "llama-3-70b".to_string(),
+                    prompt: "a cat".to_string(),
+                    n: None,
+                    size: None,
+                    quality: None,
+                    style: None,
+                },
+            )
             .await
             .unwrap_err();
         assert!(matches!(err, ProviderError::CapabilityNotSupported(_)));

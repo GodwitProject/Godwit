@@ -639,8 +639,13 @@ mod tests {
             )
             .await
             .unwrap();
-        let ProviderResponse::Image(image) = resp else { panic!("expected image response") };
-        assert_eq!(image.data[0].url.as_deref(), Some("https://example.com/edited.png"));
+        let ProviderResponse::Image(image) = resp else {
+            panic!("expected image response")
+        };
+        assert_eq!(
+            image.data[0].url.as_deref(),
+            Some("https://example.com/edited.png")
+        );
 
         // The form must carry the upstream provider_model_id, never the public_id.
         let received = server

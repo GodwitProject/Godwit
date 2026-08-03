@@ -39,9 +39,9 @@ fn map_provider_error(err: godwit_providers::adapter::ProviderError) -> crate::e
         godwit_providers::adapter::ProviderError::CapabilityNotSupported(msg) => {
             crate::error::ApiError::BadRequest(msg)
         }
-        other => crate::error::ApiError::Core(godwit_core::PasteurError::Provider(
-            other.to_string(),
-        )),
+        other => {
+            crate::error::ApiError::Core(godwit_core::PasteurError::Provider(other.to_string()))
+        }
     }
 }
 
@@ -70,7 +70,12 @@ pub fn filter_models_with_enabled_profiles(
         profiles.iter().map(|p| (p.id, p.enabled)).collect();
     models
         .into_iter()
-        .filter(|m| enabled.get(&m.provider_profile_id).copied().unwrap_or(false))
+        .filter(|m| {
+            enabled
+                .get(&m.provider_profile_id)
+                .copied()
+                .unwrap_or(false)
+        })
         .collect()
 }
 
@@ -128,9 +133,11 @@ async fn chat_completions(
                 (Ok(Json(completion).into_response()), Some(report))
             }
             _ => (
-                Err(crate::error::ApiError::Core(godwit_core::PasteurError::Provider(
-                    "unexpected provider response variant".to_string(),
-                ))),
+                Err(crate::error::ApiError::Core(
+                    godwit_core::PasteurError::Provider(
+                        "unexpected provider response variant".to_string(),
+                    ),
+                )),
                 None,
             ),
         }
@@ -174,9 +181,9 @@ async fn embeddings(
         .await
         .map_err(map_provider_error)?;
     let ProviderResponse::Embedding(body) = resp else {
-        return Err(crate::error::ApiError::Core(godwit_core::PasteurError::Provider(
-            "unexpected provider response variant".to_string(),
-        )));
+        return Err(crate::error::ApiError::Core(
+            godwit_core::PasteurError::Provider("unexpected provider response variant".to_string()),
+        ));
     };
 
     let log = RequestLogEntry {
@@ -215,25 +222,28 @@ async fn image_generations(
         .await
         .map_err(map_provider_error)?;
     let ProviderResponse::Image(body) = resp else {
-        return Err(crate::error::ApiError::Core(godwit_core::PasteurError::Provider(
-            "unexpected provider response variant".to_string(),
-        )));
+        return Err(crate::error::ApiError::Core(
+            godwit_core::PasteurError::Provider("unexpected provider response variant".to_string()),
+        ));
     };
 
-    spawn_request_log(state.pool.clone(), RequestLogEntry {
-        api_key_id: api_key.id,
-        user_id: api_key.user_id,
-        organization_id: api_key.organization_id,
-        team_id: api_key.team_id,
-        model: resolved.model.public_id.clone(),
-        provider: resolved.model.provider.clone(),
-        provider_model_id: resolved.model.provider_model_id.clone(),
-        capability: Capability::ImageGeneration.as_str().to_string(),
-        duration_ms: start.elapsed().as_millis() as i32,
-        streamed: false,
-        status: "success".to_string(),
-        cost_usd: None,
-    });
+    spawn_request_log(
+        state.pool.clone(),
+        RequestLogEntry {
+            api_key_id: api_key.id,
+            user_id: api_key.user_id,
+            organization_id: api_key.organization_id,
+            team_id: api_key.team_id,
+            model: resolved.model.public_id.clone(),
+            provider: resolved.model.provider.clone(),
+            provider_model_id: resolved.model.provider_model_id.clone(),
+            capability: Capability::ImageGeneration.as_str().to_string(),
+            duration_ms: start.elapsed().as_millis() as i32,
+            streamed: false,
+            status: "success".to_string(),
+            cost_usd: None,
+        },
+    );
 
     Ok(Json(body).into_response())
 }
@@ -255,30 +265,30 @@ async fn audio_speech(
         .await
         .map_err(map_provider_error)?;
     let ProviderResponse::Bytes(bytes, content_type) = resp else {
-        return Err(crate::error::ApiError::Core(godwit_core::PasteurError::Provider(
-            "unexpected provider response variant".to_string(),
-        )));
+        return Err(crate::error::ApiError::Core(
+            godwit_core::PasteurError::Provider("unexpected provider response variant".to_string()),
+        ));
     };
 
-    spawn_request_log(state.pool.clone(), RequestLogEntry {
-        api_key_id: api_key.id,
-        user_id: api_key.user_id,
-        organization_id: api_key.organization_id,
-        team_id: api_key.team_id,
-        model: resolved.model.public_id.clone(),
-        provider: resolved.model.provider.clone(),
-        provider_model_id: resolved.model.provider_model_id.clone(),
-        capability: Capability::AudioTts.as_str().to_string(),
-        duration_ms: start.elapsed().as_millis() as i32,
-        streamed: false,
-        status: "success".to_string(),
-        cost_usd: None,
-    });
+    spawn_request_log(
+        state.pool.clone(),
+        RequestLogEntry {
+            api_key_id: api_key.id,
+            user_id: api_key.user_id,
+            organization_id: api_key.organization_id,
+            team_id: api_key.team_id,
+            model: resolved.model.public_id.clone(),
+            provider: resolved.model.provider.clone(),
+            provider_model_id: resolved.model.provider_model_id.clone(),
+            capability: Capability::AudioTts.as_str().to_string(),
+            duration_ms: start.elapsed().as_millis() as i32,
+            streamed: false,
+            status: "success".to_string(),
+            cost_usd: None,
+        },
+    );
 
-    Ok((
-        [(axum::http::header::CONTENT_TYPE, content_type)],
-        bytes,
-    ).into_response())
+    Ok(([(axum::http::header::CONTENT_TYPE, content_type)], bytes).into_response())
 }
 
 async fn audio_transcriptions(
@@ -349,25 +359,28 @@ async fn audio_transcriptions(
         .await
         .map_err(map_provider_error)?;
     let ProviderResponse::AudioStt(body) = resp else {
-        return Err(crate::error::ApiError::Core(godwit_core::PasteurError::Provider(
-            "unexpected provider response variant".to_string(),
-        )));
+        return Err(crate::error::ApiError::Core(
+            godwit_core::PasteurError::Provider("unexpected provider response variant".to_string()),
+        ));
     };
 
-    spawn_request_log(state.pool.clone(), RequestLogEntry {
-        api_key_id: api_key.id,
-        user_id: api_key.user_id,
-        organization_id: api_key.organization_id,
-        team_id: api_key.team_id,
-        model: resolved.model.public_id.clone(),
-        provider: resolved.model.provider.clone(),
-        provider_model_id: resolved.model.provider_model_id.clone(),
-        capability: Capability::AudioStt.as_str().to_string(),
-        duration_ms: start.elapsed().as_millis() as i32,
-        streamed: false,
-        status: "success".to_string(),
-        cost_usd: None,
-    });
+    spawn_request_log(
+        state.pool.clone(),
+        RequestLogEntry {
+            api_key_id: api_key.id,
+            user_id: api_key.user_id,
+            organization_id: api_key.organization_id,
+            team_id: api_key.team_id,
+            model: resolved.model.public_id.clone(),
+            provider: resolved.model.provider.clone(),
+            provider_model_id: resolved.model.provider_model_id.clone(),
+            capability: Capability::AudioStt.as_str().to_string(),
+            duration_ms: start.elapsed().as_millis() as i32,
+            streamed: false,
+            status: "success".to_string(),
+            cost_usd: None,
+        },
+    );
 
     Ok(Json(body).into_response())
 }
@@ -453,25 +466,28 @@ async fn image_edits(
         .await
         .map_err(map_provider_error)?;
     let ProviderResponse::Image(body) = resp else {
-        return Err(crate::error::ApiError::Core(godwit_core::PasteurError::Provider(
-            "unexpected provider response variant".to_string(),
-        )));
+        return Err(crate::error::ApiError::Core(
+            godwit_core::PasteurError::Provider("unexpected provider response variant".to_string()),
+        ));
     };
 
-    spawn_request_log(state.pool.clone(), RequestLogEntry {
-        api_key_id: api_key.id,
-        user_id: api_key.user_id,
-        organization_id: api_key.organization_id,
-        team_id: api_key.team_id,
-        model: resolved.model.public_id.clone(),
-        provider: resolved.model.provider.clone(),
-        provider_model_id: resolved.model.provider_model_id.clone(),
-        capability: Capability::ImageEdit.as_str().to_string(),
-        duration_ms: start.elapsed().as_millis() as i32,
-        streamed: false,
-        status: "success".to_string(),
-        cost_usd: None,
-    });
+    spawn_request_log(
+        state.pool.clone(),
+        RequestLogEntry {
+            api_key_id: api_key.id,
+            user_id: api_key.user_id,
+            organization_id: api_key.organization_id,
+            team_id: api_key.team_id,
+            model: resolved.model.public_id.clone(),
+            provider: resolved.model.provider.clone(),
+            provider_model_id: resolved.model.provider_model_id.clone(),
+            capability: Capability::ImageEdit.as_str().to_string(),
+            duration_ms: start.elapsed().as_millis() as i32,
+            streamed: false,
+            status: "success".to_string(),
+            cost_usd: None,
+        },
+    );
 
     Ok(Json(body).into_response())
 }
@@ -564,7 +580,10 @@ mod tests {
             // A model whose profile no longer exists is also not resolvable.
             model_for(uuid::Uuid::new_v4(), "orphaned"),
         ];
-        let profiles = vec![profile_with(enabled_id, true), profile_with(disabled_id, false)];
+        let profiles = vec![
+            profile_with(enabled_id, true),
+            profile_with(disabled_id, false),
+        ];
 
         let filtered = filter_models_with_enabled_profiles(models, &profiles);
         let ids: Vec<&str> = filtered.iter().map(|m| m.public_id.as_str()).collect();

@@ -24,7 +24,7 @@ use godwit_db::models::UserRole;
 use godwit_db::repositories::{
     api_keys::ApiKeyRepository, models::ModelRepository, organizations::OrganizationRepository,
     provider_profiles::ProviderProfileRepository, refresh_tokens::RefreshTokenRepository,
-    teams::TeamRepository, users::UserRepository,
+    team_memberships::TeamMembershipRepository, teams::TeamRepository, users::UserRepository,
 };
 use godwit_providers::{
     anthropic::AnthropicAdapter, gemini::GeminiAdapter, llama_cpp::LlamaCppAdapter,
@@ -88,6 +88,7 @@ fn build_app(pool: PgPool) -> Router {
         user_repo: UserRepository::new(pool.clone()),
         org_repo: OrganizationRepository::new(pool.clone()),
         team_repo: TeamRepository::new(pool.clone()),
+        team_membership_repo: TeamMembershipRepository::new(pool.clone()),
         api_key_repo: ApiKeyRepository::new(pool.clone()),
         refresh_token_repo: RefreshTokenRepository::new(pool.clone()),
         api_key_cache: MemoryCache::new(),
@@ -166,6 +167,14 @@ fn admin_token(role: &str) -> String {
 /// what it can see and modify.
 fn admin_token_for_org(role: &str, organization_id: Uuid) -> String {
     let claims = godwit_auth::jwt::Claims::new(Uuid::new_v4(), organization_id, role);
+    godwit_auth::jwt::issue(JWT_SECRET, claims, chrono::Duration::minutes(15)).expect("issue jwt")
+}
+
+/// Issues an admin JWT for a *specific* `user_id` — needed for the team membership RBAC
+/// tests, where a `team_admin`'s authority comes from a `team_memberships` row keyed on
+/// their exact `user_id`, not just their global role or org.
+fn admin_token_for_user(role: &str, organization_id: Uuid, user_id: Uuid) -> String {
+    let claims = godwit_auth::jwt::Claims::new(user_id, organization_id, role);
     godwit_auth::jwt::issue(JWT_SECRET, claims, chrono::Duration::minutes(15)).expect("issue jwt")
 }
 
@@ -1328,5 +1337,325 @@ async fn expired_refresh_token_is_rejected_and_cleaned_up(pool: PgPool) {
         .get_by_hash(&hash)
         .await
         .expect_err("an expired, rejected refresh token must have been deleted");
+    assert!(matches!(err, godwit_core::PasteurError::NotFound));
+}
+
+// ---------------------------------------------------------------------------------------
+// Task 6: team membership RBAC through the real router.
+//
+// `require_team_manage` is a three-way check: `super_admin` always allowed; `org_admin`
+// allowed only for teams in its own org; anyone else (including a role literally named
+// `team_admin`) allowed only if a `team_memberships` row says *they specifically* hold
+// `team_admin` on *that specific team* — not merely their global role. These tests exercise
+// all three branches, including the cross-team bypass attempt every prior admin-resource
+// task's review has had to catch after the fact.
+// ---------------------------------------------------------------------------------------
+
+/// A `team_admin` membership holder for team A can add and then remove members of team A.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn team_admin_can_manage_own_team_members(pool: PgPool) {
+    let org = OrganizationRepository::new(pool.clone())
+        .create("acme", None)
+        .await
+        .expect("create org");
+    let team_a = TeamRepository::new(pool.clone())
+        .create(org.id, "team-a")
+        .await
+        .expect("create team a");
+
+    let users = UserRepository::new(pool.clone());
+    let admin_user = users
+        .create("team-a-admin@example.com", None, UserRole::User, Some(org.id))
+        .await
+        .expect("create team admin user");
+    let target_user = users
+        .create("target@example.com", None, UserRole::User, Some(org.id))
+        .await
+        .expect("create target user");
+
+    // Seed admin_user as team_admin of team_a directly through the repository.
+    TeamMembershipRepository::new(pool.clone())
+        .add_member(team_a.id, admin_user.id, "team_admin")
+        .await
+        .expect("seed team_admin membership");
+
+    let token = admin_token_for_user("team_admin", org.id, admin_user.id);
+
+    // Add target_user as a plain member of team_a.
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/teams/{}/members", team_a.id))
+                .header("Authorization", format!("Bearer {token}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"user_id": target_user.id, "role": "member"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "a team's own team_admin must be able to add a member to that team"
+    );
+
+    let membership = TeamMembershipRepository::new(pool.clone())
+        .get_membership(team_a.id, target_user.id)
+        .await
+        .expect("membership must exist");
+    assert_eq!(membership.role, "member");
+
+    // Remove target_user from team_a.
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/teams/{}/members/{}", team_a.id, target_user.id))
+                .header("Authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "a team's own team_admin must be able to remove a member from that team"
+    );
+
+    let err = TeamMembershipRepository::new(pool)
+        .get_membership(team_a.id, target_user.id)
+        .await
+        .expect_err("membership must have been removed");
+    assert!(matches!(err, godwit_core::PasteurError::NotFound));
+}
+
+/// A `team_admin` of team A must not be able to manage team B's membership, even though both
+/// teams belong to the same org — the membership check is scoped to the *specific* team, not
+/// derived from the caller's global role.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn team_admin_of_one_team_cannot_manage_another_teams_members(pool: PgPool) {
+    let org = OrganizationRepository::new(pool.clone())
+        .create("acme", None)
+        .await
+        .expect("create org");
+    let teams = TeamRepository::new(pool.clone());
+    let team_a = teams.create(org.id, "team-a").await.expect("create team a");
+    let team_b = teams.create(org.id, "team-b").await.expect("create team b");
+
+    let users = UserRepository::new(pool.clone());
+    let admin_user = users
+        .create("team-a-admin@example.com", None, UserRole::User, Some(org.id))
+        .await
+        .expect("create team admin user");
+    let target_user = users
+        .create("target@example.com", None, UserRole::User, Some(org.id))
+        .await
+        .expect("create target user");
+
+    TeamMembershipRepository::new(pool.clone())
+        .add_member(team_a.id, admin_user.id, "team_admin")
+        .await
+        .expect("seed team_admin membership on team_a only");
+
+    let token = admin_token_for_user("team_admin", org.id, admin_user.id);
+
+    // Attempt to add a member to team_b, which admin_user has no membership on.
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/teams/{}/members", team_b.id))
+                .header("Authorization", format!("Bearer {token}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"user_id": target_user.id, "role": "member"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "a team_admin of team A must not be able to add members to team B"
+    );
+
+    let err = TeamMembershipRepository::new(pool.clone())
+        .get_membership(team_b.id, target_user.id)
+        .await
+        .expect_err("no membership must have been created on team_b");
+    assert!(matches!(err, godwit_core::PasteurError::NotFound));
+
+    // Also seed target_user onto team_b directly, then confirm the same caller cannot remove it.
+    TeamMembershipRepository::new(pool.clone())
+        .add_member(team_b.id, target_user.id, "member")
+        .await
+        .expect("seed member on team_b");
+
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/teams/{}/members/{}", team_b.id, target_user.id))
+                .header("Authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "a team_admin of team A must not be able to remove members from team B"
+    );
+
+    let still_there = TeamMembershipRepository::new(pool)
+        .get_membership(team_b.id, target_user.id)
+        .await
+        .expect("membership on team_b must remain untouched");
+    assert_eq!(still_there.role, "member");
+}
+
+/// An `org_admin` can manage membership on any team within its own org, even without holding
+/// any `team_admin` membership row itself.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn org_admin_can_manage_any_teams_members_in_its_own_org(pool: PgPool) {
+    let org = OrganizationRepository::new(pool.clone())
+        .create("acme", None)
+        .await
+        .expect("create org");
+    let team = TeamRepository::new(pool.clone())
+        .create(org.id, "engineering")
+        .await
+        .expect("create team");
+    let target_user = UserRepository::new(pool.clone())
+        .create("target@example.com", None, UserRole::User, Some(org.id))
+        .await
+        .expect("create target user");
+
+    let token = admin_token_for_org("org_admin", org.id);
+
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/teams/{}/members", team.id))
+                .header("Authorization", format!("Bearer {token}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"user_id": target_user.id, "role": "team_admin"})
+                        .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "org_admin must be able to manage any team's members within its own org"
+    );
+
+    let membership = TeamMembershipRepository::new(pool)
+        .get_membership(team.id, target_user.id)
+        .await
+        .expect("membership must exist");
+    assert_eq!(membership.role, "team_admin");
+}
+
+/// A plain `user` with no `team_admin` membership anywhere is forbidden from managing any
+/// team's membership.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn plain_user_without_any_team_admin_membership_is_forbidden(pool: PgPool) {
+    let org = OrganizationRepository::new(pool.clone())
+        .create("acme", None)
+        .await
+        .expect("create org");
+    let team = TeamRepository::new(pool.clone())
+        .create(org.id, "engineering")
+        .await
+        .expect("create team");
+    let target_user = UserRepository::new(pool.clone())
+        .create("target@example.com", None, UserRole::User, Some(org.id))
+        .await
+        .expect("create target user");
+
+    let token = admin_token_for_org("user", org.id);
+
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/teams/{}/members", team.id))
+                .header("Authorization", format!("Bearer {token}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"user_id": target_user.id, "role": "member"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "a plain user with no team_admin membership must be forbidden"
+    );
+
+    let err = TeamMembershipRepository::new(pool)
+        .get_membership(team.id, target_user.id)
+        .await
+        .expect_err("no membership must have been created");
+    assert!(matches!(err, godwit_core::PasteurError::NotFound));
+}
+
+/// `add_member` validates the `role` field against the allowed set before hitting the
+/// database, so an invalid role is a clear 400 rather than the CHECK constraint's opaque
+/// database error.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn add_member_rejects_invalid_role_before_hitting_the_database(pool: PgPool) {
+    let org = OrganizationRepository::new(pool.clone())
+        .create("acme", None)
+        .await
+        .expect("create org");
+    let team = TeamRepository::new(pool.clone())
+        .create(org.id, "engineering")
+        .await
+        .expect("create team");
+    let target_user = UserRepository::new(pool.clone())
+        .create("target@example.com", None, UserRole::User, Some(org.id))
+        .await
+        .expect("create target user");
+
+    let token = admin_token_for_org("super_admin", org.id);
+
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/teams/{}/members", team.id))
+                .header("Authorization", format!("Bearer {token}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"user_id": target_user.id, "role": "owner"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_REQUEST,
+        "an invalid role must be rejected with 400, not a database error"
+    );
+
+    let err = TeamMembershipRepository::new(pool)
+        .get_membership(team.id, target_user.id)
+        .await
+        .expect_err("no membership must have been created for an invalid role");
     assert!(matches!(err, godwit_core::PasteurError::NotFound));
 }

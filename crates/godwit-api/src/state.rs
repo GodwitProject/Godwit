@@ -4,7 +4,8 @@ use godwit_core::AppConfig;
 use godwit_db::models::ApiKey;
 use godwit_db::repositories::{
     api_keys::ApiKeyRepository, organizations::OrganizationRepository,
-    refresh_tokens::RefreshTokenRepository, teams::TeamRepository, users::UserRepository,
+    refresh_tokens::RefreshTokenRepository, team_memberships::TeamMembershipRepository,
+    teams::TeamRepository, users::UserRepository,
 };
 use godwit_providers::AdapterRegistry;
 use sqlx::PgPool;
@@ -18,6 +19,7 @@ pub struct AppState {
     pub user_repo: UserRepository,
     pub org_repo: OrganizationRepository,
     pub team_repo: TeamRepository,
+    pub team_membership_repo: TeamMembershipRepository,
     pub api_key_repo: ApiKeyRepository,
     pub refresh_token_repo: RefreshTokenRepository,
     pub api_key_cache: MemoryCache<String, ApiKey>,

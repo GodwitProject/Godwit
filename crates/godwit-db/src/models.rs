@@ -114,6 +114,13 @@ pub struct Team {
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct TeamMembership {
+    pub user_id: Uuid,
+    pub team_id: Uuid,
+    pub role: String,
+}
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct RefreshToken {
     pub id: Uuid,
     pub user_id: Uuid,

@@ -636,6 +636,7 @@ mod tests {
 
         Mock::given(method("POST"))
             .and(path("/v1/messages"))
+            .and(header("anthropic-version", "2023-06-01"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "id": "msg_01",
                 "type": "message",

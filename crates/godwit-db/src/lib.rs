@@ -254,6 +254,67 @@ mod tests {
         assert!(result.is_ok(), "image_edit should be a legal capability value, got: {:?}", result.err());
     }
 
+    /// `models.provider` was constrained to ('openai','anthropic') by the initial
+    /// migration, which made catalog rows for the five other protocols that now have real
+    /// adapters impossible to insert. 20260803000003 relaxes it; this exercises the
+    /// relaxed constraint through the repository for every one of the seven values.
+    #[sqlx::test]
+    async fn models_provider_check_constraint_accepts_all_protocols(pool: PgPool) {
+        let profiles = ProviderProfileRepository::new(pool.clone());
+        let profile = profiles
+            .create("local-vllm", "vllm", Some("http://localhost:8000/v1"), false)
+            .await
+            .expect("create profile");
+
+        let models = ModelRepository::new(pool);
+        let created = models
+            .create(
+                "llama-3-70b",
+                "vllm",
+                profile.id,
+                "meta-llama/Llama-3-70B-Instruct",
+                "chat",
+            )
+            .await
+            .expect("a vllm-provider model row must be insertable");
+        assert_eq!(created.provider, "vllm");
+        assert_eq!(created.provider_model_id, "meta-llama/Llama-3-70B-Instruct");
+
+        // The remaining protocols must be accepted too.
+        for provider in ["openai", "anthropic", "gemini", "sglang", "llama_cpp", "ollama"] {
+            models
+                .create(
+                    &format!("model-{provider}"),
+                    provider,
+                    profile.id,
+                    &format!("upstream-{provider}"),
+                    "chat",
+                )
+                .await
+                .unwrap_or_else(|e| panic!("provider '{provider}' should be accepted, got: {e:?}"));
+        }
+    }
+
+    #[sqlx::test]
+    async fn models_provider_check_constraint_still_rejects_unknown_protocol(pool: PgPool) {
+        let profiles = ProviderProfileRepository::new(pool.clone());
+        let profile = profiles
+            .create("openai", "openai", None, false)
+            .await
+            .expect("create profile");
+
+        let models = ModelRepository::new(pool);
+        let err = models
+            .create("bogus", "not_a_protocol", profile.id, "x", "chat")
+            .await
+            .expect_err("an unknown provider must still violate the check constraint");
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("models_provider_check") || msg.contains("check constraint"),
+            "expected check constraint violation, got: {msg}"
+        );
+    }
+
     #[sqlx::test]
     async fn model_repository_create_round_trips_new_fields(pool: PgPool) {
         let profiles = ProviderProfileRepository::new(pool.clone());

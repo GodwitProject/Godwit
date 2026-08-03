@@ -24,7 +24,7 @@ use godwit_db::models::UserRole;
 use godwit_db::repositories::{
     api_keys::ApiKeyRepository, models::ModelRepository, organizations::OrganizationRepository,
     provider_profiles::ProviderProfileRepository, refresh_tokens::RefreshTokenRepository,
-    users::UserRepository,
+    teams::TeamRepository, users::UserRepository,
 };
 use godwit_providers::{
     anthropic::AnthropicAdapter, gemini::GeminiAdapter, llama_cpp::LlamaCppAdapter,
@@ -87,6 +87,7 @@ fn build_app(pool: PgPool) -> Router {
         model_router: DbModelRouter::new(pool.clone(), registry, MASTER_KEY),
         user_repo: UserRepository::new(pool.clone()),
         org_repo: OrganizationRepository::new(pool.clone()),
+        team_repo: TeamRepository::new(pool.clone()),
         api_key_repo: ApiKeyRepository::new(pool.clone()),
         refresh_token_repo: RefreshTokenRepository::new(pool.clone()),
         api_key_cache: MemoryCache::new(),

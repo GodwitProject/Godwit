@@ -26,15 +26,16 @@ pub(crate) fn require_super_admin(claims: &Claims) -> Result<(), ApiError> {
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     let protected = Router::new()
         .nest("/users", users::router())
-        .nest("/teams", teams::router())
         .nest("/api-keys", api_keys::router())
-        // `models::router()`, `provider_profiles::router()`, and `organizations::router()`
-        // already register their full intended paths ("/models", "/models/:id",
-        // "/provider-profiles", "/organizations", ...), so they are merged, not nested:
-        // nesting under "/organizations" produced "/api/v1/organizations/organizations".
+        // `models::router()`, `provider_profiles::router()`, `organizations::router()`, and
+        // `teams::router()` already register their full intended paths ("/models",
+        // "/models/:id", "/provider-profiles", "/organizations", "/teams", ...), so they are
+        // merged, not nested: nesting under "/organizations" produced
+        // "/api/v1/organizations/organizations".
         .merge(models::router())
         .merge(provider_profiles::router())
         .merge(organizations::router())
+        .merge(teams::router())
         .nest("/spend", spend::router())
         .route_layer(middleware::from_fn_with_state(state, jwt_auth));
 

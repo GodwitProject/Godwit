@@ -6,7 +6,7 @@ use godwit_db::{
     connect,
     repositories::{
         api_keys::ApiKeyRepository, organizations::OrganizationRepository,
-        refresh_tokens::RefreshTokenRepository, users::UserRepository,
+        refresh_tokens::RefreshTokenRepository, teams::TeamRepository, users::UserRepository,
     },
     run_migrations,
 };
@@ -50,6 +50,7 @@ async fn main() -> anyhow::Result<()> {
         model_router: DbModelRouter::new(pool.clone(), adapter_registry, master_key),
         user_repo: UserRepository::new(pool.clone()),
         org_repo: OrganizationRepository::new(pool.clone()),
+        team_repo: TeamRepository::new(pool.clone()),
         api_key_repo: ApiKeyRepository::new(pool.clone()),
         refresh_token_repo: RefreshTokenRepository::new(pool.clone()),
         api_key_cache: MemoryCache::new(),

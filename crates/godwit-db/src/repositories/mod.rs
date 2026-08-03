@@ -3,4 +3,5 @@ pub mod models;
 pub mod organizations;
 pub mod provider_profiles;
 pub mod refresh_tokens;
+pub mod teams;
 pub mod users;

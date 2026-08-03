@@ -26,12 +26,7 @@ export default function AuthCallbackPage() {
       }
 
       try {
-        const result = await exchangeOIDCCode(code, state)
-
-        if (!result.success) {
-          throw new Error(result.error || 'Token exchange failed')
-        }
-
+        await exchangeOIDCCode(code, state)
         router.push('/admin')
       } catch (err) {
         console.error('Callback error:', err)

@@ -179,20 +179,19 @@ Requires `org_admin` or `super_admin` role. User CRUD is scoped to the user's or
 
 #### API Keys
 
-- `GET /api/v1/api-keys` — List API keys for the authenticated user.
+Requires `super_admin`, `org_admin`, or `team_admin` role.
+
+- `GET /api/v1/api-keys` — List API keys for the organization.
 - `POST /api/v1/api-keys` — Create a new API key. Returns the plaintext key (only returned on creation; hashed form is stored).
 
 #### Provider Profiles & Models
 
-Requires `super_admin` role. Credentials are never returned in responses — `provider-profiles` responses expose only a `has_credentials` boolean.
+All endpoints require `super_admin` role. These manage the instance-wide provider catalog: profiles (provider credentials and connection details) and models (public LLM identifiers mapped to provider profiles and capabilities). Credentials are never returned in responses — `provider-profiles` responses expose only a `has_credentials` boolean.
 
-- `GET /api/v1/provider-profiles` — List all provider profiles.
-- `POST /api/v1/provider-profiles` — Create provider profile. Request: `{ "name": "...", "provider": "openai" | "anthropic" | "gemini" | "vllm" | "sglang" | "llama.cpp" | "ollama", "api_key": "..." }`.
-- `PATCH /api/v1/provider-profiles/:id` — Update provider profile credentials. Request: `{ "api_key": "..." }`.
-- `GET /api/v1/models` — List all models.
-- `POST /api/v1/models` — Create model. Request: `{ "public_id": "...", "provider_profile_id": "...", "provider_model_id": "...", "capabilities": [ "chat" | "embedding" | "image_generation" | "image_edit" | "audio_speech" | "audio_transcription" ], "pricing": { "input_per_1k": "...", "output_per_1k": "..." }, "config": {} }`.
-- `PATCH /api/v1/models/:id` — Update model. Request: `{ "capabilities": <optional>, "pricing": <optional>, "config": <optional> }`.
-- `DELETE /api/v1/models/:id` — Delete model.
+- `GET|POST /api/v1/provider-profiles` — List or create provider profiles.
+- `PATCH /api/v1/provider-profiles/:id` — Update provider profile.
+- `GET|POST /api/v1/models` — List or create models.
+- `PATCH|DELETE /api/v1/models/:id` — Update or delete model.
 
 ## License
 

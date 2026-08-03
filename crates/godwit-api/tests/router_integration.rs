@@ -161,6 +161,14 @@ fn admin_token(role: &str) -> String {
     godwit_auth::jwt::issue(JWT_SECRET, claims, chrono::Duration::minutes(15)).expect("issue jwt")
 }
 
+/// Issues an admin JWT for the given role, scoped to a specific organization — needed for
+/// the teams RBAC tests, where the caller's `organization_id` (not just its role) determines
+/// what it can see and modify.
+fn admin_token_for_org(role: &str, organization_id: Uuid) -> String {
+    let claims = godwit_auth::jwt::Claims::new(Uuid::new_v4(), organization_id, role);
+    godwit_auth::jwt::issue(JWT_SECRET, claims, chrono::Duration::minutes(15)).expect("issue jwt")
+}
+
 async fn body_json(response: axum::response::Response) -> serde_json::Value {
     let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
         .await
@@ -424,7 +432,11 @@ async fn super_admin_can_create_a_vllm_backed_catalog_model(pool: PgPool) {
 async fn admin_catalog_routes_are_not_double_nested(pool: PgPool) {
     let token = admin_token("super_admin");
 
-    for uri in ["/api/v1/models", "/api/v1/provider-profiles"] {
+    for uri in [
+        "/api/v1/models",
+        "/api/v1/provider-profiles",
+        "/api/v1/teams",
+    ] {
         let response = build_app(pool.clone())
             .oneshot(
                 Request::builder()
@@ -449,6 +461,7 @@ async fn admin_catalog_routes_are_not_double_nested(pool: PgPool) {
     for uri in [
         "/api/v1/models/models",
         "/api/v1/provider-profiles/provider-profiles",
+        "/api/v1/teams/teams",
     ] {
         let response = build_app(pool.clone())
             .oneshot(
@@ -530,6 +543,212 @@ async fn admin_by_id_routes_are_reachable(pool: PgPool) {
     let body = body_json(response).await;
     assert!(status.is_success(), "got {status}: {body}");
     assert_eq!(body["deleted"], true);
+}
+
+// ---------------------------------------------------------------------------------------
+// Task 5: teams RBAC scoping through the real router.
+//
+// This is the "central" convention this whole plan establishes: `super_admin` sees
+// everything unless it opts into a single org via `?organization_id=`; `org_admin` is
+// always pinned to its own org no matter what the query string or request body says.
+// ---------------------------------------------------------------------------------------
+
+/// `super_admin`: omitting `organization_id` returns teams across every org; passing it
+/// scopes the listing to just that one org.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn super_admin_lists_all_teams_or_scopes_by_organization_id(pool: PgPool) {
+    let orgs = OrganizationRepository::new(pool.clone());
+    let org_a = orgs.create("org-a", None).await.expect("create org a");
+    let org_b = orgs.create("org-b", None).await.expect("create org b");
+
+    let teams = TeamRepository::new(pool.clone());
+    let team_a = teams
+        .create(org_a.id, "team-a")
+        .await
+        .expect("create team a");
+    let team_b = teams
+        .create(org_b.id, "team-b")
+        .await
+        .expect("create team b");
+
+    let token = admin_token("super_admin");
+
+    // No `organization_id`: every team, across both orgs.
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/teams")
+                .header("Authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_json(response).await;
+    let ids: Vec<String> = body["data"]
+        .as_array()
+        .expect("data array")
+        .iter()
+        .map(|t| t["id"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(
+        ids.len(),
+        2,
+        "super_admin with no organization_id must see teams across all orgs, got {body}"
+    );
+    assert!(ids.contains(&team_a.id.to_string()));
+    assert!(ids.contains(&team_b.id.to_string()));
+
+    // `organization_id=org_a`: only org A's team.
+    let response = build_app(pool)
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/v1/teams?organization_id={}", org_a.id))
+                .header("Authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_json(response).await;
+    let ids: Vec<String> = body["data"]
+        .as_array()
+        .expect("data array")
+        .iter()
+        .map(|t| t["id"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(
+        ids,
+        vec![team_a.id.to_string()],
+        "organization_id must scope the listing to just that org, got {body}"
+    );
+}
+
+/// `org_admin` is always scoped to its own org, even if it tries to peek at another org's
+/// teams via `?organization_id=`.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn org_admin_cannot_use_organization_id_to_see_another_orgs_teams(pool: PgPool) {
+    let orgs = OrganizationRepository::new(pool.clone());
+    let org_a = orgs.create("org-a", None).await.expect("create org a");
+    let org_b = orgs.create("org-b", None).await.expect("create org b");
+
+    let teams = TeamRepository::new(pool.clone());
+    let team_a = teams
+        .create(org_a.id, "team-a")
+        .await
+        .expect("create team a");
+    teams
+        .create(org_b.id, "team-b")
+        .await
+        .expect("create team b");
+
+    let token = admin_token_for_org("org_admin", org_a.id);
+
+    // Attempting to see org B's teams via the query param must be ignored.
+    let response = build_app(pool)
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/v1/teams?organization_id={}", org_b.id))
+                .header("Authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_json(response).await;
+    let ids: Vec<String> = body["data"]
+        .as_array()
+        .expect("data array")
+        .iter()
+        .map(|t| t["id"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(
+        ids,
+        vec![team_a.id.to_string()],
+        "org_admin must only ever see its own org's teams, regardless of organization_id, got {body}"
+    );
+}
+
+/// `org_admin` cannot rename a team belonging to a different org, even by guessing its ID.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn org_admin_cannot_rename_a_team_in_another_org(pool: PgPool) {
+    let orgs = OrganizationRepository::new(pool.clone());
+    let org_a = orgs.create("org-a", None).await.expect("create org a");
+    let org_b = orgs.create("org-b", None).await.expect("create org b");
+
+    let teams = TeamRepository::new(pool.clone());
+    let team_b = teams
+        .create(org_b.id, "team-b")
+        .await
+        .expect("create team b");
+
+    let token = admin_token_for_org("org_admin", org_a.id);
+
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/teams/{}", team_b.id))
+                .header("Authorization", format!("Bearer {token}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"name": "hijacked"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "org_admin must not be able to rename a team outside its own org"
+    );
+
+    // ...and the team's name is unchanged.
+    let unchanged = teams.get_by_id(team_b.id).await.expect("fetch team b");
+    assert_eq!(unchanged.name, "team-b");
+}
+
+/// `super_admin` must supply `organization_id` explicitly when creating a team — there is no
+/// implicit org to fall back to, so a missing field is a 400, not a silently-chosen default.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn super_admin_create_team_without_organization_id_is_bad_request(pool: PgPool) {
+    let token = admin_token("super_admin");
+
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/teams")
+                .header("Authorization", format!("Bearer {token}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"name": "orphan-team"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_REQUEST,
+        "super_admin must supply organization_id explicitly when creating a team"
+    );
+
+    let all = TeamRepository::new(pool)
+        .list_all()
+        .await
+        .expect("list all teams");
+    assert!(
+        all.is_empty(),
+        "a rejected POST must not create a team"
+    );
 }
 
 // ---------------------------------------------------------------------------------------

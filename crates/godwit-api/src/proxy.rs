@@ -8,7 +8,9 @@ use axum::{
 use futures::StreamExt;
 use godwit_core::{Capability, ChatCompletionRequest, ImageGenerationRequest};
 use godwit_db::models::ApiKey;
-use godwit_db::repositories::models::ModelRepository;
+use godwit_db::repositories::{
+    models::ModelRepository, provider_profiles::ProviderProfileRepository,
+};
 use godwit_providers::ProviderResponse;
 use rust_decimal::Decimal;
 use std::sync::Arc;
@@ -26,6 +28,23 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/v1/images/edits", post(image_edits))
 }
 
+/// Maps an adapter error onto an HTTP-appropriate `ApiError`.
+///
+/// `CapabilityNotSupported` is a *client* problem — the caller asked a model/backend to do
+/// something it does not implement (e.g. `/v1/images/edits` against a vllm-backed model) —
+/// so it must surface as a 400 with the adapter's explanation, not as the opaque 500 that
+/// `ApiError::Core` renders. Every other variant stays a 500.
+fn map_provider_error(err: godwit_providers::adapter::ProviderError) -> crate::error::ApiError {
+    match err {
+        godwit_providers::adapter::ProviderError::CapabilityNotSupported(msg) => {
+            crate::error::ApiError::BadRequest(msg)
+        }
+        other => crate::error::ApiError::Core(godwit_core::PasteurError::Provider(
+            other.to_string(),
+        )),
+    }
+}
+
 pub fn models_response(models: &[godwit_db::models::Model]) -> serde_json::Value {
     let data: Vec<serde_json::Value> = models
         .iter()
@@ -34,11 +53,25 @@ pub fn models_response(models: &[godwit_db::models::Model]) -> serde_json::Value
                 "id": m.public_id,
                 "object": "model",
                 "created": m.created_at.timestamp(),
-                "owned_by": "organization"
+                "owned_by": m.provider
             })
         })
         .collect();
     serde_json::json!({ "object": "list", "data": data })
+}
+
+/// Drops catalog models whose backing provider profile is disabled — they are not
+/// resolvable by `DbModelRouter::resolve`, so advertising them here would be misleading.
+pub fn filter_models_with_enabled_profiles(
+    models: Vec<godwit_db::models::Model>,
+    profiles: &[godwit_db::models::ProviderProfile],
+) -> Vec<godwit_db::models::Model> {
+    let enabled: std::collections::HashMap<uuid::Uuid, bool> =
+        profiles.iter().map(|p| (p.id, p.enabled)).collect();
+    models
+        .into_iter()
+        .filter(|m| enabled.get(&m.provider_profile_id).copied().unwrap_or(false))
+        .collect()
 }
 
 async fn list_models(
@@ -47,6 +80,11 @@ async fn list_models(
 ) -> Result<impl IntoResponse, crate::error::ApiError> {
     let repo = ModelRepository::new(state.pool.clone());
     let models = repo.list().await.map_err(crate::error::ApiError::Core)?;
+    let profiles = ProviderProfileRepository::new(state.pool.clone())
+        .list()
+        .await
+        .map_err(crate::error::ApiError::Core)?;
+    let models = filter_models_with_enabled_profiles(models, &profiles);
     Ok((StatusCode::OK, Json(models_response(&models))))
 }
 
@@ -68,9 +106,7 @@ async fn chat_completions(
             .adapter
             .chat_stream(&resolved.resolved_credentials, &resolved.model, req)
             .await
-            .map_err(|e| {
-                crate::error::ApiError::Core(godwit_core::PasteurError::Provider(e.to_string()))
-            })?;
+            .map_err(map_provider_error)?;
         let sse_stream = stream.map(move |event| {
             let event = event
                 .map(|e| axum::response::sse::Event::default().data(e.data))
@@ -86,9 +122,7 @@ async fn chat_completions(
             .adapter
             .chat(&resolved.resolved_credentials, &resolved.model, req)
             .await
-            .map_err(|e| {
-                crate::error::ApiError::Core(godwit_core::PasteurError::Provider(e.to_string()))
-            })?;
+            .map_err(map_provider_error)?;
         match resp {
             ProviderResponse::Chat(completion) => {
                 (Ok(Json(completion).into_response()), Some(report))
@@ -138,7 +172,7 @@ async fn embeddings(
         .adapter
         .embedding(&resolved.resolved_credentials, &resolved.model, req)
         .await
-        .map_err(|e| crate::error::ApiError::Core(godwit_core::PasteurError::Provider(e.to_string())))?;
+        .map_err(map_provider_error)?;
     let ProviderResponse::Embedding(body) = resp else {
         return Err(crate::error::ApiError::Core(godwit_core::PasteurError::Provider(
             "unexpected provider response variant".to_string(),
@@ -179,7 +213,7 @@ async fn image_generations(
         .adapter
         .image_generation(&resolved.resolved_credentials, &resolved.model, req)
         .await
-        .map_err(|e| crate::error::ApiError::Core(godwit_core::PasteurError::Provider(e.to_string())))?;
+        .map_err(map_provider_error)?;
     let ProviderResponse::Image(body) = resp else {
         return Err(crate::error::ApiError::Core(godwit_core::PasteurError::Provider(
             "unexpected provider response variant".to_string(),
@@ -219,7 +253,7 @@ async fn audio_speech(
         .adapter
         .audio_tts(&resolved.resolved_credentials, &resolved.model, req)
         .await
-        .map_err(|e| crate::error::ApiError::Core(godwit_core::PasteurError::Provider(e.to_string())))?;
+        .map_err(map_provider_error)?;
     let ProviderResponse::Bytes(bytes, content_type) = resp else {
         return Err(crate::error::ApiError::Core(godwit_core::PasteurError::Provider(
             "unexpected provider response variant".to_string(),
@@ -313,7 +347,7 @@ async fn audio_transcriptions(
             content_type,
         )
         .await
-        .map_err(|e| crate::error::ApiError::Core(godwit_core::PasteurError::Provider(e.to_string())))?;
+        .map_err(map_provider_error)?;
     let ProviderResponse::AudioStt(body) = resp else {
         return Err(crate::error::ApiError::Core(godwit_core::PasteurError::Provider(
             "unexpected provider response variant".to_string(),
@@ -417,7 +451,7 @@ async fn image_edits(
             mask_bytes,
         )
         .await
-        .map_err(|e| crate::error::ApiError::Core(godwit_core::PasteurError::Provider(e.to_string())))?;
+        .map_err(map_provider_error)?;
     let ProviderResponse::Image(body) = resp else {
         return Err(crate::error::ApiError::Core(godwit_core::PasteurError::Provider(
             "unexpected provider response variant".to_string(),
@@ -490,5 +524,95 @@ mod tests {
         let body = models_response(&[]);
         assert_eq!(body["object"], "list");
         assert!(body["data"].as_array().unwrap().is_empty());
+    }
+
+    fn model_for(profile_id: uuid::Uuid, public_id: &str) -> godwit_db::models::Model {
+        godwit_db::models::Model {
+            id: uuid::Uuid::new_v4(),
+            public_id: public_id.to_string(),
+            provider: "openai".to_string(),
+            provider_profile_id: profile_id,
+            provider_model_id: public_id.to_string(),
+            capabilities: vec!["chat".to_string()],
+            pricing: serde_json::json!({}),
+            config: serde_json::json!({}),
+            created_at: chrono::Utc::now(),
+        }
+    }
+
+    fn profile_with(id: uuid::Uuid, enabled: bool) -> godwit_db::models::ProviderProfile {
+        godwit_db::models::ProviderProfile {
+            id,
+            name: format!("p-{id}"),
+            protocol: "openai".to_string(),
+            base_url: Some("https://api.openai.com/v1".to_string()),
+            allow_wildcard: false,
+            auth: serde_json::json!({}),
+            config: serde_json::json!({}),
+            enabled,
+            created_at: chrono::Utc::now(),
+        }
+    }
+
+    #[test]
+    fn list_models_excludes_models_backed_by_disabled_profiles() {
+        let enabled_id = uuid::Uuid::new_v4();
+        let disabled_id = uuid::Uuid::new_v4();
+        let models = vec![
+            model_for(enabled_id, "visible"),
+            model_for(disabled_id, "hidden"),
+            // A model whose profile no longer exists is also not resolvable.
+            model_for(uuid::Uuid::new_v4(), "orphaned"),
+        ];
+        let profiles = vec![profile_with(enabled_id, true), profile_with(disabled_id, false)];
+
+        let filtered = filter_models_with_enabled_profiles(models, &profiles);
+        let ids: Vec<&str> = filtered.iter().map(|m| m.public_id.as_str()).collect();
+        assert_eq!(ids, vec!["visible"]);
+
+        let body = models_response(&filtered);
+        assert_eq!(body["data"].as_array().unwrap().len(), 1);
+        assert_eq!(body["data"][0]["id"], "visible");
+        assert_eq!(body["data"][0]["owned_by"], "openai");
+    }
+
+    #[test]
+    fn capability_not_supported_maps_to_bad_request() {
+        let err = map_provider_error(
+            godwit_providers::adapter::ProviderError::CapabilityNotSupported(
+                "image edit is not supported by vllm".to_string(),
+            ),
+        );
+        match err {
+            crate::error::ApiError::BadRequest(msg) => {
+                assert_eq!(msg, "image edit is not supported by vllm")
+            }
+            _ => panic!("CapabilityNotSupported must map to a 400 BadRequest"),
+        }
+
+        let resp = map_provider_error(
+            godwit_providers::adapter::ProviderError::CapabilityNotSupported("nope".to_string()),
+        )
+        .into_response();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn other_provider_errors_still_map_to_internal_error() {
+        for err in [
+            godwit_providers::adapter::ProviderError::Http {
+                status: 502,
+                message: "upstream exploded".to_string(),
+            },
+            godwit_providers::adapter::ProviderError::Serialization("bad json".to_string()),
+            godwit_providers::adapter::ProviderError::Provider("boom".to_string()),
+        ] {
+            let mapped = map_provider_error(err);
+            assert!(matches!(mapped, crate::error::ApiError::Core(_)));
+            assert_eq!(
+                mapped.into_response().status(),
+                StatusCode::INTERNAL_SERVER_ERROR
+            );
+        }
     }
 }

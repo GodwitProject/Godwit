@@ -9,7 +9,7 @@ godwit-db = { path = "../godwit-db" }
 godwit-auth = { path = "../godwit-auth" }
 godwit-providers = { path = "../godwit-providers" }
 godwit-cache = { path = "../godwit-cache" }
-axum = "0.7"
+axum = { version = "0.7", features = ["multipart"] }
 async-trait = "0.1"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors"] }

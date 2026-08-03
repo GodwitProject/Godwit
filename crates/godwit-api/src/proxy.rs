@@ -22,6 +22,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/v1/embeddings", post(embeddings))
         .route("/v1/images/generations", post(image_generations))
         .route("/v1/audio/speech", post(audio_speech))
+        .route("/v1/audio/transcriptions", post(audio_transcriptions))
 }
 
 pub fn models_response(models: &[godwit_db::models::Model]) -> serde_json::Value {
@@ -243,6 +244,97 @@ async fn audio_speech(
         [(axum::http::header::CONTENT_TYPE, content_type)],
         bytes,
     ).into_response())
+}
+
+async fn audio_transcriptions(
+    State(state): State<Arc<AppState>>,
+    Extension(api_key): Extension<ApiKey>,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Response, crate::error::ApiError> {
+    let mut model_name: Option<String> = None;
+    let mut language: Option<String> = None;
+    let mut response_format: Option<String> = None;
+    let mut file_bytes: Option<Vec<u8>> = None;
+    let mut filename = "audio".to_string();
+    let mut content_type = "application/octet-stream".to_string();
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| crate::error::ApiError::BadRequest(e.to_string()))?
+    {
+        match field.name().unwrap_or_default() {
+            "model" => model_name = Some(field.text().await.unwrap_or_default()),
+            "language" => language = Some(field.text().await.unwrap_or_default()),
+            "response_format" => response_format = Some(field.text().await.unwrap_or_default()),
+            "file" => {
+                filename = field.file_name().unwrap_or("audio").to_string();
+                content_type = field
+                    .content_type()
+                    .unwrap_or("application/octet-stream")
+                    .to_string();
+                file_bytes = Some(
+                    field
+                        .bytes()
+                        .await
+                        .map_err(|e| crate::error::ApiError::BadRequest(e.to_string()))?
+                        .to_vec(),
+                );
+            }
+            _ => {}
+        }
+    }
+
+    let model_name = model_name
+        .ok_or_else(|| crate::error::ApiError::BadRequest("missing 'model' field".to_string()))?;
+    let file_bytes = file_bytes
+        .ok_or_else(|| crate::error::ApiError::BadRequest("missing 'file' field".to_string()))?;
+
+    let start = std::time::Instant::now();
+    let resolved = state
+        .model_router
+        .resolve(&model_name, Capability::AudioStt)
+        .await?;
+
+    let req = godwit_core::AudioSttRequest {
+        model: model_name,
+        language,
+        response_format,
+    };
+    let (resp, _usage) = resolved
+        .adapter
+        .audio_stt(
+            &resolved.resolved_credentials,
+            &resolved.model,
+            req,
+            file_bytes,
+            filename,
+            content_type,
+        )
+        .await
+        .map_err(|e| crate::error::ApiError::Core(godwit_core::PasteurError::Provider(e.to_string())))?;
+    let ProviderResponse::AudioStt(body) = resp else {
+        return Err(crate::error::ApiError::Core(godwit_core::PasteurError::Provider(
+            "unexpected provider response variant".to_string(),
+        )));
+    };
+
+    spawn_request_log(state.pool.clone(), RequestLogEntry {
+        api_key_id: api_key.id,
+        user_id: api_key.user_id,
+        organization_id: api_key.organization_id,
+        team_id: api_key.team_id,
+        model: resolved.model.public_id.clone(),
+        provider: resolved.model.provider.clone(),
+        provider_model_id: resolved.model.provider_model_id.clone(),
+        capability: Capability::AudioStt.as_str().to_string(),
+        duration_ms: start.elapsed().as_millis() as i32,
+        streamed: false,
+        status: "success".to_string(),
+        cost_usd: None,
+    });
+
+    Ok(Json(body).into_response())
 }
 
 fn spawn_request_log(pool: sqlx::PgPool, log: RequestLogEntry) {

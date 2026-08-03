@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Extension, Path, State},
+    extract::{Extension, Path, Query, State},
     routing::get,
     Json, Router,
 };
@@ -34,16 +34,34 @@ fn require_role(claims: &Claims, allowed: &[Role]) -> Result<Role, ApiError> {
     Ok(role)
 }
 
+/// `org_admin` may only act on a user already in its own org; `super_admin` may act on anyone.
+fn check_same_org(role: Role, claims: &Claims, target_org: Option<Uuid>) -> Result<(), ApiError> {
+    if role != Role::SuperAdmin && target_org != Some(claims.organization_id) {
+        return Err(ApiError::Forbidden);
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+pub struct ListUsersQuery {
+    organization_id: Option<Uuid>,
+}
+
 async fn list_users(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
+    Query(query): Query<ListUsersQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    require_role(&claims, &[Role::SuperAdmin, Role::OrgAdmin])?;
-    let users = state
-        .user_repo
-        .list_for_organization(claims.organization_id)
-        .await
-        .map_err(ApiError::Core)?;
+    let role = require_role(&claims, &[Role::SuperAdmin, Role::OrgAdmin])?;
+    let users = if role == Role::SuperAdmin {
+        match query.organization_id {
+            Some(org_id) => state.user_repo.list_for_organization(org_id).await,
+            None => state.user_repo.list_all().await,
+        }
+    } else {
+        state.user_repo.list_for_organization(claims.organization_id).await
+    }
+    .map_err(ApiError::Core)?;
     Ok(Json(serde_json::json!({ "data": users })))
 }
 
@@ -65,25 +83,58 @@ async fn create_user(
 }
 
 async fn get_user(
-    State(_state): State<Arc<AppState>>,
-    Extension(_claims): Extension<Claims>,
-    Path(_id): Path<Uuid>,
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    Err(ApiError::NotFound)
+    let role = require_role(&claims, &[Role::SuperAdmin, Role::OrgAdmin])?;
+    let user = state.user_repo.get_by_id(id).await.map_err(ApiError::Core)?;
+    check_same_org(role, &claims, user.organization_id)?;
+    Ok(Json(serde_json::json!({ "data": user })))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateUserRequest {
+    name: Option<String>,
+    role: Option<String>,
+    organization_id: Option<Uuid>,
 }
 
 async fn update_user(
-    State(_state): State<Arc<AppState>>,
-    Extension(_claims): Extension<Claims>,
-    Path(_id): Path<Uuid>,
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateUserRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    Err(ApiError::NotFound)
+    let role = require_role(&claims, &[Role::SuperAdmin, Role::OrgAdmin])?;
+    let target = state.user_repo.get_by_id(id).await.map_err(ApiError::Core)?;
+    check_same_org(role, &claims, target.organization_id)?;
+    if req.organization_id.is_some() && role != Role::SuperAdmin {
+        return Err(ApiError::Forbidden);
+    }
+    if let Some(ref role_str) = req.role {
+        godwit_db::models::UserRole::from_str(role_str)
+            .ok_or(ApiError::BadRequest("invalid role".to_string()))?;
+    }
+    let updated = state
+        .user_repo
+        .update(id, req.name.as_deref(), req.role.as_deref(), req.organization_id)
+        .await
+        .map_err(ApiError::Core)?;
+    Ok(Json(serde_json::json!({ "data": updated })))
 }
 
 async fn delete_user(
-    State(_state): State<Arc<AppState>>,
-    Extension(_claims): Extension<Claims>,
-    Path(_id): Path<Uuid>,
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    Err(ApiError::NotFound)
+    let role = require_role(&claims, &[Role::SuperAdmin, Role::OrgAdmin])?;
+    if claims.user_id == id {
+        return Err(ApiError::BadRequest("cannot delete your own account".to_string()));
+    }
+    let target = state.user_repo.get_by_id(id).await.map_err(ApiError::Core)?;
+    check_same_org(role, &claims, target.organization_id)?;
+    state.user_repo.delete(id).await.map_err(ApiError::Core)?;
+    Ok(Json(serde_json::json!({ "deleted": true })))
 }

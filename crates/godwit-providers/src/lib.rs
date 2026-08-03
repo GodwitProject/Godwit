@@ -3,6 +3,7 @@ pub mod anthropic;
 pub mod gemini;
 pub mod openai;
 pub mod registry;
+pub mod sglang;
 pub mod streaming;
 pub mod usage;
 pub mod vllm;

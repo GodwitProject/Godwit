@@ -21,6 +21,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/embeddings", post(embeddings))
         .route("/v1/images/generations", post(image_generations))
+        .route("/v1/audio/speech", post(audio_speech))
 }
 
 pub fn models_response(models: &[godwit_db::models::Model]) -> serde_json::Value {
@@ -199,6 +200,49 @@ async fn image_generations(
     });
 
     Ok(Json(body).into_response())
+}
+
+async fn audio_speech(
+    State(state): State<Arc<AppState>>,
+    Extension(api_key): Extension<ApiKey>,
+    Json(req): Json<godwit_core::AudioTtsRequest>,
+) -> Result<Response, crate::error::ApiError> {
+    let start = std::time::Instant::now();
+    let resolved = state
+        .model_router
+        .resolve(&req.model, Capability::AudioTts)
+        .await?;
+
+    let (resp, _usage) = resolved
+        .adapter
+        .audio_tts(&resolved.resolved_credentials, &resolved.model, req)
+        .await
+        .map_err(|e| crate::error::ApiError::Core(godwit_core::PasteurError::Provider(e.to_string())))?;
+    let ProviderResponse::Bytes(bytes, content_type) = resp else {
+        return Err(crate::error::ApiError::Core(godwit_core::PasteurError::Provider(
+            "unexpected provider response variant".to_string(),
+        )));
+    };
+
+    spawn_request_log(state.pool.clone(), RequestLogEntry {
+        api_key_id: api_key.id,
+        user_id: api_key.user_id,
+        organization_id: api_key.organization_id,
+        team_id: api_key.team_id,
+        model: resolved.model.public_id.clone(),
+        provider: resolved.model.provider.clone(),
+        provider_model_id: resolved.model.provider_model_id.clone(),
+        capability: Capability::AudioTts.as_str().to_string(),
+        duration_ms: start.elapsed().as_millis() as i32,
+        streamed: false,
+        status: "success".to_string(),
+        cost_usd: None,
+    });
+
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, content_type)],
+        bytes,
+    ).into_response())
 }
 
 fn spawn_request_log(pool: sqlx::PgPool, log: RequestLogEntry) {

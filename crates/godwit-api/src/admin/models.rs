@@ -3,26 +3,18 @@ use axum::{
     routing::{get, patch},
     Json, Router,
 };
-use godwit_auth::{jwt::Claims, rbac::Role};
+use godwit_auth::jwt::Claims;
 use godwit_db::repositories::models::ModelRepository;
 use serde::Deserialize;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::{error::ApiError, state::AppState};
+use crate::{admin::require_super_admin, error::ApiError, state::AppState};
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/models", get(list_models).post(create_model))
         .route("/models/:id", patch(update_model).delete(delete_model))
-}
-
-fn require_super_admin(claims: &Claims) -> Result<(), ApiError> {
-    let role = Role::from_str(&claims.role).ok_or(ApiError::Forbidden)?;
-    if role != Role::SuperAdmin {
-        return Err(ApiError::Forbidden);
-    }
-    Ok(())
 }
 
 async fn list_models(

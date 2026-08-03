@@ -3,26 +3,18 @@ use axum::{
     routing::{get, patch},
     Json, Router,
 };
-use godwit_auth::{credentials::encrypt_api_key, jwt::Claims, rbac::Role};
+use godwit_auth::{credentials::encrypt_api_key, jwt::Claims};
 use godwit_db::repositories::provider_profiles::ProviderProfileRepository;
 use serde::Deserialize;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::{error::ApiError, state::AppState};
+use crate::{admin::require_super_admin, error::ApiError, state::AppState};
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/provider-profiles", get(list_profiles).post(create_profile))
         .route("/provider-profiles/:id", patch(update_profile))
-}
-
-fn require_super_admin(claims: &Claims) -> Result<(), ApiError> {
-    let role = Role::from_str(&claims.role).ok_or(ApiError::Forbidden)?;
-    if role != Role::SuperAdmin {
-        return Err(ApiError::Forbidden);
-    }
-    Ok(())
 }
 
 fn profile_json(profile: &godwit_db::models::ProviderProfile) -> serde_json::Value {

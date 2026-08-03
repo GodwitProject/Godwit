@@ -249,6 +249,15 @@ pub struct ImageData {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ImageEditRequest {
+    pub model: String,
+    pub prompt: String,
+    pub n: Option<i32>,
+    pub size: Option<String>,
+    pub response_format: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AudioTtsRequest {
     pub model: String,
     pub input: String,

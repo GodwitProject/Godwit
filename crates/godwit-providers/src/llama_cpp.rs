@@ -99,6 +99,18 @@ impl Adapter for LlamaCppProvider {
         Err(ProviderError::CapabilityNotSupported("image generation is not supported by llama.cpp".to_string()))
     }
 
+    async fn image_edit(
+        &self,
+        _profile: &ResolvedProfile,
+        _model: &Model,
+        _request: godwit_core::ImageEditRequest,
+        _image_bytes: Vec<u8>,
+        _image_filename: String,
+        _mask_bytes: Option<Vec<u8>>,
+    ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        Err(ProviderError::CapabilityNotSupported("image edit is not supported by llama.cpp".to_string()))
+    }
+
     async fn video_generation(
         &self,
         _profile: &ResolvedProfile,

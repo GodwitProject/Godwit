@@ -86,6 +86,18 @@ pub trait Adapter: Send + Sync {
         request: ImageGenerationRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError>;
 
+    /// The source image (and optional mask) are passed as owned bytes (plus filename) because
+    /// `async_trait` methods cannot easily be generic over lifetimes.
+    async fn image_edit(
+        &self,
+        profile: &ResolvedProfile,
+        model: &Model,
+        request: godwit_core::ImageEditRequest,
+        image_bytes: Vec<u8>,
+        image_filename: String,
+        mask_bytes: Option<Vec<u8>>,
+    ) -> Result<(ProviderResponse, UsageReport), ProviderError>;
+
     async fn video_generation(
         &self,
         profile: &ResolvedProfile,

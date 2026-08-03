@@ -140,6 +140,61 @@ impl Adapter for OpenAiProvider {
         Ok((ProviderResponse::Image(body), UsageReport::default()))
     }
 
+    async fn image_edit(
+        &self,
+        profile: &ResolvedProfile,
+        _model: &Model,
+        request: godwit_core::ImageEditRequest,
+        image_bytes: Vec<u8>,
+        image_filename: String,
+        mask_bytes: Option<Vec<u8>>,
+    ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        let url = format!("{}/images/edits", profile.base_url);
+        let image_part = reqwest::multipart::Part::bytes(image_bytes)
+            .file_name(image_filename)
+            .mime_str("image/png")
+            .map_err(|e| ProviderError::Provider(e.to_string()))?;
+        let mut form = reqwest::multipart::Form::new()
+            .part("image", image_part)
+            .text("model", request.model)
+            .text("prompt", request.prompt);
+        if let Some(mask) = mask_bytes {
+            let mask_part = reqwest::multipart::Part::bytes(mask)
+                .file_name("mask.png")
+                .mime_str("image/png")
+                .map_err(|e| ProviderError::Provider(e.to_string()))?;
+            form = form.part("mask", mask_part);
+        }
+        if let Some(n) = request.n {
+            form = form.text("n", n.to_string());
+        }
+        if let Some(size) = request.size {
+            form = form.text("size", size);
+        }
+        if let Some(response_format) = request.response_format {
+            form = form.text("response_format", response_format);
+        }
+        let mut req = self.client.post(&url).multipart(form);
+        if let Some(key) = &profile.api_key {
+            req = req.header("Authorization", format!("Bearer {key}"));
+        }
+        let res = req.send().await.map_err(|e| ProviderError::Http {
+            status: 0,
+            message: e.to_string(),
+        })?;
+        if !res.status().is_success() {
+            return Err(ProviderError::Http {
+                status: res.status().as_u16(),
+                message: res.text().await.unwrap_or_default(),
+            });
+        }
+        let body: godwit_core::ImageGenerationResponse = res
+            .json()
+            .await
+            .map_err(|e| ProviderError::Serialization(e.to_string()))?;
+        Ok((ProviderResponse::Image(body), UsageReport::default()))
+    }
+
     async fn video_generation(
         &self,
         _profile: &ResolvedProfile,
@@ -407,6 +462,39 @@ mod tests {
             ProviderError::Http { status, .. } => assert_eq!(status, 500),
             _ => panic!("expected http error, got {err:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn openai_image_edit() {
+        let server = MockServer::start().await;
+        let body = serde_json::json!({
+            "created": 1,
+            "data": [{"url": "https://example.com/edited.png", "b64_json": null, "revised_prompt": null}]
+        });
+        Mock::given(method("POST"))
+            .and(path("/images/edits"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server)
+            .await;
+
+        let client = OpenAiAdapter::new();
+        let profile = crate::adapter::ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
+        let req = godwit_core::ImageEditRequest {
+            model: "gpt-image-1".to_string(),
+            prompt: "add a hat".to_string(),
+            n: Some(1),
+            size: None,
+            response_format: None,
+        };
+        let (resp, _usage) = client
+            .image_edit(&profile, &dummy_model(), req, vec![1, 2, 3], "image.png".to_string(), None)
+            .await
+            .unwrap();
+        let ProviderResponse::Image(image) = resp else { panic!("expected image response") };
+        assert_eq!(image.data[0].url.as_deref(), Some("https://example.com/edited.png"));
     }
 
     #[tokio::test]

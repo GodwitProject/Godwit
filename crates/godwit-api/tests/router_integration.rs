@@ -2284,3 +2284,145 @@ async fn spend_aggregates_request_logs_scoped_to_caller(pool: PgPool) {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["user_id"], user_a.id.to_string());
 }
+
+// ---------------------------------------------------------------------------------------
+// Final whole-branch review, Fix 2: org_admin must not be able to act on a same-org
+// super_admin. `create_user` always places new users in the creator's own org, so
+// super_admin/org_admin sharing an org is the default case, not an edge case.
+// ---------------------------------------------------------------------------------------
+
+/// `org_admin` must not be able to demote a same-org `super_admin` via `PATCH /users/:id`,
+/// even though `check_same_org` alone would allow it (same organization).
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn org_admin_cannot_patch_role_of_a_same_org_super_admin(pool: PgPool) {
+    let org = OrganizationRepository::new(pool.clone())
+        .create("acme", None)
+        .await
+        .expect("create org");
+    let target = UserRepository::new(pool.clone())
+        .create("root@example.com", None, UserRole::SuperAdmin, Some(org.id))
+        .await
+        .expect("create super_admin target");
+
+    let token = admin_token_for_org("org_admin", org.id);
+
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/users/{}", target.id))
+                .header("Authorization", format!("Bearer {token}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::json!({"role": "user"}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "org_admin must not be able to demote a same-org super_admin"
+    );
+
+    let unchanged = UserRepository::new(pool)
+        .get_by_id(target.id)
+        .await
+        .expect("fetch target");
+    assert_eq!(
+        unchanged.role, "super_admin",
+        "the super_admin target's role must be unchanged after the rejected request"
+    );
+}
+
+/// `org_admin` must not be able to delete a same-org `super_admin` via
+/// `DELETE /users/:id` — there was previously no guard at all on this path.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn org_admin_cannot_delete_a_same_org_super_admin(pool: PgPool) {
+    let org = OrganizationRepository::new(pool.clone())
+        .create("acme", None)
+        .await
+        .expect("create org");
+    let target = UserRepository::new(pool.clone())
+        .create("root@example.com", None, UserRole::SuperAdmin, Some(org.id))
+        .await
+        .expect("create super_admin target");
+
+    let token = admin_token_for_org("org_admin", org.id);
+
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/users/{}", target.id))
+                .header("Authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "org_admin must not be able to delete a same-org super_admin"
+    );
+
+    let still_there = UserRepository::new(pool)
+        .get_by_id(target.id)
+        .await
+        .expect("super_admin target must still exist");
+    assert_eq!(still_there.id, target.id);
+}
+
+/// Regression guard: the new same-org-super_admin guard applies only to non-`super_admin`
+/// callers. `super_admin` must still be able to demote and delete another `super_admin`.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn super_admin_can_still_modify_and_delete_another_super_admin(pool: PgPool) {
+    let org = OrganizationRepository::new(pool.clone())
+        .create("acme", None)
+        .await
+        .expect("create org");
+    let target = UserRepository::new(pool.clone())
+        .create("other-root@example.com", None, UserRole::SuperAdmin, Some(org.id))
+        .await
+        .expect("create super_admin target");
+
+    let token = admin_token_for_org("super_admin", org.id);
+    let app = build_app(pool.clone());
+
+    let patch_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/users/{}", target.id))
+                .header("Authorization", format!("Bearer {token}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::json!({"role": "user"}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(patch_response.status(), StatusCode::OK);
+    let body = body_json(patch_response).await;
+    assert_eq!(body["data"]["role"], "user");
+
+    let delete_response = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/users/{}", target.id))
+                .header("Authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(delete_response.status(), StatusCode::OK);
+
+    let err = UserRepository::new(pool)
+        .get_by_id(target.id)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, godwit_core::PasteurError::NotFound));
+}
+

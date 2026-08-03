@@ -1865,3 +1865,406 @@ async fn super_admin_can_still_create_a_super_admin_user(pool: PgPool) {
         .expect("fetch created user");
     assert_eq!(created.role, "super_admin");
 }
+
+// ---------------------------------------------------------------------------------------
+// Task 10: end-to-end coverage tying Tasks 1-9 together through the real router.
+// ---------------------------------------------------------------------------------------
+
+/// Login -> refresh -> logout -> refresh-fails, driven end to end through the real router.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn login_refresh_logout_flow(pool: PgPool) {
+    let app = build_app(pool.clone());
+
+    let user = UserRepository::new(pool.clone())
+        .create("flow@example.com", None, UserRole::User, None)
+        .await
+        .expect("create user");
+    sqlx::query("UPDATE users SET password_hash = $2 WHERE id = $1")
+        .bind(user.id)
+        .bind(godwit_auth::api_keys::hash_password("hunter2"))
+        .execute(&pool)
+        .await
+        .expect("set password");
+
+    let login_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"email": "flow@example.com", "password": "hunter2"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(login_response.status(), StatusCode::OK);
+    let login_body = body_json(login_response).await;
+    let refresh_token = login_body["refresh_token"]
+        .as_str()
+        .expect("refresh_token present")
+        .to_string();
+    assert!(login_body["access_token"].as_str().is_some());
+
+    // Refresh: exchanges the refresh token for a new pair.
+    let refresh_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/refresh")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"refresh_token": refresh_token}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(refresh_response.status(), StatusCode::OK);
+    let refresh_body = body_json(refresh_response).await;
+    let rotated_refresh_token = refresh_body["refresh_token"]
+        .as_str()
+        .expect("rotated token present")
+        .to_string();
+    assert_ne!(
+        rotated_refresh_token, refresh_token,
+        "refresh token should rotate on use"
+    );
+
+    // The OLD refresh token is now invalid (single-use / rotated).
+    let old_token_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/refresh")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"refresh_token": refresh_token}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(old_token_response.status(), StatusCode::UNAUTHORIZED);
+
+    // Logout invalidates the rotated (current) refresh token.
+    let logout_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/logout")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"refresh_token": rotated_refresh_token}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(logout_response.status(), StatusCode::OK);
+
+    let post_logout_response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/refresh")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"refresh_token": rotated_refresh_token}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(post_logout_response.status(), StatusCode::UNAUTHORIZED);
+}
+
+/// A `super_admin` creates an organization, then a team inside it, then adds and removes a
+/// member of that team — the full org/team/membership lifecycle through the real router.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn super_admin_creates_org_team_and_manages_membership(pool: PgPool) {
+    let app = build_app(pool.clone());
+    let token = admin_token("super_admin");
+
+    let create_org_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/organizations")
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::json!({"name": "acme"}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(create_org_response.status(), StatusCode::OK);
+    let org_id = body_json(create_org_response).await["data"]["id"]
+        .as_str()
+        .and_then(|s| Uuid::parse_str(s).ok())
+        .expect("org id");
+
+    let create_team_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/teams")
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"name": "engineering", "organization_id": org_id})
+                        .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(create_team_response.status(), StatusCode::OK);
+    let team_id = body_json(create_team_response).await["data"]["id"]
+        .as_str()
+        .and_then(|s| Uuid::parse_str(s).ok())
+        .expect("team id");
+
+    let member = UserRepository::new(pool.clone())
+        .create("member@example.com", None, UserRole::User, Some(org_id))
+        .await
+        .expect("create member");
+
+    let add_member_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/teams/{team_id}/members"))
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"user_id": member.id, "role": "member"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(add_member_response.status(), StatusCode::OK);
+
+    let remove_member_response = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/teams/{team_id}/members/{}", member.id))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(remove_member_response.status(), StatusCode::OK);
+}
+
+/// A `team_admin` of team A must be forbidden from managing team B's membership, even when
+/// both teams belong to the same org — a second, end-to-end-flavored guard for the same
+/// property `team_admin_of_one_team_cannot_manage_another_teams_members` already covers.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn team_admin_cannot_manage_a_team_they_do_not_administer(pool: PgPool) {
+    let app = build_app(pool.clone());
+    let org = OrganizationRepository::new(pool.clone())
+        .create("acme", None)
+        .await
+        .expect("create org");
+    let team_a = godwit_db::repositories::teams::TeamRepository::new(pool.clone())
+        .create(org.id, "team-a")
+        .await
+        .expect("create team a");
+    let team_b = godwit_db::repositories::teams::TeamRepository::new(pool.clone())
+        .create(org.id, "team-b")
+        .await
+        .expect("create team b");
+
+    // A user who is team_admin of team_a, but not team_b. `team_memberships.user_id` has a
+    // foreign key onto `users`, so (unlike the brief's literal `Uuid::new_v4()`) this has to
+    // be a real, persisted user.
+    let team_admin_user = UserRepository::new(pool.clone())
+        .create("team-a-admin@example.com", None, UserRole::User, Some(org.id))
+        .await
+        .expect("create team admin user");
+    let claims = godwit_auth::jwt::Claims::new(team_admin_user.id, org.id, "team_admin");
+    godwit_db::repositories::team_memberships::TeamMembershipRepository::new(pool.clone())
+        .add_member(team_a.id, claims.user_id, "team_admin")
+        .await
+        .expect("add as team_admin of team_a");
+    let token =
+        godwit_auth::jwt::issue(JWT_SECRET, claims, chrono::Duration::minutes(15)).expect("issue jwt");
+
+    let other_user = UserRepository::new(pool.clone())
+        .create("other@example.com", None, UserRole::User, Some(org.id))
+        .await
+        .expect("create other user");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/v1/teams/{}/members", team_b.id))
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"user_id": other_user.id, "role": "member"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+/// Deleting a user via the real `DELETE /api/v1/users/:id` route actually removes the row
+/// (the cascade migration from Task 7, exercised end to end rather than at the repository
+/// layer).
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn deleting_a_user_via_the_api_cascades(pool: PgPool) {
+    let app = build_app(pool.clone());
+    let token = admin_token("super_admin");
+    let org = OrganizationRepository::new(pool.clone())
+        .create("acme", None)
+        .await
+        .expect("create org");
+    let user = UserRepository::new(pool.clone())
+        .create("todelete@example.com", None, UserRole::User, Some(org.id))
+        .await
+        .expect("create user");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/users/{}", user.id))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let remaining: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE id = $1")
+        .bind(user.id)
+        .fetch_one(&pool)
+        .await
+        .expect("count users");
+    assert_eq!(remaining, 0);
+}
+
+/// A user may never delete their own account via the real route, regardless of role.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn a_user_cannot_delete_their_own_account(pool: PgPool) {
+    let app = build_app(pool.clone());
+    let org = OrganizationRepository::new(pool.clone())
+        .create("acme", None)
+        .await
+        .expect("create org");
+    let self_user = UserRepository::new(pool.clone())
+        .create("self@example.com", None, UserRole::SuperAdmin, Some(org.id))
+        .await
+        .expect("create self user");
+    let claims = godwit_auth::jwt::Claims::new(self_user.id, org.id, "super_admin");
+    let token =
+        godwit_auth::jwt::issue(JWT_SECRET, claims, chrono::Duration::minutes(15)).expect("issue jwt");
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/users/{}", self_user.id))
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+/// The `GET /api/v1/spend` route aggregates real `request_logs` rows and applies the RBAC
+/// scoping model end to end: `super_admin` sees everything it asks for; a plain `user` only
+/// ever sees its own row, regardless of query params it supplies.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn spend_aggregates_request_logs_scoped_to_caller(pool: PgPool) {
+    let org = OrganizationRepository::new(pool.clone())
+        .create("acme", None)
+        .await
+        .expect("create org");
+    let user_a = UserRepository::new(pool.clone())
+        .create("a@example.com", None, UserRole::User, Some(org.id))
+        .await
+        .expect("create user a");
+    let user_b = UserRepository::new(pool.clone())
+        .create("b@example.com", None, UserRole::User, Some(org.id))
+        .await
+        .expect("create user b");
+
+    for (user_id, cost, tokens_in, tokens_out) in [
+        (user_a.id, "1.500000", 100, 50),
+        (user_b.id, "2.500000", 200, 75),
+    ] {
+        sqlx::query(
+            "INSERT INTO request_logs (user_id, organization_id, model, provider, provider_model_id, tokens_in, tokens_out, cost_usd, duration_ms, status)
+             VALUES ($1, $2, 'gpt-4o', 'openai', 'gpt-4o', $3, $4, $5, 100, 'success')"
+        )
+        .bind(user_id)
+        .bind(org.id)
+        .bind(tokens_in)
+        .bind(tokens_out)
+        .bind(cost.parse::<rust_decimal::Decimal>().unwrap())
+        .execute(&pool)
+        .await
+        .expect("insert request log");
+    }
+
+    let app = build_app(pool.clone());
+
+    // super_admin sees both rows.
+    let super_admin_token = admin_token("super_admin");
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/v1/spend?organization_id={}", org.id))
+                .header("authorization", format!("Bearer {super_admin_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_json(response).await;
+    assert_eq!(body["data"].as_array().unwrap().len(), 2);
+
+    // A plain "user" only ever sees their own row, regardless of query params.
+    let user_claims = godwit_auth::jwt::Claims::new(user_a.id, org.id, "user");
+    let user_token = godwit_auth::jwt::issue(JWT_SECRET, user_claims, chrono::Duration::minutes(15))
+        .expect("issue jwt");
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/v1/spend?user_id={}", user_b.id)) // attempt to see user_b's spend
+                .header("authorization", format!("Bearer {user_token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_json(response).await;
+    let rows = body["data"].as_array().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["user_id"], user_a.id.to_string());
+}

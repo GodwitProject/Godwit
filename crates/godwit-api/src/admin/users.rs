@@ -42,6 +42,18 @@ fn check_same_org(role: Role, claims: &Claims, target_org: Option<Uuid>) -> Resu
     Ok(())
 }
 
+/// A caller who is not itself `super_admin` may never act on a target that already holds
+/// `super_admin` — regardless of same-org membership. Without this, an `org_admin` sharing
+/// an org with the instance's `super_admin` (the default case, since `create_user` always
+/// places new users in the creator's own org) could demote or delete it via `check_same_org`
+/// alone, since that check only compares organizations, never privilege level.
+fn check_not_acting_on_super_admin(role: Role, target_role: &str) -> Result<(), ApiError> {
+    if role != Role::SuperAdmin && target_role == "super_admin" {
+        return Err(ApiError::Forbidden);
+    }
+    Ok(())
+}
+
 #[derive(Deserialize)]
 pub struct ListUsersQuery {
     organization_id: Option<Uuid>,
@@ -117,6 +129,7 @@ async fn update_user(
     }
     let target = state.user_repo.get_by_id(id).await.map_err(ApiError::Core)?;
     check_same_org(role, &claims, target.organization_id)?;
+    check_not_acting_on_super_admin(role, &target.role)?;
     if req.organization_id.is_some() && role != Role::SuperAdmin {
         return Err(ApiError::Forbidden);
     }
@@ -146,6 +159,7 @@ async fn delete_user(
     }
     let target = state.user_repo.get_by_id(id).await.map_err(ApiError::Core)?;
     check_same_org(role, &claims, target.organization_id)?;
+    check_not_acting_on_super_admin(role, &target.role)?;
     state.user_repo.delete(id).await.map_err(ApiError::Core)?;
     Ok(Json(serde_json::json!({ "deleted": true })))
 }

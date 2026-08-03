@@ -25,12 +25,13 @@ pub(crate) fn require_super_admin(claims: &Claims) -> Result<(), ApiError> {
 
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     let protected = Router::new()
-        .nest("/api-keys", api_keys::router())
-        // `models::router()`, `provider_profiles::router()`, `organizations::router()`,
-        // `teams::router()`, `users::router()`, and `spend::router()` already register
-        // their full intended paths ("/models", "/models/:id", "/provider-profiles",
-        // "/organizations", "/teams", "/users", "/spend", ...), so they are merged, not
-        // nested: nesting under "/organizations" produced "/api/v1/organizations/organizations".
+        // `api_keys::router()`, `models::router()`, `provider_profiles::router()`,
+        // `organizations::router()`, `teams::router()`, `users::router()`, and
+        // `spend::router()` already register their full intended paths ("/api-keys",
+        // "/models", "/models/:id", "/provider-profiles", "/organizations", "/teams",
+        // "/users", "/spend", ...), so they are merged, not nested: nesting under
+        // "/organizations" produced "/api/v1/organizations/organizations".
+        .merge(api_keys::router())
         .merge(models::router())
         .merge(provider_profiles::router())
         .merge(organizations::router())

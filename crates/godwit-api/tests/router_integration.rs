@@ -437,6 +437,14 @@ async fn super_admin_can_create_a_vllm_backed_catalog_model(pool: PgPool) {
 
 /// The documented admin paths must be the real ones. Before Fix 5, `models::router()` was
 /// nested under an extra "/models", so the real paths were `/api/v1/models/models`.
+///
+/// This also covers the same bug class in `api_keys::router()`, `organizations::router()`,
+/// `users::router()`, and `spend::router()`: all were fixed individually in earlier tasks
+/// (`.merge(...)` instead of `.nest("/x", ...)`), but only `/models`, `/provider-profiles`,
+/// and `/teams` were ever added to this regression test's coverage list. That gap is exactly
+/// how `.nest("/api-keys", api_keys::router())` (which double-nests to
+/// `/api/v1/api-keys/api-keys`, 404ing the documented `/api/v1/api-keys`) survived the final
+/// whole-branch review undetected — every path fixed in a task must be added here too.
 #[sqlx::test(migrations = "../godwit-db/migrations")]
 async fn admin_catalog_routes_are_not_double_nested(pool: PgPool) {
     let token = admin_token("super_admin");
@@ -445,6 +453,10 @@ async fn admin_catalog_routes_are_not_double_nested(pool: PgPool) {
         "/api/v1/models",
         "/api/v1/provider-profiles",
         "/api/v1/teams",
+        "/api/v1/api-keys",
+        "/api/v1/organizations",
+        "/api/v1/users",
+        "/api/v1/spend",
     ] {
         let response = build_app(pool.clone())
             .oneshot(
@@ -471,6 +483,10 @@ async fn admin_catalog_routes_are_not_double_nested(pool: PgPool) {
         "/api/v1/models/models",
         "/api/v1/provider-profiles/provider-profiles",
         "/api/v1/teams/teams",
+        "/api/v1/api-keys/api-keys",
+        "/api/v1/organizations/organizations",
+        "/api/v1/users/users",
+        "/api/v1/spend/spend",
     ] {
         let response = build_app(pool.clone())
             .oneshot(

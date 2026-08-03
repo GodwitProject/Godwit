@@ -211,6 +211,15 @@ mod tests {
         let (resp, _usage) = client.chat(&profile, &dummy_model(), req).await.unwrap();
         let ProviderResponse::Chat(completion) = resp else { panic!("expected chat response") };
         assert_eq!(completion.choices[0].message.content, "Hi there");
+
+        // Verify no Authorization header was sent (since api_key is None)
+        let received = server.received_requests().await.expect("request recording enabled");
+        assert_eq!(received.len(), 1);
+        assert!(
+            received[0].headers.get("authorization").is_none(),
+            "expected no Authorization header when api_key is None, got: {:?}",
+            received[0].headers.get("authorization")
+        );
     }
 
     #[tokio::test]

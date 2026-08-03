@@ -70,9 +70,12 @@ async fn create_user(
     Extension(claims): Extension<Claims>,
     Json(req): Json<CreateUserRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    require_role(&claims, &[Role::SuperAdmin, Role::OrgAdmin])?;
+    let caller_role = require_role(&claims, &[Role::SuperAdmin, Role::OrgAdmin])?;
     let role = godwit_db::models::UserRole::from_str(&req.role)
         .ok_or(ApiError::BadRequest("invalid role".to_string()))?;
+    if req.role == "super_admin" && caller_role != Role::SuperAdmin {
+        return Err(ApiError::Forbidden);
+    }
     let org_id = claims.organization_id;
     let user = state
         .user_repo
@@ -107,6 +110,11 @@ async fn update_user(
     Json(req): Json<UpdateUserRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let role = require_role(&claims, &[Role::SuperAdmin, Role::OrgAdmin])?;
+    if req.role.is_some() && claims.user_id == id {
+        return Err(ApiError::BadRequest(
+            "cannot change your own role".to_string(),
+        ));
+    }
     let target = state.user_repo.get_by_id(id).await.map_err(ApiError::Core)?;
     check_same_org(role, &claims, target.organization_id)?;
     if req.organization_id.is_some() && role != Role::SuperAdmin {
@@ -115,6 +123,9 @@ async fn update_user(
     if let Some(ref role_str) = req.role {
         godwit_db::models::UserRole::from_str(role_str)
             .ok_or(ApiError::BadRequest("invalid role".to_string()))?;
+        if role_str == "super_admin" && role != Role::SuperAdmin {
+            return Err(ApiError::Forbidden);
+        }
     }
     let updated = state
         .user_repo

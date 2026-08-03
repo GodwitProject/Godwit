@@ -1659,3 +1659,209 @@ async fn add_member_rejects_invalid_role_before_hitting_the_database(pool: PgPoo
         .expect_err("no membership must have been created for an invalid role");
     assert!(matches!(err, godwit_core::PasteurError::NotFound));
 }
+
+// ---------------------------------------------------------------------------------------
+// 5. Users RBAC: org_admin must never be able to grant or self-assign super_admin.
+// ---------------------------------------------------------------------------------------
+
+/// `org_admin` may act on users within its own org (`check_same_org` allows this), but must
+/// never be able to grant instance-wide `super_admin` privilege to one of them.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn org_admin_cannot_promote_another_in_org_user_to_super_admin(pool: PgPool) {
+    let org = OrganizationRepository::new(pool.clone())
+        .create("acme", None)
+        .await
+        .expect("create org");
+    let target = UserRepository::new(pool.clone())
+        .create("target@example.com", None, UserRole::User, Some(org.id))
+        .await
+        .expect("create target user");
+
+    let token = admin_token_for_org("org_admin", org.id);
+
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/users/{}", target.id))
+                .header("Authorization", format!("Bearer {token}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"role": "super_admin"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "org_admin must not be able to grant super_admin to another in-org user"
+    );
+
+    let unchanged = UserRepository::new(pool)
+        .get_by_id(target.id)
+        .await
+        .expect("fetch target");
+    assert_eq!(
+        unchanged.role, "user",
+        "the target's role must be unchanged after the rejected request"
+    );
+}
+
+/// No caller — `org_admin` included — may change its own `role` via `PATCH /users/:id`,
+/// mirroring the self-delete guard: self-role-change is a distinct footgun blocked the
+/// same way, regardless of which role value was requested.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn org_admin_cannot_change_its_own_role(pool: PgPool) {
+    let org = OrganizationRepository::new(pool.clone())
+        .create("acme", None)
+        .await
+        .expect("create org");
+    let caller = UserRepository::new(pool.clone())
+        .create("caller@example.com", None, UserRole::OrgAdmin, Some(org.id))
+        .await
+        .expect("create caller user");
+
+    let token = admin_token_for_user("org_admin", org.id, caller.id);
+
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/users/{}", caller.id))
+                .header("Authorization", format!("Bearer {token}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"role": "org_admin"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_REQUEST,
+        "a caller must never be able to change its own role, even to its current value"
+    );
+}
+
+/// `org_admin` must never be able to create a brand-new `super_admin` user via
+/// `POST /users` either — the same restriction as the `update_user` path applies to
+/// `create_user`.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn org_admin_cannot_create_a_super_admin_user(pool: PgPool) {
+    let org = OrganizationRepository::new(pool.clone())
+        .create("acme", None)
+        .await
+        .expect("create org");
+    let token = admin_token_for_org("org_admin", org.id);
+
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/users")
+                .header("Authorization", format!("Bearer {token}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "email": "new-super@example.com",
+                        "role": "super_admin"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "org_admin must not be able to create a super_admin user"
+    );
+
+    let created = UserRepository::new(pool)
+        .get_by_email("new-super@example.com")
+        .await;
+    assert!(
+        created.is_err(),
+        "no super_admin user should have been created by an org_admin"
+    );
+}
+
+/// Regression guard: the new restrictions only apply to non-`super_admin` callers.
+/// `super_admin` must still be able to grant `super_admin` to another user via PATCH...
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn super_admin_can_still_grant_super_admin_role_via_patch(pool: PgPool) {
+    let org = OrganizationRepository::new(pool.clone())
+        .create("acme", None)
+        .await
+        .expect("create org");
+    let target = UserRepository::new(pool.clone())
+        .create("target@example.com", None, UserRole::User, Some(org.id))
+        .await
+        .expect("create target user");
+
+    let token = admin_token("super_admin");
+
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/users/{}", target.id))
+                .header("Authorization", format!("Bearer {token}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"role": "super_admin"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_json(response).await;
+    assert_eq!(body["data"]["role"], "super_admin");
+}
+
+/// ...and must still be able to create a brand-new `super_admin` user via POST.
+///
+/// `create_user` inserts into `claims.organization_id`, which must reference a real row
+/// (the `users.organization_id` column has a `REFERENCES organizations(id)` FK), so the
+/// token here is scoped to a real org rather than `admin_token`'s random one.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn super_admin_can_still_create_a_super_admin_user(pool: PgPool) {
+    let org = OrganizationRepository::new(pool.clone())
+        .create("acme", None)
+        .await
+        .expect("create org");
+    let token = admin_token_for_org("super_admin", org.id);
+
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/users")
+                .header("Authorization", format!("Bearer {token}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "email": "new-super@example.com",
+                        "role": "super_admin"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_json(response).await;
+    assert_eq!(body["data"]["role"], "super_admin");
+
+    let created = UserRepository::new(pool)
+        .get_by_email("new-super@example.com")
+        .await
+        .expect("fetch created user");
+    assert_eq!(created.role, "super_admin");
+}

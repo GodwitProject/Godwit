@@ -19,6 +19,7 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/v1/models", get(list_models))
         .route("/v1/chat/completions", post(chat_completions))
+        .route("/v1/embeddings", post(embeddings))
 }
 
 pub fn models_response(models: &[godwit_db::models::Model]) -> serde_json::Value {
@@ -113,7 +114,53 @@ async fn chat_completions(
         status: "success".to_string(),
         cost_usd,
     };
-    let pool = state.pool.clone();
+    spawn_request_log(state.pool.clone(), log);
+
+    result
+}
+
+async fn embeddings(
+    State(state): State<Arc<AppState>>,
+    Extension(api_key): Extension<ApiKey>,
+    Json(req): Json<godwit_core::EmbeddingRequest>,
+) -> Result<Response, crate::error::ApiError> {
+    let start = std::time::Instant::now();
+    let resolved = state
+        .model_router
+        .resolve(&req.model, Capability::Embedding)
+        .await?;
+
+    let (resp, _usage) = resolved
+        .adapter
+        .embedding(&resolved.resolved_credentials, &resolved.model, req)
+        .await
+        .map_err(|e| crate::error::ApiError::Core(godwit_core::PasteurError::Provider(e.to_string())))?;
+    let ProviderResponse::Embedding(body) = resp else {
+        return Err(crate::error::ApiError::Core(godwit_core::PasteurError::Provider(
+            "unexpected provider response variant".to_string(),
+        )));
+    };
+
+    let log = RequestLogEntry {
+        api_key_id: api_key.id,
+        user_id: api_key.user_id,
+        organization_id: api_key.organization_id,
+        team_id: api_key.team_id,
+        model: resolved.model.public_id.clone(),
+        provider: resolved.model.provider.clone(),
+        provider_model_id: resolved.model.provider_model_id.clone(),
+        capability: Capability::Embedding.as_str().to_string(),
+        duration_ms: start.elapsed().as_millis() as i32,
+        streamed: false,
+        status: "success".to_string(),
+        cost_usd: None,
+    };
+    spawn_request_log(state.pool.clone(), log);
+
+    Ok(Json(body).into_response())
+}
+
+fn spawn_request_log(pool: sqlx::PgPool, log: RequestLogEntry) {
     tokio::spawn(async move {
         let _ = sqlx::query(
             "INSERT INTO request_logs (api_key_id, user_id, organization_id, team_id, model, provider, provider_model_id, capability, duration_ms, streamed, status, cost_usd)
@@ -134,8 +181,6 @@ async fn chat_completions(
         .execute(&pool)
         .await;
     });
-
-    result
 }
 
 #[derive(Clone)]

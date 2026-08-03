@@ -38,20 +38,39 @@ impl DbModelRouter {
     }
 
     fn resolve_credentials(&self, profile: &ProviderProfile) -> Result<ResolvedProfile, PasteurError> {
+        // A profile always needs *some* endpoint to call.
         let base_url = profile
             .base_url
             .clone()
             .ok_or_else(|| PasteurError::Provider(format!("provider profile '{}' has no base_url configured", profile.name)))?;
+
+        // No stored credentials is a legitimate configuration, not an error: self-hosted
+        // engines (vllm/sglang/llama.cpp/ollama) are commonly deployed with no auth at all,
+        // and every adapter only attaches an auth header `if let Some(key)`.
         if profile.auth.is_null() || profile.auth == serde_json::json!({}) {
-            return Err(PasteurError::Provider(format!(
-                "no credentials configured for protocol {}",
-                profile.protocol
-            )));
+            return Ok(ResolvedProfile { base_url, api_key: None });
         }
+
+        // Credentials that ARE present but unreadable is a different story: that means an
+        // operator-side misconfiguration (wrong CREDENTIAL_ENCRYPTION_KEY), DB corruption,
+        // or tampering — a hard error, and specifically a *server-side* one. It must not be
+        // reported as PasteurError::Auth, which `ApiError` maps to a 401 that would falsely
+        // blame the caller's own API key.
         let secret: EncryptedSecret = serde_json::from_value(profile.auth.clone())
             .map_err(|e| PasteurError::Provider(format!("malformed stored credentials: {e}")))?;
-        let api_key = decrypt_api_key(&self.master_key, &secret)?;
+        let api_key = decrypt_api_key(&self.master_key, &secret).map_err(|e| {
+            PasteurError::Provider(format!("failed to decrypt stored provider credentials: {e}"))
+        })?;
         Ok(ResolvedProfile { base_url, api_key: Some(api_key) })
+    }
+
+    /// An operator-disabled profile must behave as if it does not exist, for both direct
+    /// (`profile_name/...`) and catalog-model-mediated lookups.
+    fn ensure_enabled(profile: ProviderProfile) -> Result<ProviderProfile, PasteurError> {
+        if !profile.enabled {
+            return Err(PasteurError::NotFound);
+        }
+        Ok(profile)
     }
 
     pub async fn resolve(&self, model_ref: &str, requested_capability: Capability) -> Result<ResolvedModel, PasteurError> {
@@ -65,7 +84,7 @@ impl DbModelRouter {
         let profile_repo = ProviderProfileRepository::new(self.pool.clone());
 
         let (model, profile) = if let Some(name) = profile_name {
-            let profile = profile_repo.get_by_name(name).await?;
+            let profile = Self::ensure_enabled(profile_repo.get_by_name(name).await?)?;
             match model_repo.get_by_profile_and_public_id(profile.id, suffix).await {
                 Ok(model) => (model, profile),
                 Err(PasteurError::NotFound) if profile.allow_wildcard => {
@@ -91,7 +110,8 @@ impl DbModelRouter {
                 0 => return Err(PasteurError::NotFound),
                 1 => {
                     let model = candidates.into_iter().next().unwrap();
-                    let profile = profile_repo.get(model.provider_profile_id).await?;
+                    let profile =
+                        Self::ensure_enabled(profile_repo.get(model.provider_profile_id).await?)?;
                     (model, profile)
                 }
                 _ => {
@@ -264,16 +284,141 @@ mod tests {
         let wrong_key = [9u8; 32]; // different from TEST_KEY
         let router = DbModelRouter::new(pool, test_registry(), wrong_key);
         let err = router.resolve("openai/gpt-4o", Capability::Chat).await.unwrap_err();
-        assert!(matches!(err, PasteurError::Auth(_)), "expected Auth error from decrypt failure, got {:?}", err);
+        // Undecryptable *stored* credentials are a server-side misconfiguration, so this
+        // must be Provider (-> 500), never Auth (-> 401, which would blame the caller's
+        // own API key for the operator's wrong CREDENTIAL_ENCRYPTION_KEY).
+        assert!(
+            matches!(err, PasteurError::Provider(_)),
+            "expected Provider error from decrypt failure, got {:?}",
+            err
+        );
     }
 
     #[sqlx::test(migrations = "../godwit-db/migrations")]
-    async fn resolve_errors_when_profile_has_no_credentials(pool: PgPool) {
+    async fn resolve_errors_with_malformed_stored_credentials(pool: PgPool) {
         let profiles = ProviderProfileRepository::new(pool.clone());
-        profiles.create("openai", "openai", Some("https://api.openai.com/v1"), true).await.expect("create profile");
+        let profile = profiles
+            .create("openai", "openai", Some("https://api.openai.com/v1"), true)
+            .await
+            .expect("create profile");
+        // `auth` present but not a valid EncryptedSecret.
+        sqlx::query("UPDATE provider_profiles SET auth = $2 WHERE id = $1")
+            .bind(profile.id)
+            .bind(serde_json::json!({"garbage": true}))
+            .execute(&pool)
+            .await
+            .expect("write malformed auth");
 
         let router = DbModelRouter::new(pool, test_registry(), TEST_KEY);
         let err = router.resolve("openai/gpt-4o", Capability::Chat).await.unwrap_err();
-        assert!(matches!(err, PasteurError::Provider(_)));
+        assert!(matches!(err, PasteurError::Provider(_)), "got {:?}", err);
+    }
+
+    /// A profile with no stored credentials is a first-class configuration (self-hosted
+    /// engines usually have no auth), not an error: `ResolvedProfile.api_key` is `Option`
+    /// precisely so adapters can skip the auth header.
+    #[sqlx::test(migrations = "../godwit-db/migrations")]
+    async fn resolve_succeeds_with_no_credentials_and_yields_none_api_key(pool: PgPool) {
+        let profiles = ProviderProfileRepository::new(pool.clone());
+        profiles
+            .create("local-vllm", "openai", Some("http://localhost:8000/v1"), true)
+            .await
+            .expect("create keyless profile");
+
+        let router = DbModelRouter::new(pool, test_registry(), TEST_KEY);
+        let resolved = router
+            .resolve("local-vllm/meta-llama/Llama-3-70B", Capability::Chat)
+            .await
+            .expect("a keyless profile must resolve, not error");
+        assert_eq!(resolved.resolved_credentials.base_url, "http://localhost:8000/v1");
+        assert!(
+            resolved.resolved_credentials.api_key.is_none(),
+            "expected api_key None for a profile with no stored credentials"
+        );
+    }
+
+    #[sqlx::test(migrations = "../godwit-db/migrations")]
+    async fn resolve_errors_when_profile_has_no_base_url(pool: PgPool) {
+        let profiles = ProviderProfileRepository::new(pool.clone());
+        profiles
+            .create("openai", "openai", None, true)
+            .await
+            .expect("create profile");
+
+        let router = DbModelRouter::new(pool, test_registry(), TEST_KEY);
+        let err = router.resolve("openai/gpt-4o", Capability::Chat).await.unwrap_err();
+        assert!(matches!(err, PasteurError::Provider(_)), "got {:?}", err);
+    }
+
+    /// Fix: `provider_profiles.enabled` was never consulted, so a "disabled" profile kept
+    /// serving traffic. A disabled profile must behave as if it does not exist.
+    #[sqlx::test(migrations = "../godwit-db/migrations")]
+    async fn disabled_profile_resolved_by_name_returns_not_found(pool: PgPool) {
+        let profiles = ProviderProfileRepository::new(pool.clone());
+        let profile = profiles
+            .create("openai", "openai", Some("https://api.openai.com/v1"), true)
+            .await
+            .expect("create profile");
+        let secret = encrypt_api_key(&TEST_KEY, "sk-test-key");
+        profiles.set_auth(profile.id, &secret).await.expect("set auth");
+        profiles
+            .update(profile.id, None, None, Some(false))
+            .await
+            .expect("disable profile");
+
+        let router = DbModelRouter::new(pool, test_registry(), TEST_KEY);
+        let err = router.resolve("openai/gpt-4o", Capability::Chat).await.unwrap_err();
+        assert!(matches!(err, PasteurError::NotFound), "got {:?}", err);
+    }
+
+    #[sqlx::test(migrations = "../godwit-db/migrations")]
+    async fn disabled_profile_resolved_via_catalog_model_returns_not_found(pool: PgPool) {
+        let profiles = ProviderProfileRepository::new(pool.clone());
+        let profile = profiles
+            .create("openai", "openai", Some("https://api.openai.com/v1"), false)
+            .await
+            .expect("create profile");
+        let secret = encrypt_api_key(&TEST_KEY, "sk-test-key");
+        profiles.set_auth(profile.id, &secret).await.expect("set auth");
+
+        let models = ModelRepository::new(pool.clone());
+        models
+            .create("gpt-4o", "openai", profile.id, "gpt-4o", "chat")
+            .await
+            .expect("create model");
+
+        // Sanity: resolvable while enabled.
+        let router = DbModelRouter::new(pool.clone(), test_registry(), TEST_KEY);
+        router.resolve("gpt-4o", Capability::Chat).await.expect("resolve while enabled");
+
+        profiles
+            .update(profile.id, None, None, Some(false))
+            .await
+            .expect("disable profile");
+
+        let err = router.resolve("gpt-4o", Capability::Chat).await.unwrap_err();
+        assert!(matches!(err, PasteurError::NotFound), "got {:?}", err);
+    }
+
+    #[sqlx::test(migrations = "../godwit-db/migrations")]
+    async fn disabled_profile_rejects_prefixed_catalog_model(pool: PgPool) {
+        let profiles = ProviderProfileRepository::new(pool.clone());
+        let profile = profiles
+            .create("openai", "openai", Some("https://api.openai.com/v1"), false)
+            .await
+            .expect("create profile");
+        let models = ModelRepository::new(pool.clone());
+        models
+            .create("gpt-4o", "openai", profile.id, "gpt-4o", "chat")
+            .await
+            .expect("create model");
+        profiles
+            .update(profile.id, None, None, Some(false))
+            .await
+            .expect("disable profile");
+
+        let router = DbModelRouter::new(pool, test_registry(), TEST_KEY);
+        let err = router.resolve("openai/gpt-4o", Capability::Chat).await.unwrap_err();
+        assert!(matches!(err, PasteurError::NotFound), "got {:?}", err);
     }
 }

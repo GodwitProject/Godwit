@@ -131,6 +131,29 @@ async fn seed_api_key(pool: &PgPool) -> String {
     plaintext
 }
 
+/// Creates an organization and a user with a real (Argon2) password hash set, so the user
+/// can authenticate through the real `POST /auth/login` endpoint. Returns `(email, password)`.
+async fn seed_password_user(pool: &PgPool) -> (String, String) {
+    let org = OrganizationRepository::new(pool.clone())
+        .create("auth-test-org")
+        .await
+        .expect("create org");
+    let email = "auth-user@example.com";
+    let user = UserRepository::new(pool.clone())
+        .create(email, None, UserRole::User, Some(org.id))
+        .await
+        .expect("create user");
+    let password = "correct-horse-battery-staple";
+    let hash = godwit_auth::api_keys::hash_password(password);
+    sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
+        .bind(&hash)
+        .bind(user.id)
+        .execute(pool)
+        .await
+        .expect("set password hash");
+    (email.to_string(), password.to_string())
+}
+
 /// Issues an admin JWT for the given role without going through the login endpoint.
 fn admin_token(role: &str) -> String {
     let claims = godwit_auth::jwt::Claims::new(Uuid::new_v4(), Uuid::new_v4(), role);
@@ -893,4 +916,197 @@ async fn catalog_model_translates_public_id_to_provider_model_id(pool: PgPool) {
         serde_json::from_slice(&received[0].body).expect("upstream body is JSON");
     assert_eq!(upstream_body["model"], "gpt-4o-2024-08-06");
     assert_ne!(upstream_body["model"], "my-4o");
+}
+
+// ---------------------------------------------------------------------------------------
+// 4. Refresh token flow (Task 3): rotation, reuse rejection, expiry, idempotent logout.
+// ---------------------------------------------------------------------------------------
+
+/// Drives `login` -> `refresh` -> `logout` through the real router end to end. This is the
+/// regression guard for the security properties that a unit test on request deserialization
+/// cannot see: that `refresh` actually rotates (deletes the old row, not just issues a new
+/// one alongside it), that the rotated-away token is truly dead (not merely superseded),
+/// and that `logout` is safe to call twice.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn refresh_token_rotates_rejects_reuse_and_logout_is_idempotent(pool: PgPool) {
+    let (email, password) = seed_password_user(&pool).await;
+
+    // 1. Login issues an access + refresh token pair.
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"email": email, "password": password}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_json(response).await;
+    let access_token_1 = body["access_token"]
+        .as_str()
+        .expect("access_token present")
+        .to_string();
+    let refresh_token_1 = body["refresh_token"]
+        .as_str()
+        .expect("refresh_token present")
+        .to_string();
+    assert!(!access_token_1.is_empty());
+    assert!(!refresh_token_1.is_empty());
+
+    // 2. Exchanging the refresh token for a new pair must rotate it: the new refresh token
+    // has to differ from the one just spent, not just "return something".
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/refresh")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"refresh_token": refresh_token_1}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_json(response).await;
+    let refresh_token_2 = body["refresh_token"]
+        .as_str()
+        .expect("refresh_token present")
+        .to_string();
+    assert_ne!(
+        refresh_token_2, refresh_token_1,
+        "refresh must rotate to a brand-new refresh token, not reissue the same one"
+    );
+
+    // 3. The original (now-rotated-away) refresh token must be rejected: proof that it was
+    // actually deleted, not merely superseded by the new one.
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/refresh")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"refresh_token": refresh_token_1}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(
+        response.status(),
+        StatusCode::UNAUTHORIZED,
+        "a used-and-rotated refresh token must not be reusable"
+    );
+
+    // 4. Logout invalidates the current (still-valid) refresh token.
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/logout")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"refresh_token": refresh_token_2}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_json(response).await;
+    assert_eq!(body["logged_out"], true);
+
+    // ...and calling logout again with the same (already-deleted) token is idempotent: no
+    // error, same success response — not a 404/500 on the second call.
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/logout")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"refresh_token": refresh_token_2}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "logging out a token that no longer exists must not error"
+    );
+    let body = body_json(response).await;
+    assert_eq!(body["logged_out"], true);
+
+    // 5. The logged-out token can no longer be used to refresh.
+    let response = build_app(pool)
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/refresh")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"refresh_token": refresh_token_2}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(
+        response.status(),
+        StatusCode::UNAUTHORIZED,
+        "a logged-out refresh token must be rejected"
+    );
+}
+
+/// An expired refresh token must be rejected by `/auth/refresh`, and cleaned up (deleted)
+/// rather than left lying around. Constructed by inserting an already-expired row directly
+/// through `RefreshTokenRepository`, bypassing normal issuance.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn expired_refresh_token_is_rejected_and_cleaned_up(pool: PgPool) {
+    let (email, _password) = seed_password_user(&pool).await;
+    let user = UserRepository::new(pool.clone())
+        .get_by_email(&email)
+        .await
+        .expect("fetch seeded user");
+
+    let (plaintext, hash) = godwit_auth::refresh_tokens::generate_refresh_token();
+    let expires_at = chrono::Utc::now() - chrono::Duration::days(1);
+    RefreshTokenRepository::new(pool.clone())
+        .create(user.id, &hash, expires_at)
+        .await
+        .expect("insert expired refresh token");
+
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/refresh")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"refresh_token": plaintext}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(
+        response.status(),
+        StatusCode::UNAUTHORIZED,
+        "an expired refresh token must be rejected"
+    );
+
+    let err = RefreshTokenRepository::new(pool)
+        .get_by_hash(&hash)
+        .await
+        .expect_err("an expired, rejected refresh token must have been deleted");
+    assert!(matches!(err, godwit_core::PasteurError::NotFound));
 }

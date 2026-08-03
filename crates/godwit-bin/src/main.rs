@@ -45,6 +45,7 @@ async fn main() -> anyhow::Result<()> {
         org_repo: OrganizationRepository::new(pool.clone()),
         api_key_repo: ApiKeyRepository::new(pool.clone()),
         api_key_cache: MemoryCache::new(),
+        credential_master_key: master_key,
     });
 
     let app = Router::new()

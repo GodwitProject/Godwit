@@ -18,4 +18,5 @@ pub struct AppState {
     pub org_repo: OrganizationRepository,
     pub api_key_repo: ApiKeyRepository,
     pub api_key_cache: MemoryCache<String, ApiKey>,
+    pub credential_master_key: [u8; 32],
 }

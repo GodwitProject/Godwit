@@ -23,6 +23,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/v1/images/generations", post(image_generations))
         .route("/v1/audio/speech", post(audio_speech))
         .route("/v1/audio/transcriptions", post(audio_transcriptions))
+        .route("/v1/images/edits", post(image_edits))
 }
 
 pub fn models_response(models: &[godwit_db::models::Model]) -> serde_json::Value {
@@ -328,6 +329,110 @@ async fn audio_transcriptions(
         provider: resolved.model.provider.clone(),
         provider_model_id: resolved.model.provider_model_id.clone(),
         capability: Capability::AudioStt.as_str().to_string(),
+        duration_ms: start.elapsed().as_millis() as i32,
+        streamed: false,
+        status: "success".to_string(),
+        cost_usd: None,
+    });
+
+    Ok(Json(body).into_response())
+}
+
+async fn image_edits(
+    State(state): State<Arc<AppState>>,
+    Extension(api_key): Extension<ApiKey>,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Response, crate::error::ApiError> {
+    let mut model_name: Option<String> = None;
+    let mut prompt: Option<String> = None;
+    let mut n: Option<i32> = None;
+    let mut size: Option<String> = None;
+    let mut response_format: Option<String> = None;
+    let mut image_bytes: Option<Vec<u8>> = None;
+    let mut image_filename = "image.png".to_string();
+    let mut mask_bytes: Option<Vec<u8>> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| crate::error::ApiError::BadRequest(e.to_string()))?
+    {
+        match field.name().unwrap_or_default() {
+            "model" => model_name = Some(field.text().await.unwrap_or_default()),
+            "prompt" => prompt = Some(field.text().await.unwrap_or_default()),
+            "n" => n = field.text().await.ok().and_then(|s| s.parse().ok()),
+            "size" => size = Some(field.text().await.unwrap_or_default()),
+            "response_format" => response_format = Some(field.text().await.unwrap_or_default()),
+            "image" => {
+                image_filename = field.file_name().unwrap_or("image.png").to_string();
+                image_bytes = Some(
+                    field
+                        .bytes()
+                        .await
+                        .map_err(|e| crate::error::ApiError::BadRequest(e.to_string()))?
+                        .to_vec(),
+                );
+            }
+            "mask" => {
+                mask_bytes = Some(
+                    field
+                        .bytes()
+                        .await
+                        .map_err(|e| crate::error::ApiError::BadRequest(e.to_string()))?
+                        .to_vec(),
+                );
+            }
+            _ => {}
+        }
+    }
+
+    let model_name = model_name
+        .ok_or_else(|| crate::error::ApiError::BadRequest("missing 'model' field".to_string()))?;
+    let prompt = prompt
+        .ok_or_else(|| crate::error::ApiError::BadRequest("missing 'prompt' field".to_string()))?;
+    let image_bytes = image_bytes
+        .ok_or_else(|| crate::error::ApiError::BadRequest("missing 'image' field".to_string()))?;
+
+    let start = std::time::Instant::now();
+    let resolved = state
+        .model_router
+        .resolve(&model_name, Capability::ImageEdit)
+        .await?;
+
+    let req = godwit_core::ImageEditRequest {
+        model: model_name,
+        prompt,
+        n,
+        size,
+        response_format,
+    };
+    let (resp, _usage) = resolved
+        .adapter
+        .image_edit(
+            &resolved.resolved_credentials,
+            &resolved.model,
+            req,
+            image_bytes,
+            image_filename,
+            mask_bytes,
+        )
+        .await
+        .map_err(|e| crate::error::ApiError::Core(godwit_core::PasteurError::Provider(e.to_string())))?;
+    let ProviderResponse::Image(body) = resp else {
+        return Err(crate::error::ApiError::Core(godwit_core::PasteurError::Provider(
+            "unexpected provider response variant".to_string(),
+        )));
+    };
+
+    spawn_request_log(state.pool.clone(), RequestLogEntry {
+        api_key_id: api_key.id,
+        user_id: api_key.user_id,
+        organization_id: api_key.organization_id,
+        team_id: api_key.team_id,
+        model: resolved.model.public_id.clone(),
+        provider: resolved.model.provider.clone(),
+        provider_model_id: resolved.model.provider_model_id.clone(),
+        capability: Capability::ImageEdit.as_str().to_string(),
         duration_ms: start.elapsed().as_millis() as i32,
         streamed: false,
         status: "success".to_string(),

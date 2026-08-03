@@ -2,6 +2,7 @@
 name = "godwit-api"
 version = "0.1.0"
 edition = "2021"
+license = "AGPL-3.0-or-later"
 
 [dependencies]
 godwit-core = { path = "../godwit-core" }

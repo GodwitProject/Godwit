@@ -3,7 +3,8 @@ use godwit_cache::MemoryCache;
 use godwit_core::AppConfig;
 use godwit_db::models::ApiKey;
 use godwit_db::repositories::{
-    api_keys::ApiKeyRepository, organizations::OrganizationRepository, users::UserRepository,
+    api_keys::ApiKeyRepository, organizations::OrganizationRepository,
+    refresh_tokens::RefreshTokenRepository, users::UserRepository,
 };
 use godwit_providers::AdapterRegistry;
 use sqlx::PgPool;
@@ -17,6 +18,7 @@ pub struct AppState {
     pub user_repo: UserRepository,
     pub org_repo: OrganizationRepository,
     pub api_key_repo: ApiKeyRepository,
+    pub refresh_token_repo: RefreshTokenRepository,
     pub api_key_cache: MemoryCache<String, ApiKey>,
     pub credential_master_key: [u8; 32],
 }

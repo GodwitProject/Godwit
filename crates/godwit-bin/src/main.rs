@@ -5,7 +5,8 @@ use godwit_core::{AppConfig, Protocol};
 use godwit_db::{
     connect,
     repositories::{
-        api_keys::ApiKeyRepository, organizations::OrganizationRepository, users::UserRepository,
+        api_keys::ApiKeyRepository, organizations::OrganizationRepository,
+        refresh_tokens::RefreshTokenRepository, users::UserRepository,
     },
     run_migrations,
 };
@@ -50,6 +51,7 @@ async fn main() -> anyhow::Result<()> {
         user_repo: UserRepository::new(pool.clone()),
         org_repo: OrganizationRepository::new(pool.clone()),
         api_key_repo: ApiKeyRepository::new(pool.clone()),
+        refresh_token_repo: RefreshTokenRepository::new(pool.clone()),
         api_key_cache: MemoryCache::new(),
         credential_master_key: master_key,
     });

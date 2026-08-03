@@ -2426,3 +2426,48 @@ async fn super_admin_can_still_modify_and_delete_another_super_admin(pool: PgPoo
     assert!(matches!(err, godwit_core::PasteurError::NotFound));
 }
 
+// ---------------------------------------------------------------------------------------
+// Final whole-branch review, Fix 3: `password_hash` must never appear in API responses.
+// ---------------------------------------------------------------------------------------
+
+/// `GET /api/v1/users/:id` must never leak the Argon2 `password_hash` into the JSON
+/// response body, regardless of whether the user has one set.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn get_user_response_never_includes_password_hash(pool: PgPool) {
+    let org = OrganizationRepository::new(pool.clone())
+        .create("acme", None)
+        .await
+        .expect("create org");
+    let target = UserRepository::new(pool.clone())
+        .create("hashed@example.com", None, UserRole::User, Some(org.id))
+        .await
+        .expect("create target user");
+    sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
+        .bind(godwit_auth::api_keys::hash_password("hunter2"))
+        .bind(target.id)
+        .execute(&pool)
+        .await
+        .expect("set password hash");
+
+    let token = admin_token_for_org("super_admin", org.id);
+
+    let response = build_app(pool)
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/v1/users/{}", target.id))
+                .header("Authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_json(response).await;
+    assert!(
+        body["data"].get("password_hash").is_none(),
+        "password_hash must never be serialized into an API response, got: {body}"
+    );
+    assert_eq!(body["data"]["email"], "hashed@example.com");
+}
+

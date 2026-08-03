@@ -20,6 +20,10 @@ pub struct User {
     pub role: String,
     pub sso_provider: Option<String>,
     pub sso_subject: Option<String>,
+    // Never serialized into API responses — this is an Argon2 hash. The field is still
+    // populated via `sqlx::FromRow` (password verification reads it as a Rust struct
+    // field), only its presence in JSON *output* is suppressed.
+    #[serde(skip_serializing)]
     pub password_hash: Option<String>,
     pub created_at: DateTime<Utc>,
 }
@@ -61,6 +65,9 @@ pub struct ApiKey {
     pub organization_id: Uuid,
     pub name: String,
     pub key_prefix: String,
+    // Never serialized into API responses — this is the hashed API key. Still populated
+    // via `sqlx::FromRow` for lookup/verification; only JSON output is suppressed.
+    #[serde(skip_serializing)]
     pub key_hash: String,
     pub scopes: Vec<String>,
     pub budget_limit_usd: Option<rust_decimal::Decimal>,
@@ -124,6 +131,10 @@ pub struct TeamMembership {
 pub struct RefreshToken {
     pub id: Uuid,
     pub user_id: Uuid,
+    // Not currently returned by any handler, but a `json!({"data": token})` away from
+    // leaking a valid refresh-token hash — suppressed preventively, same as
+    // `User::password_hash` and `ApiKey::key_hash`.
+    #[serde(skip_serializing)]
     pub token_hash: String,
     pub expires_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,

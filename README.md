@@ -155,23 +155,23 @@ Requires `super_admin` role. All operations return organization objects.
 
 #### Teams
 
-Requires `org_admin` or `super_admin` role. Team CRUD is scoped to the user's organization unless the user is `super_admin` (who may pass `?organization_id=` to list/create for any organization). Team members (users within a team) can be managed by `team_admin` role holders for that specific team.
+Requires `org_admin` or `super_admin` role. Team CRUD is scoped to the user's organization unless the user is `super_admin` (who may pass `?organization_id=` as a query parameter to list any organization's teams, or `organization_id` as a body field to create a team in any organization). Team members (users within a team) can be managed by `team_admin` role holders for that specific team.
 
 - `GET /api/v1/teams?organization_id=<optional>` — List teams. If `super_admin`, may query any organization via `organization_id`; otherwise, limited to own organization.
-- `POST /api/v1/teams` — Create team. Request: `{ "name": "...", "organization_id": <optional; required for super_admin, ignored otherwise> }`.
+- `POST /api/v1/teams` — Create team. Request: `{ "name": "...", "organization_id": <optional; required for super_admin, ignored otherwise> }`. `organization_id` here is a body field, not a query parameter.
 - `PATCH /api/v1/teams/:id` — Update team. Request: `{ "name": "..." }`.
 - `POST /api/v1/teams/:id/members` — Add user to team. Request: `{ "user_id": "...", "role": "team_admin" | "member" }`.
 - `DELETE /api/v1/teams/:id/members/:user_id` — Remove user from team.
 
 #### Users
 
-Requires `org_admin` or `super_admin` role. User CRUD is scoped to the user's organization unless the user is `super_admin` (who may pass `?organization_id=` to list/create for any organization). A user cannot delete their own account or change their own role.
+Requires `org_admin` or `super_admin` role. User CRUD is scoped to the user's organization unless the user is `super_admin` (who may pass `?organization_id=` to *list* users of any organization). A new user is always created in the caller's own organization — there is no `organization_id` field on the create request; `super_admin` moves a user to a different organization afterward via `PATCH`. A user cannot delete their own account or change their own role. Neither `org_admin` nor `super_admin` may demote or delete a user who currently holds `super_admin`, unless the caller itself is `super_admin`.
 
 - `GET /api/v1/users?organization_id=<optional>` — List users. If `super_admin`, may query any organization via `organization_id`; otherwise, limited to own organization.
-- `POST /api/v1/users` — Create user. Request: `{ "email": "...", "name": <optional>, "role": "super_admin" | "org_admin" | "team_admin" | "user" }`. Requires `super_admin` role to create `super_admin` users; `org_admin` can create lower roles within their organization.
+- `POST /api/v1/users` — Create user. Request: `{ "email": "...", "name": <optional>, "role": "super_admin" | "org_admin" | "team_admin" | "user" }`. Always created in the caller's own organization. Requires `super_admin` role to create `super_admin` users; `org_admin` can create lower roles within their organization.
 - `GET /api/v1/users/:id` — Fetch user by ID. Returns user object.
-- `PATCH /api/v1/users/:id` — Update user. Request: `{ "name": <optional>, "role": <optional>, "organization_id": <optional> }`. Only `super_admin` may move a user to a different organization.
-- `DELETE /api/v1/users/:id` — Delete user. Cascades to team memberships, API keys, and request logs. Cannot delete self.
+- `PATCH /api/v1/users/:id` — Update user. Request: `{ "name": <optional>, "role": <optional>, "organization_id": <optional> }`. Only `super_admin` may move a user to a different organization; doing so clears that user's team memberships, since a membership only makes sense within the org its team belongs to (the user's API keys and historical spend are left untouched — a known limitation, not yet addressed).
+- `DELETE /api/v1/users/:id` — Delete user. Cascades to team memberships, API keys, and refresh tokens (all deleted); `request_logs` rows survive with `user_id` and `api_key_id` set to `NULL`. Cannot delete self.
 
 #### Spend & Usage
 

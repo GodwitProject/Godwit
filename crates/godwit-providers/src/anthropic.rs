@@ -239,9 +239,11 @@ impl Adapter for AnthropicProvider {
         info!("sending anthropic chat request to {}", url);
         debug!("anthropic request body: {:?}", anthropic_request);
 
-        let mut req = self.client.post(&url).json(&anthropic_request);
+        let mut req = self.client.post(&url)
+            .header("anthropic-version", "2023-06-01")
+            .json(&anthropic_request);
         if let Some(key) = &profile.api_key {
-            req = req.header("x-api-key", key).header("anthropic-version", "2023-06-01");
+            req = req.header("x-api-key", key);
         }
         let res = req.send().await.map_err(|e| ProviderError::Http {
             status: 0,
@@ -293,9 +295,11 @@ impl Adapter for AnthropicProvider {
         info!("sending anthropic streaming chat request to {}", url);
         debug!("anthropic streaming request body: {:?}", anthropic_request);
 
-        let mut req = self.client.post(&url).json(&anthropic_request);
+        let mut req = self.client.post(&url)
+            .header("anthropic-version", "2023-06-01")
+            .json(&anthropic_request);
         if let Some(key) = &profile.api_key {
-            req = req.header("x-api-key", key).header("anthropic-version", "2023-06-01");
+            req = req.header("x-api-key", key);
         }
         let res = req.send().await.map_err(|e| ProviderError::Http {
             status: 0,
@@ -624,5 +628,46 @@ mod tests {
         };
         let err = client.embedding(&profile, &model, embedding_req).await.unwrap_err();
         assert!(matches!(err, ProviderError::CapabilityNotSupported(_)));
+    }
+
+    #[tokio::test]
+    async fn chat_sends_anthropic_version_without_api_key() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "msg_01",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-3-5-sonnet-20241022",
+                "content": [{"type": "text", "text": "Hello from keyless profile"}],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 10, "output_tokens": 5}
+            })))
+            .mount(&server)
+            .await;
+
+        let client = AnthropicAdapter::new();
+        let profile = crate::adapter::ResolvedProfile {
+            base_url: server.uri(),
+            api_key: None,
+        };
+        let req = ChatCompletionRequest {
+            model: "claude-3-5-sonnet".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: "Hi".to_string(),
+            }],
+            stream: Some(false),
+            temperature: None,
+            max_tokens: None,
+        };
+
+        let (ProviderResponse::Chat(resp), _) = client.chat(&profile, &dummy_model(), req).await.unwrap() else {
+            panic!("expected chat response");
+        };
+
+        assert_eq!(resp.choices[0].message.content, "Hello from keyless profile");
     }
 }

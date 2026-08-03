@@ -1,5 +1,5 @@
 use crate::adapter::{
-    Adapter, ProviderError, ProviderResponse, SseEvent, UsageReport,
+    Adapter, ProviderError, ProviderResponse, ResolvedProfile, SseEvent, UsageReport,
 };
 use crate::streaming::parse_sse_events;
 use async_trait::async_trait;
@@ -10,36 +10,32 @@ use godwit_core::{
     ChatCompletionResponse, ChatMessage, EmbeddingRequest, ImageGenerationRequest,
     VideoGenerationRequest,
 };
-use godwit_db::models::{Model, ProviderProfile};
+use godwit_db::models::Model;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, instrument};
 
 pub struct AnthropicProvider {
     client: Client,
-    api_key: String,
-    base_url: String,
 }
 
 pub type AnthropicAdapter = AnthropicProvider;
 
 impl AnthropicProvider {
-    pub fn new(api_key: &str, base_url: &str) -> Self {
+    pub fn new() -> Self {
         let client = Client::builder()
             .pool_max_idle_per_host(20)
             .pool_idle_timeout(std::time::Duration::from_secs(60))
             .timeout(std::time::Duration::from_secs(120))
             .build()
             .expect("build reqwest client");
-        Self {
-            client,
-            api_key: api_key.to_string(),
-            base_url: base_url.to_string(),
-        }
+        Self { client }
     }
+}
 
-    pub fn from_config(config: &godwit_core::ProviderConfig) -> Self {
-        Self::new(&config.api_key, &config.base_url)
+impl Default for AnthropicProvider {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -230,32 +226,27 @@ impl Adapter for AnthropicProvider {
         vec![Capability::Chat]
     }
 
-    #[instrument(skip(self, _profile, model, request))]
+    #[instrument(skip(self, profile, model, request))]
     async fn chat(
         &self,
-        _profile: &ProviderProfile,
+        profile: &ResolvedProfile,
         model: &Model,
         request: ChatCompletionRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
-        let url = format!("{}/v1/messages", self.base_url);
+        let url = format!("{}/v1/messages", profile.base_url);
         let anthropic_request = AnthropicChatRequest::from_chat_request(request, model.public_id.clone());
 
         info!("sending anthropic chat request to {}", url);
         debug!("anthropic request body: {:?}", anthropic_request);
 
-        let res = self
-            .client
-            .post(&url)
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", "2023-06-01")
-            .header("content-type", "application/json")
-            .json(&anthropic_request)
-            .send()
-            .await
-            .map_err(|e| ProviderError::Http {
-                status: 0,
-                message: e.to_string(),
-            })?;
+        let mut req = self.client.post(&url).json(&anthropic_request);
+        if let Some(key) = &profile.api_key {
+            req = req.header("x-api-key", key).header("anthropic-version", "2023-06-01");
+        }
+        let res = req.send().await.map_err(|e| ProviderError::Http {
+            status: 0,
+            message: e.to_string(),
+        })?;
 
         if !res.status().is_success() {
             let status = res.status().as_u16();
@@ -288,33 +279,28 @@ impl Adapter for AnthropicProvider {
         Ok((ProviderResponse::Chat(chat_response), usage_report))
     }
 
-    #[instrument(skip(self, _profile, model, request))]
+    #[instrument(skip(self, profile, model, request))]
     async fn chat_stream(
         &self,
-        _profile: &ProviderProfile,
+        profile: &ResolvedProfile,
         model: &Model,
         mut request: ChatCompletionRequest,
     ) -> Result<BoxStream<'static, Result<SseEvent, ProviderError>>, ProviderError> {
         request.stream = Some(true);
-        let url = format!("{}/v1/messages", self.base_url);
+        let url = format!("{}/v1/messages", profile.base_url);
         let anthropic_request = AnthropicChatRequest::from_chat_request(request, model.public_id.clone());
 
         info!("sending anthropic streaming chat request to {}", url);
         debug!("anthropic streaming request body: {:?}", anthropic_request);
 
-        let res = self
-            .client
-            .post(&url)
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", "2023-06-01")
-            .header("content-type", "application/json")
-            .json(&anthropic_request)
-            .send()
-            .await
-            .map_err(|e| ProviderError::Http {
-                status: 0,
-                message: e.to_string(),
-            })?;
+        let mut req = self.client.post(&url).json(&anthropic_request);
+        if let Some(key) = &profile.api_key {
+            req = req.header("x-api-key", key).header("anthropic-version", "2023-06-01");
+        }
+        let res = req.send().await.map_err(|e| ProviderError::Http {
+            status: 0,
+            message: e.to_string(),
+        })?;
 
         if !res.status().is_success() {
             let status = res.status().as_u16();
@@ -344,7 +330,7 @@ impl Adapter for AnthropicProvider {
 
     async fn image_generation(
         &self,
-        _profile: &ProviderProfile,
+        _profile: &ResolvedProfile,
         _model: &Model,
         _request: ImageGenerationRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
@@ -355,7 +341,7 @@ impl Adapter for AnthropicProvider {
 
     async fn video_generation(
         &self,
-        _profile: &ProviderProfile,
+        _profile: &ResolvedProfile,
         _model: &Model,
         _request: VideoGenerationRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
@@ -366,7 +352,7 @@ impl Adapter for AnthropicProvider {
 
     async fn audio_tts(
         &self,
-        _profile: &ProviderProfile,
+        _profile: &ResolvedProfile,
         _model: &Model,
         _request: AudioTtsRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
@@ -377,7 +363,7 @@ impl Adapter for AnthropicProvider {
 
     async fn audio_stt(
         &self,
-        _profile: &ProviderProfile,
+        _profile: &ResolvedProfile,
         _model: &Model,
         _request: AudioSttRequest,
         _file_bytes: Vec<u8>,
@@ -391,7 +377,7 @@ impl Adapter for AnthropicProvider {
 
     async fn embedding(
         &self,
-        _profile: &ProviderProfile,
+        _profile: &ResolvedProfile,
         _model: &Model,
         _request: EmbeddingRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
@@ -409,25 +395,17 @@ mod tests {
     use uuid::Uuid;
     use wiremock::{matchers::*, Mock, MockServer, ResponseTemplate};
 
-    fn dummy_profile() -> ProviderProfile {
-        ProviderProfile {
-            id: Uuid::nil(),
-            organization_id: Uuid::nil(),
-            name: "anthropic".to_string(),
-            protocol: "anthropic".to_string(),
-            base_url: None,
-            auth: serde_json::json!({}),
-            config: serde_json::json!({}),
-            enabled: true,
-            created_at: Utc::now(),
+    fn dummy_profile() -> crate::adapter::ResolvedProfile {
+        crate::adapter::ResolvedProfile {
+            base_url: "https://api.anthropic.com".to_string(),
+            api_key: Some("fake-key".to_string()),
         }
     }
 
     fn dummy_model() -> Model {
         Model {
             id: Uuid::nil(),
-            organization_id: Uuid::nil(),
-            public_id: "claude-3-5-sonnet".to_string(),
+            public_id: "claude-sonnet".to_string(),
             provider: "anthropic".to_string(),
             provider_profile_id: Uuid::nil(),
             provider_model_id: "claude-3-5-sonnet-20241022".to_string(),
@@ -482,14 +460,18 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = AnthropicProvider::new("fake-key", &server.uri());
+        let client = AnthropicAdapter::new();
+        let profile = crate::adapter::ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
         let _ = client
-            .chat(&dummy_profile(), &dummy_model(), chat_request_with_system())
+            .chat(&profile, &dummy_model(), chat_request_with_system())
             .await
             .unwrap();
 
         let body = captured_body.lock().unwrap().take().expect("request body captured");
-        assert_eq!(body["model"], "claude-3-5-sonnet");
+        assert_eq!(body["model"], "claude-sonnet");
         assert_eq!(body["system"], "You are a helpful assistant.");
         assert_eq!(body["max_tokens"], 4096);
         assert_eq!(body["messages"].as_array().unwrap().len(), 1);
@@ -514,7 +496,11 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = AnthropicProvider::new("fake-key", &server.uri());
+        let client = AnthropicAdapter::new();
+        let profile = crate::adapter::ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
         let req = ChatCompletionRequest {
             model: "claude-3-5-sonnet".to_string(),
             messages: vec![ChatMessage {
@@ -526,7 +512,7 @@ mod tests {
             max_tokens: None,
         };
 
-        let (ProviderResponse::Chat(resp), usage_report) = client.chat(&dummy_profile(), &dummy_model(), req).await.unwrap() else {
+        let (ProviderResponse::Chat(resp), usage_report) = client.chat(&profile, &dummy_model(), req).await.unwrap() else {
             panic!("expected chat response");
         };
 
@@ -567,7 +553,11 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = AnthropicProvider::new("fake-key", &server.uri());
+        let client = AnthropicAdapter::new();
+        let profile = crate::adapter::ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
         let req = ChatCompletionRequest {
             model: "claude-3-5-sonnet".to_string(),
             messages: vec![ChatMessage {
@@ -579,7 +569,7 @@ mod tests {
             max_tokens: None,
         };
 
-        let stream = client.chat_stream(&dummy_profile(), &dummy_model(), req).await.unwrap();
+        let stream = client.chat_stream(&profile, &dummy_model(), req).await.unwrap();
         let events: Vec<SseEvent> = stream.filter_map(|r| async move { r.ok() }).collect().await;
 
         assert_eq!(events.len(), 3);
@@ -601,7 +591,7 @@ mod tests {
 
     #[tokio::test]
     async fn unsupported_capabilities_return_error() {
-        let client = AnthropicProvider::new("fake-key", "https://example.com");
+        let client = AnthropicAdapter::new();
         let profile = dummy_profile();
         let model = dummy_model();
 

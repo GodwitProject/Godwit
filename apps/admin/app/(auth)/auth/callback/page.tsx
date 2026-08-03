@@ -2,14 +2,14 @@
 
 import { useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { setTokens } from '@/lib/auth'
+import { exchangeOIDCCode } from './actions'
 
 export default function AuthCallbackPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
   useEffect(() => {
-    const exchangeCode = async () => {
+    const handleCallback = async () => {
       const code = searchParams.get('code')
       const state = searchParams.get('state')
       const error = searchParams.get('error')
@@ -20,24 +20,17 @@ export default function AuthCallbackPage() {
         return
       }
 
-      if (!code) {
+      if (!code || !state) {
         router.push('/login?error=no_code')
         return
       }
 
       try {
-        const response = await fetch('/api/auth/oidc-callback', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code, state }),
-        })
+        const result = await exchangeOIDCCode(code, state)
 
-        if (!response.ok) {
-          throw new Error('Token exchange failed')
+        if (!result.success) {
+          throw new Error(result.error || 'Token exchange failed')
         }
-
-        const { access_token, refresh_token } = await response.json()
-        await setTokens(access_token, refresh_token)
 
         router.push('/admin')
       } catch (err) {
@@ -46,7 +39,7 @@ export default function AuthCallbackPage() {
       }
     }
 
-    exchangeCode()
+    handleCallback()
   }, [searchParams, router])
 
   return (

@@ -16,8 +16,8 @@ export async function exchangeOIDCCode(code: string, state: string) {
       throw new Error('Token exchange failed')
     }
 
-    const { access_token, refresh_token } = await response.json()
-    await setTokens(access_token, refresh_token)
+    const data = await response.json() as { access_token: string; refresh_token: string }
+    await setTokens(data.access_token, data.refresh_token)
 
     return { success: true }
   } catch (err) {

@@ -22,10 +22,7 @@ pub async fn connect(database_url: &str) -> Result<PgPool, PasteurError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::repositories::{
-        models::ModelRepository, organizations::OrganizationRepository,
-        provider_profiles::ProviderProfileRepository,
-    };
+    use crate::repositories::{models::ModelRepository, provider_profiles::ProviderProfileRepository};
     use serde_json::json;
     use sqlx::PgPool;
 
@@ -34,95 +31,26 @@ mod tests {
         run_migrations(&pool).await.expect("migrations should run");
     }
 
-    #[sqlx::test]
-    async fn provider_profile_backfill_creates_profiles_for_existing_models(pool: PgPool) {
-        // Revert the provider-profile migration so we can simulate legacy models.
-        sqlx::raw_sql(
-            "ALTER TABLE models DROP CONSTRAINT IF EXISTS chk_models_capability;
-             ALTER TABLE models DROP COLUMN IF EXISTS provider_profile_id CASCADE;
-             ALTER TABLE models DROP COLUMN IF EXISTS capability;
-             ALTER TABLE models DROP COLUMN IF EXISTS pricing;
-             DROP TABLE IF EXISTS provider_profiles CASCADE;"
-        )
-        .execute(&pool)
-        .await
-        .expect("revert provider profile changes");
-
-        let orgs = OrganizationRepository::new(pool.clone());
-        let org1 = orgs.create("org-1").await.expect("create org 1");
-        let org2 = orgs.create("org-2").await.expect("create org 2");
-
-        // Insert legacy models (pre-provider_profile_id schema).
-        sqlx::query(
-            "INSERT INTO models (organization_id, public_id, provider, provider_model_id, config)
-             VALUES ($1, 'gpt-4', 'openai', 'gpt-4', '{}'),
-                    ($2, 'claude-3', 'anthropic', 'claude-3', '{}'),
-                    ($3, 'gpt-3.5', 'openai', 'gpt-3.5-turbo', '{}')"
-        )
-        .bind(org1.id)
-        .bind(org1.id)
-        .bind(org2.id)
-        .execute(&pool)
-        .await
-        .expect("insert legacy models");
-
-        // Re-run the provider profile migration.
-        let migration = include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/migrations/20260802000001_provider_profiles.up.sql"
-        ));
-        sqlx::raw_sql(migration).execute(&pool).await.expect("reapply migration");
-
-        // Verify provider profiles were backfilled per organization/provider pair.
-        let profiles: Vec<(uuid::Uuid, String, String)> = sqlx::query_as(
-            "SELECT organization_id, name, protocol FROM provider_profiles"
-        )
-        .fetch_all(&pool)
-        .await
-        .expect("fetch profiles");
-        assert_eq!(profiles.len(), 3);
-        let profile_set: std::collections::HashSet<_> = profiles.into_iter().collect();
-        assert!(profile_set.contains(&(org1.id, "anthropic".to_string(), "anthropic".to_string())));
-        assert!(profile_set.contains(&(org1.id, "openai".to_string(), "openai".to_string())));
-        assert!(profile_set.contains(&(org2.id, "openai".to_string(), "openai".to_string())));
-
-        // Verify every model now has a non-null provider_profile_id.
-        let unlinked: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM models WHERE provider_profile_id IS NULL"
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("count unlinked models");
-        assert_eq!(unlinked, 0);
-
-        // Verify defaults were applied.
-        let defaults: (String, serde_json::Value, serde_json::Value) = sqlx::query_as(
-            "SELECT capability, pricing, config FROM models WHERE public_id = 'gpt-4'"
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("fetch defaults");
-        assert_eq!(defaults.0, "chat");
-        assert_eq!(defaults.1, json!({}));
-        assert_eq!(defaults.2, json!({}));
-    }
+    // Note: the org-scoped provider-profile backfill test that previously lived here
+    // (`provider_profile_backfill_creates_profiles_for_existing_models`) exercised the
+    // 20260802000001 migration's per-organization backfill by reverting to a legacy
+    // `models.organization_id`-only schema. That column no longer exists at all once
+    // the 20260803000002 instance-wide-catalog migration runs (it's applied
+    // unconditionally by `#[sqlx::test]` before every test body), so the scenario it
+    // simulated is no longer reachable and the test was removed rather than adapted.
 
     #[sqlx::test]
     async fn models_capability_check_constraint_rejects_invalid_value(pool: PgPool) {
-        let orgs = OrganizationRepository::new(pool.clone());
-        let org = orgs.create("check-org").await.expect("create org");
-
         let profiles = ProviderProfileRepository::new(pool.clone());
         let profile = profiles
-            .create(org.id, "openai", "openai", Some("https://api.openai.com/v1"))
+            .create("openai", "openai", Some("https://api.openai.com/v1"), false)
             .await
             .expect("create profile");
 
         let result = sqlx::query(
-            "INSERT INTO models (organization_id, public_id, provider, provider_profile_id, provider_model_id, capabilities)
-             VALUES ($1, 'bad-cap', 'openai', $2, 'gpt-4', ARRAY['time_travel'])"
+            "INSERT INTO models (public_id, provider, provider_profile_id, provider_model_id, capabilities)
+             VALUES ('bad-cap', 'openai', $1, 'gpt-4', ARRAY['time_travel'])"
         )
-        .bind(org.id)
         .bind(profile.id)
         .execute(&pool)
         .await;
@@ -137,20 +65,17 @@ mod tests {
 
     #[sqlx::test(migrations = "./migrations")]
     async fn models_capabilities_check_constraint_accepts_image_edit(pool: PgPool) {
-        let orgs = crate::repositories::organizations::OrganizationRepository::new(pool.clone());
-        let org = orgs.create("test-org").await.expect("create org");
         let profiles =
             crate::repositories::provider_profiles::ProviderProfileRepository::new(pool.clone());
         let profile = profiles
-            .create(org.id, "openai", "openai", None)
+            .create("openai", "openai", None, false)
             .await
             .expect("create profile");
 
         let result = sqlx::query(
-            "INSERT INTO models (organization_id, public_id, provider, provider_profile_id, provider_model_id, capabilities)
-             VALUES ($1, 'edit-model', 'openai', $2, 'gpt-image-1', ARRAY['image_edit'])"
+            "INSERT INTO models (public_id, provider, provider_profile_id, provider_model_id, capabilities)
+             VALUES ('edit-model', 'openai', $1, 'gpt-image-1', ARRAY['image_edit'])"
         )
-        .bind(org.id)
         .bind(profile.id)
         .execute(&pool)
         .await;
@@ -159,22 +84,18 @@ mod tests {
 
     #[sqlx::test]
     async fn model_repository_create_round_trips_new_fields(pool: PgPool) {
-        let orgs = OrganizationRepository::new(pool.clone());
-        let org = orgs.create("round-trip-org").await.expect("create org");
-
         let profiles = ProviderProfileRepository::new(pool.clone());
         let profile = profiles
-            .create(org.id, "openai", "openai", Some("https://api.openai.com/v1"))
+            .create("openai", "openai", Some("https://api.openai.com/v1"), false)
             .await
             .expect("create profile");
 
         let models = ModelRepository::new(pool);
         let created = models
-            .create(org.id, "my-model", "openai", profile.id, "gpt-4", "chat,image_generation")
+            .create("my-model", "openai", profile.id, "gpt-4", "chat,image_generation")
             .await
             .expect("create model");
 
-        assert_eq!(created.organization_id, org.id);
         assert_eq!(created.public_id, "my-model");
         assert_eq!(created.provider, "openai");
         assert_eq!(created.provider_profile_id, profile.id);
@@ -184,7 +105,7 @@ mod tests {
         assert_eq!(created.config, json!({}));
 
         let fetched = models
-            .get_by_public_id(org.id, "my-model")
+            .get_by_public_id("my-model")
             .await
             .expect("fetch model");
         assert_eq!(fetched.id, created.id);

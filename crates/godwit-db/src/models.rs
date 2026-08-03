@@ -74,7 +74,6 @@ pub struct ApiKey {
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct Model {
     pub id: Uuid,
-    pub organization_id: Uuid,
     pub public_id: String,
     // Kept for backward compatibility during the transition to provider profiles.
     // Will be removed once all code uses `provider_profile_id`.
@@ -96,10 +95,10 @@ impl Model {
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct ProviderProfile {
     pub id: Uuid,
-    pub organization_id: Uuid,
     pub name: String,
     pub protocol: String,
     pub base_url: Option<String>,
+    pub allow_wildcard: bool,
     pub auth: serde_json::Value,
     pub config: serde_json::Value,
     pub enabled: bool,

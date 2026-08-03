@@ -1439,6 +1439,7 @@ name = "godwit-db"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "godwit-auth",
  "godwit-core",
  "rust_decimal",
  "serde",

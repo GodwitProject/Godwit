@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 godwit-core = { path = "../godwit-core" }
+godwit-auth = { path = "../godwit-auth" }
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate", "rust_decimal"] }
 tokio = { workspace = true }
 uuid = { workspace = true }

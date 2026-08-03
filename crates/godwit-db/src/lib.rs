@@ -378,4 +378,59 @@ mod tests {
             vec!["chat".to_string(), "image_generation".to_string()]
         );
     }
+
+    #[sqlx::test]
+    async fn deleting_user_cascades_api_keys_and_nulls_request_logs(pool: PgPool) {
+        use crate::repositories::{
+            api_keys::ApiKeyRepository, organizations::OrganizationRepository, users::UserRepository,
+        };
+        use crate::models::UserRole;
+
+        let org = OrganizationRepository::new(pool.clone())
+            .create("acme", None)
+            .await
+            .expect("create org");
+        let user = UserRepository::new(pool.clone())
+            .create("erin@example.com", None, UserRole::User, Some(org.id))
+            .await
+            .expect("create user");
+
+        let (_, hash, prefix) = godwit_auth::api_keys::generate_api_key();
+        let api_key = ApiKeyRepository::new(pool.clone())
+            .create(user.id, org.id, "test-key", &prefix, &hash, &["chat".to_string()], None, None)
+            .await
+            .expect("create api key");
+
+        sqlx::query(
+            "INSERT INTO request_logs (api_key_id, user_id, organization_id, model, provider, provider_model_id, duration_ms, status)
+             VALUES ($1, $2, $3, 'gpt-4o', 'openai', 'gpt-4o', 100, 'success')"
+        )
+        .bind(api_key.id)
+        .bind(user.id)
+        .bind(org.id)
+        .execute(&pool)
+        .await
+        .expect("insert request log");
+
+        sqlx::query("DELETE FROM users WHERE id = $1")
+            .bind(user.id)
+            .execute(&pool)
+            .await
+            .expect("delete user");
+
+        let remaining_keys: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM api_keys WHERE id = $1")
+            .bind(api_key.id)
+            .fetch_one(&pool)
+            .await
+            .expect("count api_keys");
+        assert_eq!(remaining_keys, 0, "api_keys row should cascade-delete with the user");
+
+        let log_user_id: Option<uuid::Uuid> =
+            sqlx::query_scalar("SELECT user_id FROM request_logs WHERE api_key_id = $1")
+                .bind(api_key.id)
+                .fetch_one(&pool)
+                .await
+                .expect("fetch request_logs row");
+        assert_eq!(log_user_id, None, "request_logs.user_id should be nulled, not the row deleted");
+    }
 }

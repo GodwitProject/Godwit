@@ -59,17 +59,20 @@ struct SpendRow {
     tokens_out: i64,
 }
 
-async fn get_spend(
-    State(state): State<Arc<AppState>>,
-    Extension(claims): Extension<Claims>,
-    Query(query): Query<SpendQuery>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    Role::from_str(&claims.role).ok_or(ApiError::Forbidden)?;
-    let from = query.from;
-    let to = query.to;
-    let (organization_id, team_id, user_id) = scope_spend_query(&claims, query);
-
-    let rows = sqlx::query_as::<_, SpendRow>(
+/// Runs the actual spend aggregation query over `request_logs`, grouped by
+/// organization/team/user, with each of `from`/`to`/`organization_id`/`team_id`/`user_id`
+/// applied as an optional filter (a `None` leaves that dimension unfiltered). Extracted
+/// out of `get_spend` so the query itself — not just the RBAC scoping around it — is
+/// directly exercisable by a DB-backed test.
+async fn fetch_spend_rows(
+    pool: &sqlx::PgPool,
+    from: Option<DateTime<Utc>>,
+    to: Option<DateTime<Utc>>,
+    organization_id: Option<Uuid>,
+    team_id: Option<Uuid>,
+    user_id: Option<Uuid>,
+) -> Result<Vec<SpendRow>, sqlx::Error> {
+    sqlx::query_as::<_, SpendRow>(
         "SELECT organization_id, team_id, user_id,
                 COALESCE(SUM(cost_usd), 0) AS total_cost_usd,
                 COUNT(*) AS request_count,
@@ -81,16 +84,30 @@ async fn get_spend(
            AND ($3::uuid IS NULL OR organization_id = $3)
            AND ($4::uuid IS NULL OR team_id = $4)
            AND ($5::uuid IS NULL OR user_id = $5)
-         GROUP BY organization_id, team_id, user_id"
+         GROUP BY organization_id, team_id, user_id",
     )
     .bind(from)
     .bind(to)
     .bind(organization_id)
     .bind(team_id)
     .bind(user_id)
-    .fetch_all(&state.pool)
+    .fetch_all(pool)
     .await
-    .map_err(|e| ApiError::Core(godwit_core::PasteurError::Database(e.to_string())))?;
+}
+
+async fn get_spend(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Query(query): Query<SpendQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Role::from_str(&claims.role).ok_or(ApiError::Forbidden)?;
+    let from = query.from;
+    let to = query.to;
+    let (organization_id, team_id, user_id) = scope_spend_query(&claims, query);
+
+    let rows = fetch_spend_rows(&state.pool, from, to, organization_id, team_id, user_id)
+        .await
+        .map_err(|e| ApiError::Core(godwit_core::PasteurError::Database(e.to_string())))?;
 
     Ok(Json(serde_json::json!({ "data": rows })))
 }
@@ -200,5 +217,71 @@ mod tests {
         let requested = SpendQuery { from: None, to: None, organization_id: Some(org_id), team_id: None, user_id: None };
         let scoped = scope_spend_query(&claims, requested);
         assert_eq!(scoped.0, Some(org_id));
+    }
+
+    #[sqlx::test(migrations = "../godwit-db/migrations")]
+    async fn spend_aggregation_sums_matching_rows_and_respects_filters(pool: sqlx::PgPool) {
+        let org_a = Uuid::new_v4();
+        let org_b = Uuid::new_v4();
+        sqlx::query("INSERT INTO organizations (id, name) VALUES ($1, 'org-a'), ($2, 'org-b')")
+            .bind(org_a)
+            .bind(org_b)
+            .execute(&pool)
+            .await
+            .expect("insert organizations");
+
+        let user_a1 = Uuid::new_v4();
+        let user_a2 = Uuid::new_v4();
+        let user_b1 = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO users (id, organization_id, email, role) VALUES
+                ($1, $4, 'a1@test.example', 'user'),
+                ($2, $4, 'a2@test.example', 'user'),
+                ($3, $5, 'b1@test.example', 'user')",
+        )
+        .bind(user_a1)
+        .bind(user_a2)
+        .bind(user_b1)
+        .bind(org_a)
+        .bind(org_b)
+        .execute(&pool)
+        .await
+        .expect("insert users");
+
+        // Two rows for (org_a, user_a1) that should be summed together, plus a row for a
+        // different user in the same org and a row in a different org entirely, both of
+        // which the org_a/user_a1 filter below must exclude.
+        sqlx::query(
+            "INSERT INTO request_logs
+                (organization_id, user_id, model, provider, provider_model_id,
+                 tokens_in, tokens_out, cost_usd, duration_ms, status)
+             VALUES
+                ($1, $2, 'gpt-4o', 'openai', 'gpt-4o', 100, 50, 1.50, 10, 'success'),
+                ($1, $2, 'gpt-4o', 'openai', 'gpt-4o', 200, 100, 2.50, 20, 'success'),
+                ($1, $3, 'gpt-4o', 'openai', 'gpt-4o', 999, 999, 9.99, 30, 'success'),
+                ($4, $5, 'gpt-4o', 'openai', 'gpt-4o', 111, 111, 5.00, 40, 'success')",
+        )
+        .bind(org_a)
+        .bind(user_a1)
+        .bind(user_a2)
+        .bind(org_b)
+        .bind(user_b1)
+        .execute(&pool)
+        .await
+        .expect("insert request_logs");
+
+        let rows = fetch_spend_rows(&pool, None, None, Some(org_a), None, Some(user_a1))
+            .await
+            .expect("fetch spend rows");
+
+        assert_eq!(rows.len(), 1, "expected exactly one aggregated row: {rows:?}");
+        let row = &rows[0];
+        assert_eq!(row.organization_id, org_a);
+        assert_eq!(row.user_id, Some(user_a1));
+        assert_eq!(row.team_id, None);
+        assert_eq!(row.total_cost_usd, dec!(4.00));
+        assert_eq!(row.request_count, 2);
+        assert_eq!(row.tokens_in, 300);
+        assert_eq!(row.tokens_out, 150);
     }
 }

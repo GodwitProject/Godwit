@@ -140,11 +140,25 @@ async fn update_user(
             return Err(ApiError::Forbidden);
         }
     }
+    let reassigning_org =
+        req.organization_id.is_some() && req.organization_id != target.organization_id;
     let updated = state
         .user_repo
         .update(id, req.name.as_deref(), req.role.as_deref(), req.organization_id)
         .await
         .map_err(ApiError::Core)?;
+    if reassigning_org {
+        // A team membership only makes sense within the org the team belongs to, and this
+        // branch doesn't support cross-org team membership: dropping all of this user's
+        // memberships here prevents the authorization-continuation bug where a moved user
+        // keeps team-management rights over its old org's teams (see
+        // `TeamMembershipRepository::remove_all_for_user`).
+        state
+            .team_membership_repo
+            .remove_all_for_user(id)
+            .await
+            .map_err(ApiError::Core)?;
+    }
     Ok(Json(serde_json::json!({ "data": updated })))
 }
 

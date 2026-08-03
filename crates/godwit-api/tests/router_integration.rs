@@ -2471,3 +2471,114 @@ async fn get_user_response_never_includes_password_hash(pool: PgPool) {
     assert_eq!(body["data"]["email"], "hashed@example.com");
 }
 
+// ---------------------------------------------------------------------------------------
+// Final whole-branch review, Fix 4: reassigning a user's organization must clear its
+// stale team memberships in the old organization, closing an authorization-continuation
+// gap in `require_team_manage` (which authorizes purely on `(team_id, user_id)` without
+// cross-checking the caller's current organization).
+// ---------------------------------------------------------------------------------------
+
+/// A `team_admin` membership in org A's team must be dropped once `super_admin` reassigns
+/// that user to org B via `PATCH /users/:id` — otherwise the user would retain
+/// team-management rights over org A's team indefinitely, having been moved out of org A.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn reassigning_a_users_organization_clears_its_team_memberships(pool: PgPool) {
+    let org_a = OrganizationRepository::new(pool.clone())
+        .create("org-a", None)
+        .await
+        .expect("create org a");
+    let org_b = OrganizationRepository::new(pool.clone())
+        .create("org-b", None)
+        .await
+        .expect("create org b");
+    let team_a = godwit_db::repositories::teams::TeamRepository::new(pool.clone())
+        .create(org_a.id, "team-a")
+        .await
+        .expect("create team a");
+    let user = UserRepository::new(pool.clone())
+        .create("mover@example.com", None, UserRole::User, Some(org_a.id))
+        .await
+        .expect("create user");
+
+    let membership_repo = TeamMembershipRepository::new(pool.clone());
+    membership_repo
+        .add_member(team_a.id, user.id, "team_admin")
+        .await
+        .expect("add as team_admin of team_a");
+
+    let token = admin_token("super_admin");
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/users/{}", user.id))
+                .header("Authorization", format!("Bearer {token}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"organization_id": org_b.id}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let err = membership_repo
+        .get_membership(team_a.id, user.id)
+        .await
+        .expect_err("membership in the old org's team must have been cleared");
+    assert!(matches!(err, godwit_core::PasteurError::NotFound));
+
+    // The user really did move.
+    let moved = UserRepository::new(pool)
+        .get_by_id(user.id)
+        .await
+        .expect("fetch moved user");
+    assert_eq!(moved.organization_id, Some(org_b.id));
+}
+
+/// A `PATCH /users/:id` that does NOT change `organization_id` must leave existing team
+/// memberships untouched — the clearing behavior in Fix 4 is specific to actual
+/// reassignment, not every update.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn updating_a_user_without_changing_org_preserves_team_memberships(pool: PgPool) {
+    let org = OrganizationRepository::new(pool.clone())
+        .create("acme", None)
+        .await
+        .expect("create org");
+    let team = godwit_db::repositories::teams::TeamRepository::new(pool.clone())
+        .create(org.id, "engineering")
+        .await
+        .expect("create team");
+    let user = UserRepository::new(pool.clone())
+        .create("stays@example.com", None, UserRole::User, Some(org.id))
+        .await
+        .expect("create user");
+
+    let membership_repo = TeamMembershipRepository::new(pool.clone());
+    membership_repo
+        .add_member(team.id, user.id, "member")
+        .await
+        .expect("add as member");
+
+    let token = admin_token_for_org("super_admin", org.id);
+    let response = build_app(pool.clone())
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri(format!("/api/v1/users/{}", user.id))
+                .header("Authorization", format!("Bearer {token}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::json!({"name": "Renamed"}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let still_member = membership_repo
+        .get_membership(team.id, user.id)
+        .await
+        .expect("membership must survive an unrelated update");
+    assert_eq!(still_member.role, "member");
+}

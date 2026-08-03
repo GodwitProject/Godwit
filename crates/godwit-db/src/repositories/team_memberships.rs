@@ -41,6 +41,21 @@ impl TeamMembershipRepository {
         Ok(())
     }
 
+    /// Deletes every team-membership row for a user, regardless of team. Used when a user
+    /// is reassigned to a different organization: a team membership only makes sense within
+    /// the org the team belongs to, and `require_team_manage` (in `admin::teams`) authorizes
+    /// purely on `(team_id, user_id)` without cross-checking the caller's current
+    /// organization — so a stale membership in the old org would otherwise keep granting
+    /// team-management rights there indefinitely.
+    pub async fn remove_all_for_user(&self, user_id: Uuid) -> Result<(), PasteurError> {
+        sqlx::query("DELETE FROM team_memberships WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| PasteurError::Database(e.to_string()))?;
+        Ok(())
+    }
+
     pub async fn get_membership(
         &self,
         team_id: Uuid,

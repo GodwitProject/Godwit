@@ -42,9 +42,11 @@ impl Adapter for VllmProvider {
     async fn chat(
         &self,
         profile: &ResolvedProfile,
-        _model: &Model,
-        request: ChatCompletionRequest,
+        model: &Model,
+        mut request: ChatCompletionRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        // Translate the catalog/wildcard-resolved public id into the upstream model id.
+        request.model = model.provider_model_id.clone();
         let url = format!("{}/chat/completions", profile.base_url);
         let mut req = self.client.post(&url).json(&request);
         if let Some(key) = &profile.api_key {
@@ -66,10 +68,12 @@ impl Adapter for VllmProvider {
     async fn chat_stream(
         &self,
         profile: &ResolvedProfile,
-        _model: &Model,
+        model: &Model,
         mut request: ChatCompletionRequest,
     ) -> Result<BoxStream<'static, Result<SseEvent, ProviderError>>, ProviderError> {
         request.stream = Some(true);
+        // Translate the catalog/wildcard-resolved public id into the upstream model id.
+        request.model = model.provider_model_id.clone();
         let url = format!("{}/chat/completions", profile.base_url);
         let mut req = self.client.post(&url).json(&request);
         if let Some(key) = &profile.api_key {
@@ -144,9 +148,11 @@ impl Adapter for VllmProvider {
     async fn embedding(
         &self,
         profile: &ResolvedProfile,
-        _model: &Model,
-        request: EmbeddingRequest,
+        model: &Model,
+        mut request: EmbeddingRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        // Translate the catalog/wildcard-resolved public id into the upstream model id.
+        request.model = model.provider_model_id.clone();
         let url = format!("{}/embeddings", profile.base_url);
         let mut req = self.client.post(&url).json(&request);
         if let Some(key) = &profile.api_key {
@@ -232,6 +238,53 @@ mod tests {
             "expected no Authorization header when api_key is None, got: {:?}",
             received[0].headers.get("authorization")
         );
+    }
+
+    /// Regression guard for wildcard passthrough: `model_router` synthesises a `Model`
+    /// whose `public_id` is the whole `<profile>/<suffix>` ref and whose
+    /// `provider_model_id` is just the suffix. Only the suffix may reach the engine —
+    /// forwarding the client's `request.model` untouched would send `local/<suffix>`.
+    #[tokio::test]
+    async fn chat_sends_provider_model_id_not_the_wildcard_model_ref() {
+        let server = MockServer::start().await;
+        let captured_body = std::sync::Arc::new(std::sync::Mutex::new(None::<serde_json::Value>));
+        let captured_clone = captured_body.clone();
+
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(move |req: &wiremock::Request| {
+                if let Ok(body) = serde_json::from_slice::<serde_json::Value>(&req.body) {
+                    *captured_clone.lock().unwrap() = Some(body);
+                }
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "id": "chatcmpl-1", "object": "chat.completion", "created": 1,
+                    "model": "meta-llama/Llama-3-70B-Instruct",
+                    "choices": [{"index":0,"message":{"role":"assistant","content":"Hi"},"finish_reason":"stop"}],
+                    "usage": {"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
+                }))
+            })
+            .mount(&server)
+            .await;
+
+        let client = VllmAdapter::new();
+        let profile = dummy_profile(server.uri());
+        let model = Model {
+            public_id: "local/meta-llama/Llama-3-70B-Instruct".to_string(),
+            provider_model_id: "meta-llama/Llama-3-70B-Instruct".to_string(),
+            ..dummy_model()
+        };
+        let req = ChatCompletionRequest {
+            model: "local/meta-llama/Llama-3-70B-Instruct".to_string(),
+            messages: vec![ChatMessage { role: "user".to_string(), content: "Hi".to_string() }],
+            stream: Some(false),
+            temperature: None,
+            max_tokens: None,
+        };
+        let _ = client.chat(&profile, &model, req).await.unwrap();
+
+        let body = captured_body.lock().unwrap().take().expect("request body captured");
+        assert_eq!(body["model"], "meta-llama/Llama-3-70B-Instruct");
+        assert_ne!(body["model"], "local/meta-llama/Llama-3-70B-Instruct");
     }
 
     #[tokio::test]

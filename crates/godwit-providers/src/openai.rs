@@ -51,9 +51,11 @@ impl Adapter for OpenAiProvider {
     async fn chat(
         &self,
         profile: &ResolvedProfile,
-        _model: &Model,
-        request: ChatCompletionRequest,
+        model: &Model,
+        mut request: ChatCompletionRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        // Translate the catalog/wildcard-resolved public id into the upstream model id.
+        request.model = model.provider_model_id.clone();
         let url = format!("{}/chat/completions", profile.base_url);
         let mut req = self.client.post(&url).json(&request);
         if let Some(key) = &profile.api_key {
@@ -81,10 +83,12 @@ impl Adapter for OpenAiProvider {
     async fn chat_stream(
         &self,
         profile: &ResolvedProfile,
-        _model: &Model,
+        model: &Model,
         mut request: ChatCompletionRequest,
     ) -> Result<BoxStream<'static, Result<SseEvent, ProviderError>>, ProviderError> {
         request.stream = Some(true);
+        // Translate the catalog/wildcard-resolved public id into the upstream model id.
+        request.model = model.provider_model_id.clone();
         let url = format!("{}/chat/completions", profile.base_url);
         let mut req = self.client.post(&url).json(&request);
         if let Some(key) = &profile.api_key {
@@ -114,9 +118,11 @@ impl Adapter for OpenAiProvider {
     async fn image_generation(
         &self,
         profile: &ResolvedProfile,
-        _model: &Model,
-        request: ImageGenerationRequest,
+        model: &Model,
+        mut request: ImageGenerationRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        // Translate the catalog/wildcard-resolved public id into the upstream model id.
+        request.model = model.provider_model_id.clone();
         let url = format!("{}/images/generations", profile.base_url);
         let mut req = self.client.post(&url).json(&request);
         if let Some(key) = &profile.api_key {
@@ -143,12 +149,14 @@ impl Adapter for OpenAiProvider {
     async fn image_edit(
         &self,
         profile: &ResolvedProfile,
-        _model: &Model,
-        request: godwit_core::ImageEditRequest,
+        model: &Model,
+        mut request: godwit_core::ImageEditRequest,
         image_bytes: Vec<u8>,
         image_filename: String,
         mask_bytes: Option<Vec<u8>>,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        // Translate the catalog/wildcard-resolved public id into the upstream model id.
+        request.model = model.provider_model_id.clone();
         let url = format!("{}/images/edits", profile.base_url);
         let image_part = reqwest::multipart::Part::bytes(image_bytes)
             .file_name(image_filename)
@@ -209,9 +217,11 @@ impl Adapter for OpenAiProvider {
     async fn audio_tts(
         &self,
         profile: &ResolvedProfile,
-        _model: &Model,
-        request: AudioTtsRequest,
+        model: &Model,
+        mut request: AudioTtsRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        // Translate the catalog/wildcard-resolved public id into the upstream model id.
+        request.model = model.provider_model_id.clone();
         let url = format!("{}/audio/speech", profile.base_url);
         let mut req = self.client.post(&url).json(&request);
         if let Some(key) = &profile.api_key {
@@ -251,12 +261,14 @@ impl Adapter for OpenAiProvider {
     async fn audio_stt(
         &self,
         profile: &ResolvedProfile,
-        _model: &Model,
-        request: AudioSttRequest,
+        model: &Model,
+        mut request: AudioSttRequest,
         file_bytes: Vec<u8>,
         filename: String,
         content_type: String,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        // Translate the catalog/wildcard-resolved public id into the upstream model id.
+        request.model = model.provider_model_id.clone();
         let url = format!("{}/audio/transcriptions", profile.base_url);
         let file_part = reqwest::multipart::Part::bytes(file_bytes)
             .file_name(filename)
@@ -296,9 +308,11 @@ impl Adapter for OpenAiProvider {
     async fn embedding(
         &self,
         profile: &ResolvedProfile,
-        _model: &Model,
-        request: EmbeddingRequest,
+        model: &Model,
+        mut request: EmbeddingRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        // Translate the catalog/wildcard-resolved public id into the upstream model id.
+        request.model = model.provider_model_id.clone();
         let url = format!("{}/embeddings", profile.base_url);
         let mut req = self.client.post(&url).json(&request);
         if let Some(key) = &profile.api_key {
@@ -351,6 +365,115 @@ mod tests {
             config: serde_json::json!({}),
             created_at: Utc::now(),
         }
+    }
+
+    /// A catalog row whose friendly `public_id` differs from the real upstream
+    /// `provider_model_id`, so tests can prove which of the two is actually sent upstream.
+    fn mapped_model(public_id: &str, provider_model_id: &str) -> Model {
+        Model {
+            public_id: public_id.to_string(),
+            provider_model_id: provider_model_id.to_string(),
+            ..dummy_model()
+        }
+    }
+
+    /// Regression guard for the whole point of `models.provider_model_id`: the client's
+    /// `request.model` (a `public_id`, or a full `<profile>/<suffix>` wildcard ref) must be
+    /// replaced by the upstream id before the request leaves the adapter.
+    #[tokio::test]
+    async fn chat_sends_provider_model_id_not_public_id() {
+        let server = MockServer::start().await;
+        let captured_body = std::sync::Arc::new(std::sync::Mutex::new(None::<serde_json::Value>));
+        let captured_clone = captured_body.clone();
+
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(move |req: &wiremock::Request| {
+                if let Ok(body) = serde_json::from_slice::<serde_json::Value>(&req.body) {
+                    *captured_clone.lock().unwrap() = Some(body);
+                }
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "id": "chatcmpl-123",
+                    "object": "chat.completion",
+                    "created": 1,
+                    "model": "gpt-4o-2024-08-06",
+                    "choices": [{"index":0,"message":{"role":"assistant","content":"Hello"},"finish_reason":"stop"}],
+                    "usage": {"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
+                }))
+            })
+            .mount(&server)
+            .await;
+
+        let client = OpenAiAdapter::new();
+        let profile = ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
+        // The client asked for the friendly catalog id...
+        let req = ChatCompletionRequest {
+            model: "my-4o".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: "Hi".to_string(),
+            }],
+            stream: Some(false),
+            temperature: None,
+            max_tokens: None,
+        };
+        let model = mapped_model("my-4o", "gpt-4o-2024-08-06");
+        let _ = client.chat(&profile, &model, req).await.unwrap();
+
+        let body = captured_body
+            .lock()
+            .unwrap()
+            .take()
+            .expect("request body captured");
+        // ...but the upstream must see the mapped provider_model_id.
+        assert_eq!(body["model"], "gpt-4o-2024-08-06");
+        assert_ne!(body["model"], "my-4o");
+    }
+
+    #[tokio::test]
+    async fn embedding_sends_provider_model_id_not_public_id() {
+        let server = MockServer::start().await;
+        let captured_body = std::sync::Arc::new(std::sync::Mutex::new(None::<serde_json::Value>));
+        let captured_clone = captured_body.clone();
+
+        Mock::given(method("POST"))
+            .and(path("/embeddings"))
+            .respond_with(move |req: &wiremock::Request| {
+                if let Ok(body) = serde_json::from_slice::<serde_json::Value>(&req.body) {
+                    *captured_clone.lock().unwrap() = Some(body);
+                }
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "object": "list",
+                    "data": [{"object": "embedding", "embedding": [0.1], "index": 0}],
+                    "model": "text-embedding-3-small",
+                    "usage": {"prompt_tokens": 2, "completion_tokens": 0, "total_tokens": 2}
+                }))
+            })
+            .mount(&server)
+            .await;
+
+        let client = OpenAiAdapter::new();
+        let profile = ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
+        let req = EmbeddingRequest {
+            model: "my-embedder".to_string(),
+            input: vec!["hello".to_string()],
+        };
+        let model = mapped_model("my-embedder", "text-embedding-3-small");
+        let _ = client.embedding(&profile, &model, req).await.unwrap();
+
+        let body = captured_body
+            .lock()
+            .unwrap()
+            .take()
+            .expect("request body captured");
+        assert_eq!(body["model"], "text-embedding-3-small");
+        assert_ne!(body["model"], "my-embedder");
     }
 
     #[tokio::test]
@@ -471,8 +594,24 @@ mod tests {
             "created": 1,
             "data": [{"url": "https://example.com/edited.png", "b64_json": null, "revised_prompt": null}]
         });
+        // Assert on the outgoing multipart form, not just the response: without these
+        // matchers the test would still pass if prompt/n/size/mask/response_format were
+        // silently dropped from the form.
         Mock::given(method("POST"))
             .and(path("/images/edits"))
+            .and(body_string_contains("name=\"prompt\""))
+            .and(body_string_contains("add a hat"))
+            .and(body_string_contains("name=\"model\""))
+            .and(body_string_contains("gpt-image-1"))
+            .and(body_string_contains("name=\"image\""))
+            .and(body_string_contains("edit-me.png"))
+            .and(body_string_contains("name=\"mask\""))
+            .and(body_string_contains("mask.png"))
+            .and(body_string_contains("name=\"n\""))
+            .and(body_string_contains("name=\"size\""))
+            .and(body_string_contains("1024x1024"))
+            .and(body_string_contains("name=\"response_format\""))
+            .and(body_string_contains("b64_json"))
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&server)
             .await;
@@ -483,18 +622,36 @@ mod tests {
             api_key: Some("fake-key".to_string()),
         };
         let req = godwit_core::ImageEditRequest {
-            model: "gpt-image-1".to_string(),
+            model: "my-image-editor".to_string(),
             prompt: "add a hat".to_string(),
-            n: Some(1),
-            size: None,
-            response_format: None,
+            n: Some(2),
+            size: Some("1024x1024".to_string()),
+            response_format: Some("b64_json".to_string()),
         };
         let (resp, _usage) = client
-            .image_edit(&profile, &dummy_model(), req, vec![1, 2, 3], "image.png".to_string(), None)
+            .image_edit(
+                &profile,
+                &mapped_model("my-image-editor", "gpt-image-1"),
+                req,
+                vec![1, 2, 3],
+                "edit-me.png".to_string(),
+                Some(vec![4, 5, 6]),
+            )
             .await
             .unwrap();
         let ProviderResponse::Image(image) = resp else { panic!("expected image response") };
         assert_eq!(image.data[0].url.as_deref(), Some("https://example.com/edited.png"));
+
+        // The form must carry the upstream provider_model_id, never the public_id.
+        let received = server
+            .received_requests()
+            .await
+            .expect("request recording enabled");
+        let form = String::from_utf8_lossy(&received[0].body);
+        assert!(
+            !form.contains("my-image-editor"),
+            "the client-supplied public_id must not be forwarded upstream, got: {form}"
+        );
     }
 
     #[tokio::test]
@@ -539,6 +696,8 @@ mod tests {
         let body = serde_json::json!({ "text": "hello there" });
         Mock::given(method("POST"))
             .and(path("/audio/transcriptions"))
+            // The multipart form must carry the upstream provider_model_id, not the
+            // friendly public_id the client sent.
             .and(body_string_contains("whisper-1"))
             .and(body_string_contains("recording.mp3"))
             .and(body_string_contains("audio/mpeg"))
@@ -552,14 +711,14 @@ mod tests {
             api_key: Some("fake-key".to_string()),
         };
         let req = AudioSttRequest {
-            model: "whisper-1".to_string(),
+            model: "my-transcriber".to_string(),
             language: Some("en".to_string()),
             response_format: Some("json".to_string()),
         };
         let (ProviderResponse::AudioStt(resp), _) = client
             .audio_stt(
                 &profile,
-                &dummy_model(),
+                &mapped_model("my-transcriber", "whisper-1"),
                 req,
                 b"fake-audio-data".to_vec(),
                 "recording.mp3".to_string(),
@@ -571,6 +730,16 @@ mod tests {
             panic!("expected audio stt response");
         };
         assert_eq!(resp.text, "hello there");
+
+        let received = server
+            .received_requests()
+            .await
+            .expect("request recording enabled");
+        let form = String::from_utf8_lossy(&received[0].body);
+        assert!(
+            !form.contains("my-transcriber"),
+            "the client-supplied public_id must not be forwarded upstream, got: {form}"
+        );
     }
 
     #[tokio::test]

@@ -234,7 +234,7 @@ impl Adapter for AnthropicProvider {
         request: ChatCompletionRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
         let url = format!("{}/v1/messages", profile.base_url);
-        let anthropic_request = AnthropicChatRequest::from_chat_request(request, model.public_id.clone());
+        let anthropic_request = AnthropicChatRequest::from_chat_request(request, model.provider_model_id.clone());
 
         info!("sending anthropic chat request to {}", url);
         debug!("anthropic request body: {:?}", anthropic_request);
@@ -290,7 +290,7 @@ impl Adapter for AnthropicProvider {
     ) -> Result<BoxStream<'static, Result<SseEvent, ProviderError>>, ProviderError> {
         request.stream = Some(true);
         let url = format!("{}/v1/messages", profile.base_url);
-        let anthropic_request = AnthropicChatRequest::from_chat_request(request, model.public_id.clone());
+        let anthropic_request = AnthropicChatRequest::from_chat_request(request, model.provider_model_id.clone());
 
         info!("sending anthropic streaming chat request to {}", url);
         debug!("anthropic streaming request body: {:?}", anthropic_request);
@@ -489,7 +489,13 @@ mod tests {
             .unwrap();
 
         let body = captured_body.lock().unwrap().take().expect("request body captured");
-        assert_eq!(body["model"], "claude-sonnet");
+        // The outgoing model must be the fixture's upstream `provider_model_id`, NOT its
+        // friendly `public_id` ("claude-sonnet") and not the `request.model` the client
+        // sent ("claude-3-5-sonnet"): a catalog row exists precisely to translate those
+        // into the real upstream id.
+        assert_eq!(body["model"], "claude-3-5-sonnet-20241022");
+        assert_ne!(body["model"], "claude-sonnet");
+        assert_ne!(body["model"], "claude-3-5-sonnet");
         assert_eq!(body["system"], "You are a helpful assistant.");
         assert_eq!(body["max_tokens"], 4096);
         assert_eq!(body["messages"].as_array().unwrap().len(), 1);

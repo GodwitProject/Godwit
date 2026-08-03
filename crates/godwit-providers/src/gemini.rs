@@ -201,7 +201,9 @@ impl Adapter for GeminiProvider {
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
         let url = format!(
             "{}/v1beta/models/{}:generateContent?key={}",
-            profile.base_url, model.public_id, profile.api_key.as_deref().unwrap_or_default()
+            profile.base_url,
+            model.provider_model_id,
+            profile.api_key.as_deref().unwrap_or_default()
         );
         let gemini_request = GeminiChatRequest::from_chat_request(request);
 
@@ -425,6 +427,62 @@ mod tests {
         let url = captured_url.lock().unwrap().take().expect("request url captured");
         assert!(url.contains("/v1beta/models/gemini-1.5-flash:generateContent"), "url={}", url);
         assert!(url.contains("?key=fake-key"), "url={}", url);
+    }
+
+    /// Regression guard: the model segment of the Gemini URL must come from the catalog
+    /// row's upstream `provider_model_id`, not from its friendly `public_id` (and not from
+    /// the `<profile>/<suffix>` string a wildcard-resolved request carries in `public_id`).
+    #[tokio::test]
+    async fn chat_request_url_uses_provider_model_id_not_public_id() {
+        let server = MockServer::start().await;
+        let captured_url = std::sync::Arc::new(std::sync::Mutex::new(None::<String>));
+        let captured_clone = captured_url.clone();
+
+        Mock::given(method("POST"))
+            .respond_with(move |req: &wiremock::Request| {
+                *captured_clone.lock().unwrap() = Some(req.url.to_string());
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "candidates": [{
+                        "content": { "role": "model", "parts": [{"text": "Hi"}] }
+                    }]
+                }))
+            })
+            .mount(&server)
+            .await;
+
+        let client = GeminiProvider::new();
+        let profile = crate::adapter::ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
+        // Simulates a wildcard-resolved request: public_id is the whole model_ref.
+        let model = Model {
+            public_id: "google/gemini-2.0-flash-001".to_string(),
+            provider_model_id: "gemini-2.0-flash-001".to_string(),
+            ..dummy_model()
+        };
+        let req = ChatCompletionRequest {
+            model: "google/gemini-2.0-flash-001".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: "Hello".to_string(),
+            }],
+            stream: Some(false),
+            temperature: None,
+            max_tokens: None,
+        };
+
+        let _ = client.chat(&profile, &model, req).await.unwrap();
+
+        let url = captured_url.lock().unwrap().take().expect("request url captured");
+        assert!(
+            url.contains("/v1beta/models/gemini-2.0-flash-001:generateContent"),
+            "url={url}"
+        );
+        assert!(
+            !url.contains("google/gemini-2.0-flash-001"),
+            "the profile-prefixed public_id must not leak into the upstream URL, url={url}"
+        );
     }
 
     #[tokio::test]

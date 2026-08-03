@@ -42,9 +42,11 @@ impl Adapter for SglangProvider {
     async fn chat(
         &self,
         profile: &ResolvedProfile,
-        _model: &Model,
-        request: ChatCompletionRequest,
+        model: &Model,
+        mut request: ChatCompletionRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        // Translate the catalog/wildcard-resolved public id into the upstream model id.
+        request.model = model.provider_model_id.clone();
         let url = format!("{}/chat/completions", profile.base_url);
         let mut req = self.client.post(&url).json(&request);
         if let Some(key) = &profile.api_key {
@@ -66,10 +68,12 @@ impl Adapter for SglangProvider {
     async fn chat_stream(
         &self,
         profile: &ResolvedProfile,
-        _model: &Model,
+        model: &Model,
         mut request: ChatCompletionRequest,
     ) -> Result<BoxStream<'static, Result<SseEvent, ProviderError>>, ProviderError> {
         request.stream = Some(true);
+        // Translate the catalog/wildcard-resolved public id into the upstream model id.
+        request.model = model.provider_model_id.clone();
         let url = format!("{}/chat/completions", profile.base_url);
         let mut req = self.client.post(&url).json(&request);
         if let Some(key) = &profile.api_key {
@@ -144,9 +148,11 @@ impl Adapter for SglangProvider {
     async fn embedding(
         &self,
         profile: &ResolvedProfile,
-        _model: &Model,
-        request: EmbeddingRequest,
+        model: &Model,
+        mut request: EmbeddingRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        // Translate the catalog/wildcard-resolved public id into the upstream model id.
+        request.model = model.provider_model_id.clone();
         let url = format!("{}/embeddings", profile.base_url);
         let mut req = self.client.post(&url).json(&request);
         if let Some(key) = &profile.api_key {

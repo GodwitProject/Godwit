@@ -26,3 +26,6 @@ futures = "0.3"
 [dev-dependencies]
 hyper = { version = "1", features = ["full"] }
 rust_decimal_macros = "1.35"
+# `ServiceExt::oneshot` drives the assembled Router in-process, with no TCP listener.
+tower = { version = "0.5", features = ["util"] }
+wiremock = "0.6"

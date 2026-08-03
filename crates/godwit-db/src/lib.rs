@@ -401,14 +401,15 @@ mod tests {
             .await
             .expect("create api key");
 
-        sqlx::query(
+        let log_id: uuid::Uuid = sqlx::query_scalar(
             "INSERT INTO request_logs (api_key_id, user_id, organization_id, model, provider, provider_model_id, duration_ms, status)
-             VALUES ($1, $2, $3, 'gpt-4o', 'openai', 'gpt-4o', 100, 'success')"
+             VALUES ($1, $2, $3, 'gpt-4o', 'openai', 'gpt-4o', 100, 'success')
+             RETURNING id"
         )
         .bind(api_key.id)
         .bind(user.id)
         .bind(org.id)
-        .execute(&pool)
+        .fetch_one(&pool)
         .await
         .expect("insert request log");
 
@@ -425,12 +426,17 @@ mod tests {
             .expect("count api_keys");
         assert_eq!(remaining_keys, 0, "api_keys row should cascade-delete with the user");
 
-        let log_user_id: Option<uuid::Uuid> =
-            sqlx::query_scalar("SELECT user_id FROM request_logs WHERE api_key_id = $1")
-                .bind(api_key.id)
+        // Look the surviving request_logs row up by its own stable id, not by
+        // api_key_id/user_id — those are exactly the columns we expect to be
+        // nulled out by the cascade, so binding a lookup to their original
+        // values would fail once the delete has run.
+        let (log_user_id, log_api_key_id): (Option<uuid::Uuid>, Option<uuid::Uuid>) =
+            sqlx::query_as("SELECT user_id, api_key_id FROM request_logs WHERE id = $1")
+                .bind(log_id)
                 .fetch_one(&pool)
                 .await
                 .expect("fetch request_logs row");
         assert_eq!(log_user_id, None, "request_logs.user_id should be nulled, not the row deleted");
+        assert_eq!(log_api_key_id, None, "request_logs.api_key_id should be nulled, not the row deleted");
     }
 }

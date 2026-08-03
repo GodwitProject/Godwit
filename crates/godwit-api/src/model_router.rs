@@ -255,6 +255,19 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../godwit-db/migrations")]
+    async fn resolve_errors_with_wrong_master_key(pool: PgPool) {
+        let profiles = ProviderProfileRepository::new(pool.clone());
+        let profile = profiles.create("openai", "openai", Some("https://api.openai.com/v1"), true).await.expect("create profile");
+        let secret = encrypt_api_key(&TEST_KEY, "sk-real-key");
+        profiles.set_auth(profile.id, &secret).await.expect("set auth");
+
+        let wrong_key = [9u8; 32]; // different from TEST_KEY
+        let router = DbModelRouter::new(pool, test_registry(), wrong_key);
+        let err = router.resolve("openai/gpt-4o", Capability::Chat).await.unwrap_err();
+        assert!(matches!(err, PasteurError::Auth(_)), "expected Auth error from decrypt failure, got {:?}", err);
+    }
+
+    #[sqlx::test(migrations = "../godwit-db/migrations")]
     async fn resolve_errors_when_profile_has_no_credentials(pool: PgPool) {
         let profiles = ProviderProfileRepository::new(pool.clone());
         profiles.create("openai", "openai", Some("https://api.openai.com/v1"), true).await.expect("create profile");

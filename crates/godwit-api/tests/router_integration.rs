@@ -106,7 +106,7 @@ fn build_app(pool: PgPool) -> Router {
 /// Creates an organization, a user, and a usable proxy API key; returns the plaintext key.
 async fn seed_api_key(pool: &PgPool) -> String {
     let org = OrganizationRepository::new(pool.clone())
-        .create("test-org")
+        .create("test-org", None)
         .await
         .expect("create org");
     let user = UserRepository::new(pool.clone())
@@ -135,7 +135,7 @@ async fn seed_api_key(pool: &PgPool) -> String {
 /// can authenticate through the real `POST /auth/login` endpoint. Returns `(email, password)`.
 async fn seed_password_user(pool: &PgPool) -> (String, String) {
     let org = OrganizationRepository::new(pool.clone())
-        .create("auth-test-org")
+        .create("auth-test-org", None)
         .await
         .expect("create org");
     let email = "auth-user@example.com";

@@ -12,9 +12,9 @@ use axum::{middleware, Router};
 use godwit_auth::{jwt::Claims, rbac::Role};
 use std::sync::Arc;
 
-/// The instance-wide catalog (`models`, `provider_profiles`) is shared infrastructure:
-/// only `super_admin` may manage it. Shared by `admin::models` and
-/// `admin::provider_profiles`, which both gate every handler on it.
+/// Only `super_admin` may manage instance-wide and cross-organization resources.
+/// Shared by `admin::models`, `admin::provider_profiles`, and `admin::organizations`,
+/// which all gate every handler on it.
 pub(crate) fn require_super_admin(claims: &Claims) -> Result<(), ApiError> {
     let role = Role::from_str(&claims.role).ok_or(ApiError::Forbidden)?;
     if role != Role::SuperAdmin {
@@ -26,14 +26,15 @@ pub(crate) fn require_super_admin(claims: &Claims) -> Result<(), ApiError> {
 pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     let protected = Router::new()
         .nest("/users", users::router())
-        .nest("/organizations", organizations::router())
         .nest("/teams", teams::router())
         .nest("/api-keys", api_keys::router())
-        // `models::router()` and `provider_profiles::router()` already register their full
-        // intended paths ("/models", "/models/:id", "/provider-profiles", ...), so they are
-        // merged, not nested: nesting under "/models" produced "/api/v1/models/models".
+        // `models::router()`, `provider_profiles::router()`, and `organizations::router()`
+        // already register their full intended paths ("/models", "/models/:id",
+        // "/provider-profiles", "/organizations", ...), so they are merged, not nested:
+        // nesting under "/organizations" produced "/api/v1/organizations/organizations".
         .merge(models::router())
         .merge(provider_profiles::router())
+        .merge(organizations::router())
         .nest("/spend", spend::router())
         .route_layer(middleware::from_fn_with_state(state, jwt_auth));
 

@@ -1,7 +1,7 @@
 use crate::model_router::DbModelRouter;
 use godwit_cache::MemoryCache;
 use godwit_core::AppConfig;
-use godwit_db::models::{ApiKey, Model};
+use godwit_db::models::ApiKey;
 use godwit_db::repositories::{
     api_keys::ApiKeyRepository, organizations::OrganizationRepository, users::UserRepository,
 };
@@ -18,5 +18,4 @@ pub struct AppState {
     pub org_repo: OrganizationRepository,
     pub api_key_repo: ApiKeyRepository,
     pub api_key_cache: MemoryCache<String, ApiKey>,
-    pub model_cache: MemoryCache<(uuid::Uuid, String), Model>,
 }

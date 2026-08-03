@@ -38,28 +38,10 @@ pub fn models_response(models: &[godwit_db::models::Model]) -> serde_json::Value
 
 async fn list_models(
     State(state): State<Arc<AppState>>,
-    Extension(api_key): Extension<ApiKey>,
+    Extension(_api_key): Extension<ApiKey>,
 ) -> Result<impl IntoResponse, crate::error::ApiError> {
-    let models = if let Some(cached) = state
-        .model_cache
-        .get(&(api_key.organization_id, "".to_string()))
-        .await
-    {
-        vec![cached]
-    } else {
-        let repo = ModelRepository::new(state.pool.clone());
-        let models = repo
-            .list_for_organization(api_key.organization_id)
-            .await
-            .map_err(crate::error::ApiError::Core)?;
-        for m in &models {
-            state
-                .model_cache
-                .insert((api_key.organization_id, m.public_id.clone()), m.clone())
-                .await;
-        }
-        models
-    };
+    let repo = ModelRepository::new(state.pool.clone());
+    let models = repo.list().await.map_err(crate::error::ApiError::Core)?;
     Ok((StatusCode::OK, Json(models_response(&models))))
 }
 
@@ -72,21 +54,14 @@ async fn chat_completions(
 
     let resolved = state
         .model_router
-        .resolve(api_key.organization_id, &req.model)
+        .resolve(&req.model, Capability::Chat)
         .await?;
-
-    if !resolved.model.has_capability(Capability::Chat) {
-        return Err(crate::error::ApiError::BadRequest(format!(
-            "model {} does not support chat completions",
-            req.model
-        )));
-    }
 
     let streamed = req.stream == Some(true);
     let (result, usage) = if streamed {
         let stream = resolved
             .adapter
-            .chat_stream(&resolved.profile, &resolved.model, req)
+            .chat_stream(&resolved.resolved_credentials, &resolved.model, req)
             .await
             .map_err(|e| {
                 crate::error::ApiError::Core(godwit_core::PasteurError::Provider(e.to_string()))
@@ -104,7 +79,7 @@ async fn chat_completions(
     } else {
         let (resp, report) = resolved
             .adapter
-            .chat(&resolved.profile, &resolved.model, req)
+            .chat(&resolved.resolved_credentials, &resolved.model, req)
             .await
             .map_err(|e| {
                 crate::error::ApiError::Core(godwit_core::PasteurError::Provider(e.to_string()))

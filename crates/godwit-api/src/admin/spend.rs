@@ -53,7 +53,6 @@ mod tests {
     fn cost_computation() {
         let model = Model {
             id: uuid::Uuid::nil(),
-            organization_id: uuid::Uuid::nil(),
             public_id: "gpt-4o".to_string(),
             provider: "openai".to_string(),
             provider_profile_id: uuid::Uuid::nil(),

@@ -79,7 +79,21 @@ mod tests {
     fn decrypt_fails_with_tampered_ciphertext() {
         let key = test_key();
         let mut secret = encrypt_api_key(&key, "sk-real-provider-key");
-        secret.ciphertext = "not-valid-base64-ciphertext!!".to_string();
+
+        // Decode the base64 ciphertext
+        let mut ciphertext_bytes = STANDARD
+            .decode(&secret.ciphertext)
+            .expect("valid base64 from encrypt_api_key");
+
+        // Flip a byte in the ciphertext to tamper with it
+        if !ciphertext_bytes.is_empty() {
+            ciphertext_bytes[0] ^= 0xFF;
+        }
+
+        // Re-encode the tampered ciphertext back to base64
+        secret.ciphertext = STANDARD.encode(&ciphertext_bytes);
+
+        // Decryption should fail due to AEAD tag verification, not base64 decoding
         assert!(decrypt_api_key(&key, &secret).is_err());
     }
 

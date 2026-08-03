@@ -37,7 +37,7 @@ mod tests {
     #[test]
     fn registry_stores_adapter() {
         let mut registry = AdapterRegistry::new();
-        registry.register(Protocol::openai(), Arc::new(OpenAiAdapter::new("", "")));
+        registry.register(Protocol::openai(), Arc::new(OpenAiAdapter::new()));
         assert!(registry.get(&Protocol::openai()).is_some());
     }
 
@@ -50,8 +50,8 @@ mod tests {
     #[test]
     fn register_overwrites_existing_adapter() {
         let mut registry = AdapterRegistry::new();
-        let first: Arc<dyn Adapter> = Arc::new(OpenAiAdapter::new("", ""));
-        let second: Arc<dyn Adapter> = Arc::new(OpenAiAdapter::new("", ""));
+        let first: Arc<dyn Adapter> = Arc::new(OpenAiAdapter::new());
+        let second: Arc<dyn Adapter> = Arc::new(OpenAiAdapter::new());
         registry.register(Protocol::openai(), first.clone());
         let before = registry.get(&Protocol::openai()).expect("adapter stored");
         assert!(Arc::ptr_eq(&before, &first));

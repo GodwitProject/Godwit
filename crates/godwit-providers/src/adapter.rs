@@ -5,7 +5,7 @@ use godwit_core::{
     ChatCompletionResponse, EmbeddingRequest, EmbeddingResponse, ImageGenerationRequest,
     ImageGenerationResponse, VideoGenerationRequest, VideoGenerationResponse,
 };
-use godwit_db::models::{Model, ProviderProfile};
+use godwit_db::models::Model;
 use thiserror::Error;
 
 #[derive(Debug)]
@@ -47,41 +47,55 @@ pub enum ProviderError {
     CapabilityNotSupported(String),
 }
 
+pub struct ResolvedProfile {
+    pub base_url: String,
+    pub api_key: Option<String>,
+}
+
+impl std::fmt::Debug for ResolvedProfile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ResolvedProfile")
+            .field("base_url", &self.base_url)
+            .field("api_key", &self.api_key.as_ref().map(|_| "***redacted***"))
+            .finish()
+    }
+}
+
 #[async_trait]
 pub trait Adapter: Send + Sync {
     fn supported_capabilities(&self) -> Vec<Capability>;
 
     async fn chat(
         &self,
-        profile: &ProviderProfile,
+        profile: &ResolvedProfile,
         model: &Model,
         request: ChatCompletionRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError>;
 
     async fn chat_stream(
         &self,
-        profile: &ProviderProfile,
+        profile: &ResolvedProfile,
         model: &Model,
         request: ChatCompletionRequest,
     ) -> Result<BoxStream<'static, Result<SseEvent, ProviderError>>, ProviderError>;
 
     async fn image_generation(
         &self,
-        profile: &ProviderProfile,
+        profile: &ResolvedProfile,
         model: &Model,
         request: ImageGenerationRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError>;
 
     async fn video_generation(
         &self,
-        profile: &ProviderProfile,
+        profile: &ResolvedProfile,
         model: &Model,
         request: VideoGenerationRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError>;
 
     async fn audio_tts(
         &self,
-        profile: &ProviderProfile,
+        profile: &ResolvedProfile,
         model: &Model,
         request: AudioTtsRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError>;
@@ -90,7 +104,7 @@ pub trait Adapter: Send + Sync {
     /// `async_trait` methods cannot easily be generic over lifetimes.
     async fn audio_stt(
         &self,
-        profile: &ProviderProfile,
+        profile: &ResolvedProfile,
         model: &Model,
         request: AudioSttRequest,
         file_bytes: Vec<u8>,
@@ -100,7 +114,7 @@ pub trait Adapter: Send + Sync {
 
     async fn embedding(
         &self,
-        profile: &ProviderProfile,
+        profile: &ResolvedProfile,
         model: &Model,
         request: EmbeddingRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError>;

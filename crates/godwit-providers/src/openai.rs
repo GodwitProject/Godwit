@@ -1,40 +1,38 @@
-use crate::adapter::{Adapter, ProviderError, ProviderResponse, SseEvent, UsageReport};
+use crate::adapter::{
+    Adapter, ProviderError, ProviderResponse, ResolvedProfile, SseEvent, UsageReport,
+};
 use crate::streaming::parse_sse_events;
 use async_trait::async_trait;
 use futures::stream::{self, BoxStream, StreamExt};
 use godwit_core::{
     AudioSttRequest, AudioSttResponse, AudioTtsRequest, Capability, ChatCompletionRequest,
     ChatCompletionResponse, EmbeddingRequest, EmbeddingResponse, ImageGenerationRequest,
-    ImageGenerationResponse, ProviderConfig,
+    ImageGenerationResponse,
 };
-use godwit_db::models::{Model, ProviderProfile};
+use godwit_db::models::Model;
 use reqwest::Client;
 
 pub struct OpenAiProvider {
     client: Client,
-    api_key: String,
-    base_url: String,
 }
 
 pub type OpenAiAdapter = OpenAiProvider;
 
 impl OpenAiProvider {
-    pub fn new(api_key: &str, base_url: &str) -> Self {
+    pub fn new() -> Self {
         let client = Client::builder()
             .pool_max_idle_per_host(20)
             .pool_idle_timeout(std::time::Duration::from_secs(60))
             .timeout(std::time::Duration::from_secs(120))
             .build()
             .expect("build reqwest client");
-        Self {
-            client,
-            api_key: api_key.to_string(),
-            base_url: base_url.to_string(),
-        }
+        Self { client }
     }
+}
 
-    pub fn from_config(config: &ProviderConfig) -> Self {
-        Self::new(&config.api_key, &config.base_url)
+impl Default for OpenAiProvider {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -52,22 +50,19 @@ impl Adapter for OpenAiProvider {
 
     async fn chat(
         &self,
-        _profile: &ProviderProfile,
+        profile: &ResolvedProfile,
         _model: &Model,
         request: ChatCompletionRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
-        let url = format!("{}/chat/completions", self.base_url);
-        let res = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| ProviderError::Http {
-                status: 0,
-                message: e.to_string(),
-            })?;
+        let url = format!("{}/chat/completions", profile.base_url);
+        let mut req = self.client.post(&url).json(&request);
+        if let Some(key) = &profile.api_key {
+            req = req.header("Authorization", format!("Bearer {key}"));
+        }
+        let res = req.send().await.map_err(|e| ProviderError::Http {
+            status: 0,
+            message: e.to_string(),
+        })?;
         if !res.status().is_success() {
             let status = res.status().as_u16();
             let text = res.text().await.unwrap_or_default();
@@ -85,23 +80,20 @@ impl Adapter for OpenAiProvider {
 
     async fn chat_stream(
         &self,
-        _profile: &ProviderProfile,
+        profile: &ResolvedProfile,
         _model: &Model,
         mut request: ChatCompletionRequest,
     ) -> Result<BoxStream<'static, Result<SseEvent, ProviderError>>, ProviderError> {
         request.stream = Some(true);
-        let url = format!("{}/chat/completions", self.base_url);
-        let res = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| ProviderError::Http {
-                status: 0,
-                message: e.to_string(),
-            })?;
+        let url = format!("{}/chat/completions", profile.base_url);
+        let mut req = self.client.post(&url).json(&request);
+        if let Some(key) = &profile.api_key {
+            req = req.header("Authorization", format!("Bearer {key}"));
+        }
+        let res = req.send().await.map_err(|e| ProviderError::Http {
+            status: 0,
+            message: e.to_string(),
+        })?;
         if !res.status().is_success() {
             return Err(ProviderError::Http {
                 status: res.status().as_u16(),
@@ -121,22 +113,19 @@ impl Adapter for OpenAiProvider {
 
     async fn image_generation(
         &self,
-        _profile: &ProviderProfile,
+        profile: &ResolvedProfile,
         _model: &Model,
         request: ImageGenerationRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
-        let url = format!("{}/images/generations", self.base_url);
-        let res = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| ProviderError::Http {
-                status: 0,
-                message: e.to_string(),
-            })?;
+        let url = format!("{}/images/generations", profile.base_url);
+        let mut req = self.client.post(&url).json(&request);
+        if let Some(key) = &profile.api_key {
+            req = req.header("Authorization", format!("Bearer {key}"));
+        }
+        let res = req.send().await.map_err(|e| ProviderError::Http {
+            status: 0,
+            message: e.to_string(),
+        })?;
         if !res.status().is_success() {
             return Err(ProviderError::Http {
                 status: res.status().as_u16(),
@@ -153,7 +142,7 @@ impl Adapter for OpenAiProvider {
 
     async fn video_generation(
         &self,
-        _profile: &ProviderProfile,
+        _profile: &ResolvedProfile,
         _model: &Model,
         _request: godwit_core::VideoGenerationRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
@@ -164,22 +153,19 @@ impl Adapter for OpenAiProvider {
 
     async fn audio_tts(
         &self,
-        _profile: &ProviderProfile,
+        profile: &ResolvedProfile,
         _model: &Model,
         request: AudioTtsRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
-        let url = format!("{}/audio/speech", self.base_url);
-        let res = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| ProviderError::Http {
-                status: 0,
-                message: e.to_string(),
-            })?;
+        let url = format!("{}/audio/speech", profile.base_url);
+        let mut req = self.client.post(&url).json(&request);
+        if let Some(key) = &profile.api_key {
+            req = req.header("Authorization", format!("Bearer {key}"));
+        }
+        let res = req.send().await.map_err(|e| ProviderError::Http {
+            status: 0,
+            message: e.to_string(),
+        })?;
         if !res.status().is_success() {
             return Err(ProviderError::Http {
                 status: res.status().as_u16(),
@@ -201,19 +187,22 @@ impl Adapter for OpenAiProvider {
             })?
             .to_vec();
         // TODO: Populate UsageReport once OpenAI exposes usage metadata for audio TTS.
-        Ok((ProviderResponse::Bytes(bytes, content_type), UsageReport::default()))
+        Ok((
+            ProviderResponse::Bytes(bytes, content_type),
+            UsageReport::default(),
+        ))
     }
 
     async fn audio_stt(
         &self,
-        _profile: &ProviderProfile,
+        profile: &ResolvedProfile,
         _model: &Model,
         request: AudioSttRequest,
         file_bytes: Vec<u8>,
         filename: String,
         content_type: String,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
-        let url = format!("{}/audio/transcriptions", self.base_url);
+        let url = format!("{}/audio/transcriptions", profile.base_url);
         let file_part = reqwest::multipart::Part::bytes(file_bytes)
             .file_name(filename)
             .mime_str(&content_type)
@@ -227,17 +216,14 @@ impl Adapter for OpenAiProvider {
         if let Some(response_format) = request.response_format {
             form = form.text("response_format", response_format);
         }
-        let res = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .multipart(form)
-            .send()
-            .await
-            .map_err(|e| ProviderError::Http {
-                status: 0,
-                message: e.to_string(),
-            })?;
+        let mut req = self.client.post(&url).multipart(form);
+        if let Some(key) = &profile.api_key {
+            req = req.header("Authorization", format!("Bearer {key}"));
+        }
+        let res = req.send().await.map_err(|e| ProviderError::Http {
+            status: 0,
+            message: e.to_string(),
+        })?;
         if !res.status().is_success() {
             return Err(ProviderError::Http {
                 status: res.status().as_u16(),
@@ -254,22 +240,19 @@ impl Adapter for OpenAiProvider {
 
     async fn embedding(
         &self,
-        _profile: &ProviderProfile,
+        profile: &ResolvedProfile,
         _model: &Model,
         request: EmbeddingRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
-        let url = format!("{}/embeddings", self.base_url);
-        let res = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| ProviderError::Http {
-                status: 0,
-                message: e.to_string(),
-            })?;
+        let url = format!("{}/embeddings", profile.base_url);
+        let mut req = self.client.post(&url).json(&request);
+        if let Some(key) = &profile.api_key {
+            req = req.header("Authorization", format!("Bearer {key}"));
+        }
+        let res = req.send().await.map_err(|e| ProviderError::Http {
+            status: 0,
+            message: e.to_string(),
+        })?;
         if !res.status().is_success() {
             return Err(ProviderError::Http {
                 status: res.status().as_u16(),
@@ -301,24 +284,9 @@ mod tests {
     use uuid::Uuid;
     use wiremock::{matchers::*, Mock, MockServer, ResponseTemplate};
 
-    fn dummy_profile() -> ProviderProfile {
-        ProviderProfile {
-            id: Uuid::nil(),
-            organization_id: Uuid::nil(),
-            name: "openai".to_string(),
-            protocol: "openai".to_string(),
-            base_url: None,
-            auth: serde_json::json!({}),
-            config: serde_json::json!({}),
-            enabled: true,
-            created_at: Utc::now(),
-        }
-    }
-
     fn dummy_model() -> Model {
         Model {
             id: Uuid::nil(),
-            organization_id: Uuid::nil(),
             public_id: "gpt-4o".to_string(),
             provider: "openai".to_string(),
             provider_profile_id: Uuid::nil(),
@@ -347,9 +315,11 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = OpenAiProvider::new("fake-key", &server.uri());
-        let profile = dummy_profile();
-        let model = dummy_model();
+        let client = OpenAiAdapter::new();
+        let profile = crate::adapter::ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
         let req = ChatCompletionRequest {
             model: "gpt-4o".to_string(),
             messages: vec![ChatMessage {
@@ -360,11 +330,11 @@ mod tests {
             temperature: None,
             max_tokens: None,
         };
-        let (ProviderResponse::Chat(resp), _) = client.chat(&profile, &model, req).await.unwrap()
-        else {
+        let (resp, _usage) = client.chat(&profile, &dummy_model(), req).await.unwrap();
+        let ProviderResponse::Chat(completion) = resp else {
             panic!("expected chat response");
         };
-        assert_eq!(resp.choices[0].message.content, "Hello");
+        assert_eq!(completion.choices[0].message.content, "Hello");
     }
 
     #[tokio::test]
@@ -380,7 +350,11 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = OpenAiProvider::new("fake-key", &server.uri());
+        let client = OpenAiAdapter::new();
+        let profile = ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
         let req = ImageGenerationRequest {
             model: "dall-e-3".to_string(),
             prompt: "a cat in a hat".to_string(),
@@ -390,7 +364,7 @@ mod tests {
             style: Some("vivid".to_string()),
         };
         let (ProviderResponse::Image(resp), _) = client
-            .image_generation(&dummy_profile(), &dummy_model(), req)
+            .image_generation(&profile, &dummy_model(), req)
             .await
             .unwrap()
         else {
@@ -412,7 +386,11 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = OpenAiProvider::new("fake-key", &server.uri());
+        let client = OpenAiAdapter::new();
+        let profile = ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
         let req = ImageGenerationRequest {
             model: "dall-e-3".to_string(),
             prompt: "a cat in a hat".to_string(),
@@ -422,7 +400,7 @@ mod tests {
             style: None,
         };
         let err = client
-            .image_generation(&dummy_profile(), &dummy_model(), req)
+            .image_generation(&profile, &dummy_model(), req)
             .await
             .unwrap_err();
         match err {
@@ -445,7 +423,11 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = OpenAiProvider::new("fake-key", &server.uri());
+        let client = OpenAiAdapter::new();
+        let profile = ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
         let req = AudioTtsRequest {
             model: "tts-1".to_string(),
             input: "Hello world".to_string(),
@@ -453,7 +435,7 @@ mod tests {
             response_format: Some("mp3".to_string()),
         };
         let (ProviderResponse::Bytes(resp_bytes, resp_content_type), _) = client
-            .audio_tts(&dummy_profile(), &dummy_model(), req)
+            .audio_tts(&profile, &dummy_model(), req)
             .await
             .unwrap()
         else {
@@ -476,7 +458,11 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = OpenAiProvider::new("fake-key", &server.uri());
+        let client = OpenAiAdapter::new();
+        let profile = ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
         let req = AudioSttRequest {
             model: "whisper-1".to_string(),
             language: Some("en".to_string()),
@@ -484,7 +470,7 @@ mod tests {
         };
         let (ProviderResponse::AudioStt(resp), _) = client
             .audio_stt(
-                &dummy_profile(),
+                &profile,
                 &dummy_model(),
                 req,
                 b"fake-audio-data".to_vec(),
@@ -514,13 +500,17 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = OpenAiProvider::new("fake-key", &server.uri());
+        let client = OpenAiAdapter::new();
+        let profile = ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
         let req = EmbeddingRequest {
             model: "text-embedding-3-small".to_string(),
             input: vec!["hello".to_string()],
         };
         let (ProviderResponse::Embedding(resp), _) = client
-            .embedding(&dummy_profile(), &dummy_model(), req)
+            .embedding(&profile, &dummy_model(), req)
             .await
             .unwrap()
         else {

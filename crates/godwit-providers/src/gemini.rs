@@ -1,4 +1,4 @@
-use crate::adapter::{Adapter, ProviderError, ProviderResponse, SseEvent, UsageReport};
+use crate::adapter::{Adapter, ProviderError, ProviderResponse, ResolvedProfile, SseEvent, UsageReport};
 use async_trait::async_trait;
 use chrono::Utc;
 use futures::stream::BoxStream;
@@ -7,36 +7,32 @@ use godwit_core::{
     ChatCompletionResponse, ChatMessage, EmbeddingRequest, ImageGenerationRequest,
     VideoGenerationRequest,
 };
-use godwit_db::models::{Model, ProviderProfile};
+use godwit_db::models::Model;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, instrument};
 
 pub struct GeminiProvider {
     client: Client,
-    api_key: String,
-    base_url: String,
 }
 
 pub type GeminiAdapter = GeminiProvider;
 
 impl GeminiProvider {
-    pub fn new(api_key: &str, base_url: &str) -> Self {
+    pub fn new() -> Self {
         let client = Client::builder()
             .pool_max_idle_per_host(20)
             .pool_idle_timeout(std::time::Duration::from_secs(60))
             .timeout(std::time::Duration::from_secs(120))
             .build()
             .expect("build reqwest client");
-        Self {
-            client,
-            api_key: api_key.to_string(),
-            base_url: base_url.to_string(),
-        }
+        Self { client }
     }
+}
 
-    pub fn from_config(config: &godwit_core::ProviderConfig) -> Self {
-        Self::new(&config.api_key, &config.base_url)
+impl Default for GeminiProvider {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -196,16 +192,16 @@ impl Adapter for GeminiProvider {
         vec![Capability::Chat]
     }
 
-    #[instrument(skip(self, _profile, model, request))]
+    #[instrument(skip(self, profile, model, request))]
     async fn chat(
         &self,
-        _profile: &ProviderProfile,
+        profile: &ResolvedProfile,
         model: &Model,
         request: ChatCompletionRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
         let url = format!(
             "{}/v1beta/models/{}:generateContent?key={}",
-            self.base_url, model.public_id, self.api_key
+            profile.base_url, model.public_id, profile.api_key.as_deref().unwrap_or_default()
         );
         let gemini_request = GeminiChatRequest::from_chat_request(request);
 
@@ -253,7 +249,7 @@ impl Adapter for GeminiProvider {
 
     async fn chat_stream(
         &self,
-        _profile: &ProviderProfile,
+        _profile: &ResolvedProfile,
         _model: &Model,
         _request: ChatCompletionRequest,
     ) -> Result<BoxStream<'static, Result<SseEvent, ProviderError>>, ProviderError> {
@@ -264,7 +260,7 @@ impl Adapter for GeminiProvider {
 
     async fn image_generation(
         &self,
-        _profile: &ProviderProfile,
+        _profile: &ResolvedProfile,
         _model: &Model,
         _request: ImageGenerationRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
@@ -275,7 +271,7 @@ impl Adapter for GeminiProvider {
 
     async fn video_generation(
         &self,
-        _profile: &ProviderProfile,
+        _profile: &ResolvedProfile,
         _model: &Model,
         _request: VideoGenerationRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
@@ -286,7 +282,7 @@ impl Adapter for GeminiProvider {
 
     async fn audio_tts(
         &self,
-        _profile: &ProviderProfile,
+        _profile: &ResolvedProfile,
         _model: &Model,
         _request: AudioTtsRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
@@ -297,7 +293,7 @@ impl Adapter for GeminiProvider {
 
     async fn audio_stt(
         &self,
-        _profile: &ProviderProfile,
+        _profile: &ResolvedProfile,
         _model: &Model,
         _request: AudioSttRequest,
         _file_bytes: Vec<u8>,
@@ -311,7 +307,7 @@ impl Adapter for GeminiProvider {
 
     async fn embedding(
         &self,
-        _profile: &ProviderProfile,
+        _profile: &ResolvedProfile,
         _model: &Model,
         _request: EmbeddingRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
@@ -329,24 +325,16 @@ mod tests {
     use uuid::Uuid;
     use wiremock::{matchers::*, Mock, MockServer, ResponseTemplate};
 
-    fn dummy_profile() -> ProviderProfile {
-        ProviderProfile {
-            id: Uuid::nil(),
-            organization_id: Uuid::nil(),
-            name: "gemini".to_string(),
-            protocol: "gemini".to_string(),
-            base_url: None,
-            auth: serde_json::json!({}),
-            config: serde_json::json!({}),
-            enabled: true,
-            created_at: Utc::now(),
+    fn dummy_profile() -> crate::adapter::ResolvedProfile {
+        crate::adapter::ResolvedProfile {
+            base_url: "https://generativelanguage.googleapis.com".to_string(),
+            api_key: Some("fake-key".to_string()),
         }
     }
 
     fn dummy_model() -> Model {
         Model {
             id: Uuid::nil(),
-            organization_id: Uuid::nil(),
             public_id: "gemini-1.5-flash".to_string(),
             provider: "gemini".to_string(),
             provider_profile_id: Uuid::nil(),
@@ -402,7 +390,11 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = GeminiProvider::new("fake-key", &server.uri());
+        let client = GeminiProvider::new();
+        let profile = crate::adapter::ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
         let req = ChatCompletionRequest {
             model: "gemini-1.5-flash".to_string(),
             messages: vec![ChatMessage {
@@ -414,7 +406,7 @@ mod tests {
             max_tokens: None,
         };
 
-        let _ = client.chat(&dummy_profile(), &dummy_model(), req).await.unwrap();
+        let _ = client.chat(&profile, &dummy_model(), req).await.unwrap();
 
         let url = captured_url.lock().unwrap().take().expect("request url captured");
         assert!(url.contains("/v1beta/models/gemini-1.5-flash:generateContent"), "url={}", url);
@@ -444,9 +436,13 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = GeminiProvider::new("fake-key", &server.uri());
+        let client = GeminiProvider::new();
+        let profile = crate::adapter::ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
         let _ = client
-            .chat(&dummy_profile(), &dummy_model(), chat_request_with_system())
+            .chat(&profile, &dummy_model(), chat_request_with_system())
             .await
             .unwrap();
 
@@ -489,7 +485,11 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = GeminiProvider::new("fake-key", &server.uri());
+        let client = GeminiProvider::new();
+        let profile = crate::adapter::ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
         let req = ChatCompletionRequest {
             model: "gemini-1.5-flash".to_string(),
             messages: vec![ChatMessage {
@@ -502,7 +502,7 @@ mod tests {
         };
 
         let (ProviderResponse::Chat(resp), usage_report) = client
-            .chat(&dummy_profile(), &dummy_model(), req)
+            .chat(&profile, &dummy_model(), req)
             .await
             .unwrap()
         else {
@@ -533,7 +533,11 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = GeminiProvider::new("fake-key", &server.uri());
+        let client = GeminiProvider::new();
+        let profile = crate::adapter::ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
         let req = ChatCompletionRequest {
             model: "gemini-1.5-flash".to_string(),
             messages: vec![ChatMessage {
@@ -546,7 +550,7 @@ mod tests {
         };
 
         let err = client
-            .chat(&dummy_profile(), &dummy_model(), req)
+            .chat(&profile, &dummy_model(), req)
             .await
             .unwrap_err();
         match err {
@@ -557,7 +561,7 @@ mod tests {
 
     #[tokio::test]
     async fn unsupported_capabilities_return_error() {
-        let client = GeminiProvider::new("fake-key", "https://example.com");
+        let client = GeminiProvider::new();
         let profile = dummy_profile();
         let model = dummy_model();
 

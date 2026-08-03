@@ -26,7 +26,6 @@ pub struct AppConfig {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
     pub auth: AuthConfig,
-    pub providers: ProvidersConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -65,19 +64,6 @@ pub struct SamlProviderConfig {
     pub idp_metadata_url: String,
     pub sp_entity_id: String,
     pub acs_url: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ProvidersConfig {
-    pub openai: ProviderConfig,
-    pub anthropic: ProviderConfig,
-    pub gemini: ProviderConfig,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ProviderConfig {
-    pub api_key: String,
-    pub base_url: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -366,20 +352,9 @@ auth:
   refresh_token_ttl_days: 7
   oidc_providers: []
   saml_providers: []
-providers:
-  openai:
-    api_key: sk-openai
-    base_url: https://api.openai.com/v1
-  anthropic:
-    api_key: sk-anthropic
-    base_url: https://api.anthropic.com/v1
-  gemini:
-    api_key: sk-gemini
-    base_url: https://generativelanguage.googleapis.com
 "#;
         let config: AppConfig = serde_yaml::from_str(yaml).expect("parse yaml");
         assert_eq!(config.server.port, 3000);
-        assert_eq!(config.providers.openai.api_key, "sk-openai");
     }
 
     #[test]

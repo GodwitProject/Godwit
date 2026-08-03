@@ -22,3 +22,4 @@ serde_yaml = { workspace = true }
 anyhow = { workspace = true }
 uuid = { workspace = true }
 async-trait = "0.1"
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate", "rust_decimal"] }

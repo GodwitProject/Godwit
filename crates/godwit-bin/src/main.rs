@@ -16,6 +16,8 @@ use godwit_providers::{
 };
 use std::sync::Arc;
 
+mod bootstrap;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
@@ -25,6 +27,9 @@ async fn main() -> anyhow::Result<()> {
     run_migrations(&pool).await?;
 
     let master_key = godwit_auth::credentials::load_master_key_from_env("CREDENTIAL_ENCRYPTION_KEY")?;
+
+    let legacy_providers = bootstrap::legacy_providers_from_env();
+    bootstrap::bootstrap_provider_profiles(&pool, &master_key, &legacy_providers).await?;
 
     let mut registry = AdapterRegistry::new();
     registry.register(Protocol::openai(), Arc::new(OpenAiAdapter::new()));

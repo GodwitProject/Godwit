@@ -1409,6 +1409,7 @@ dependencies = [
  "godwit-db",
  "godwit-providers",
  "serde_yaml",
+ "sqlx",
  "tokio",
  "tracing",
  "tracing-subscriber",

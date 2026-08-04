@@ -1,11 +1,10 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { PageHeader } from '@/components/ui/page-header'
 import { FormDialog } from '@/components/ui/form-dialog'
-import { apiCall } from '@/lib/api-client'
-import { updateOrganization, deleteOrganization } from '../actions'
+import { updateOrganization, deleteOrganization, getOrganization } from '../actions'
 
 interface Organization {
   id: string
@@ -15,6 +14,7 @@ interface Organization {
 
 export default function OrganizationDetailPage() {
   const { id } = useParams() as { id: string }
+  const router = useRouter()
   const [organization, setOrganization] = useState<Organization | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
@@ -22,11 +22,7 @@ export default function OrganizationDetailPage() {
   useEffect(() => {
     const fetchOrganization = async () => {
       try {
-        const response = await apiCall(`/api/v1/organizations/${id}`)
-        if (response.ok) {
-          const data = await response.json()
-          setOrganization(data.data)
-        }
+        setOrganization(await getOrganization(id))
       } catch (err) {
         console.error('Failed to fetch organization:', err)
       } finally {
@@ -54,7 +50,7 @@ export default function OrganizationDetailPage() {
 
     const result = await deleteOrganization(id)
     if (result.success) {
-      window.location.href = '/admin/organizations'
+      router.push('/admin/organizations')
     } else {
       alert(result.error || 'Failed to delete organization')
     }

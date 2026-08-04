@@ -1,6 +1,6 @@
 use axum::{
     extract::{Extension, Path, State},
-    routing::{get, patch},
+    routing::get,
     Json, Router,
 };
 use godwit_auth::jwt::Claims;
@@ -16,7 +16,22 @@ pub fn router() -> Router<Arc<AppState>> {
             "/organizations",
             get(list_organizations).post(create_organization),
         )
-        .route("/organizations/:id", patch(update_organization))
+        .route(
+            "/organizations/:id",
+            get(get_organization)
+                .patch(update_organization)
+                .delete(delete_organization),
+        )
+}
+
+async fn get_organization(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    require_super_admin(&claims)?;
+    let org = state.org_repo.get_by_id(id).await.map_err(ApiError::Core)?;
+    Ok(Json(serde_json::json!({ "data": org })))
 }
 
 async fn list_organizations(
@@ -67,4 +82,14 @@ async fn update_organization(
         .await
         .map_err(ApiError::Core)?;
     Ok(Json(serde_json::json!({ "data": org })))
+}
+
+async fn delete_organization(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    require_super_admin(&claims)?;
+    state.org_repo.delete(id).await.map_err(ApiError::Core)?;
+    Ok(Json(serde_json::json!({ "deleted": true })))
 }

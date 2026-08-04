@@ -1,11 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { ListPage } from '@/components/admin/list-page'
 import { FormDialog } from '@/components/ui/form-dialog'
 import { ColumnDef } from '@tanstack/react-table'
-import { apiCall } from '@/lib/api-client'
-import { createOrganization } from './actions'
+import { createOrganization, listOrganizations } from './actions'
 
 interface Organization {
   id: string
@@ -26,6 +26,7 @@ const columns: ColumnDef<Organization>[] = [
 ]
 
 export default function OrganizationsPage() {
+  const router = useRouter()
   const [organizations, setOrganizations] = useState<Organization[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
@@ -33,11 +34,7 @@ export default function OrganizationsPage() {
   useEffect(() => {
     const fetchOrganizations = async () => {
       try {
-        const response = await apiCall('/api/v1/organizations')
-        if (response.ok) {
-          const data = await response.json()
-          setOrganizations(data.data || [])
-        }
+        setOrganizations(await listOrganizations())
       } catch (err) {
         console.error('Failed to fetch organizations:', err)
       } finally {
@@ -68,6 +65,7 @@ export default function OrganizationsPage() {
         title="Organizations"
         isEmpty={organizations.length === 0}
         onCreateClick={() => setIsCreateDialogOpen(true)}
+        onRowClick={(org) => router.push(`/admin/organizations/${org.id}`)}
       />
 
       <FormDialog

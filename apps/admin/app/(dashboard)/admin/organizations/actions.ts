@@ -8,6 +8,20 @@ interface Organization {
   created_at: string
 }
 
+export async function listOrganizations(): Promise<Organization[]> {
+  const response = await apiCall('/api/v1/organizations')
+  if (!response.ok) return []
+  const data = await response.json()
+  return data.data || []
+}
+
+export async function getOrganization(id: string): Promise<Organization | null> {
+  const response = await apiCall(`/api/v1/organizations/${id}`)
+  if (!response.ok) return null
+  const data = await response.json()
+  return data.data
+}
+
 export async function createOrganization(
   name: string
 ): Promise<{ success: boolean; organization?: Organization; error?: string }> {

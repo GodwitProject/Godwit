@@ -49,6 +49,8 @@ export async function getClaimsFromToken(token: string): Promise<Claims | null> 
   }
 }
 
+const API_URL = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'https://api.godwit.io'
+
 export async function getCurrentUser(): Promise<User | null> {
   const token = await getAccessToken()
   if (!token) return null
@@ -56,13 +58,28 @@ export async function getCurrentUser(): Promise<User | null> {
   const claims = await getClaimsFromToken(token)
   if (!claims) return null
 
-  return {
+  const base: User = {
     id: claims.user_id,
-    email: '', // TODO: fetch from API if needed
+    email: '',
     role: claims.role as User['role'],
     organization_id: claims.organization_id,
     created_at: new Date(claims.iat * 1000).toISOString(),
   }
+
+  // Best-effort: the JWT only carries id/org/role, not email. Roles without access to
+  // /users (team_admin, user) simply keep the placeholder rather than failing the request.
+  try {
+    const response = await fetch(`${API_URL}/api/v1/users/${claims.user_id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (response.ok) {
+      const { data } = await response.json()
+      return { ...base, email: data.email, name: data.name ?? undefined }
+    }
+  } catch {
+    // Network error reaching the API — fall through to the placeholder below.
+  }
+  return base
 }
 
 export async function isTokenExpired(token: string): Promise<boolean> {

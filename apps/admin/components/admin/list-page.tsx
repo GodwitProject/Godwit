@@ -12,6 +12,7 @@ export function ListPage<T>({
   description,
   isEmpty,
   onCreateClick,
+  onRowClick,
   emptyStateMessage,
 }: {
   data: T[]
@@ -20,6 +21,7 @@ export function ListPage<T>({
   description?: string
   isEmpty?: boolean
   onCreateClick: () => void
+  onRowClick?: (row: T) => void
   emptyStateMessage?: string
 }) {
   return (
@@ -36,7 +38,7 @@ export function ListPage<T>({
           action={{ label: 'Create New', onClick: onCreateClick }}
         />
       ) : (
-        <DataTable columns={columns} data={data} />
+        <DataTable columns={columns} data={data} onRowClick={onRowClick} />
       )}
     </div>
   )

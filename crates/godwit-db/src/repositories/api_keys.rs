@@ -61,4 +61,31 @@ impl ApiKeyRepository {
             .await
             .map_err(|e| PasteurError::Database(e.to_string()))
     }
+
+    pub async fn list_all(&self) -> Result<Vec<ApiKey>, PasteurError> {
+        sqlx::query_as::<_, ApiKey>("SELECT * FROM api_keys ORDER BY organization_id, name")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| PasteurError::Database(e.to_string()))
+    }
+
+    pub async fn get_by_id(&self, id: Uuid) -> Result<ApiKey, PasteurError> {
+        sqlx::query_as::<_, ApiKey>("SELECT * FROM api_keys WHERE id = $1")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| match e {
+                sqlx::Error::RowNotFound => PasteurError::NotFound,
+                _ => PasteurError::Database(e.to_string()),
+            })
+    }
+
+    pub async fn delete(&self, id: Uuid) -> Result<(), PasteurError> {
+        sqlx::query("DELETE FROM api_keys WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| PasteurError::Database(e.to_string()))?;
+        Ok(())
+    }
 }

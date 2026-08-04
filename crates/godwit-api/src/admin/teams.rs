@@ -13,7 +13,10 @@ use crate::{error::ApiError, state::AppState};
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/teams", get(list_teams).post(create_team))
-        .route("/teams/:id", patch(update_team))
+        .route(
+            "/teams/:id",
+            get(get_team).patch(update_team).delete(delete_team),
+        )
         .route("/teams/:id/members", post(add_member))
         .route("/teams/:id/members/:user_id", delete(remove_member))
 }
@@ -50,6 +53,19 @@ async fn list_teams(
     }
     .map_err(ApiError::Core)?;
     Ok(Json(serde_json::json!({ "data": teams })))
+}
+
+async fn get_team(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let role = require_manage_users(&claims)?;
+    let team = state.team_repo.get_by_id(id).await.map_err(ApiError::Core)?;
+    if role != Role::SuperAdmin && team.organization_id != claims.organization_id {
+        return Err(ApiError::Forbidden);
+    }
+    Ok(Json(serde_json::json!({ "data": team })))
 }
 
 #[derive(Deserialize)]
@@ -104,6 +120,20 @@ async fn update_team(
         .await
         .map_err(ApiError::Core)?;
     Ok(Json(serde_json::json!({ "data": updated })))
+}
+
+async fn delete_team(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let role = require_manage_users(&claims)?;
+    let team = state.team_repo.get_by_id(id).await.map_err(ApiError::Core)?;
+    if role != Role::SuperAdmin && team.organization_id != claims.organization_id {
+        return Err(ApiError::Forbidden);
+    }
+    state.team_repo.delete(id).await.map_err(ApiError::Core)?;
+    Ok(Json(serde_json::json!({ "deleted": true })))
 }
 
 async fn require_team_manage(

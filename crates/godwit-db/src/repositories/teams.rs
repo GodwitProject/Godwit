@@ -63,6 +63,15 @@ impl TeamRepository {
                 _ => PasteurError::Database(e.to_string()),
             })
     }
+
+    pub async fn delete(&self, id: Uuid) -> Result<(), PasteurError> {
+        sqlx::query("DELETE FROM teams WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| PasteurError::Database(e.to_string()))?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

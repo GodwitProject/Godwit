@@ -27,6 +27,11 @@ pub fn router() -> Router<Arc<AppState>> {
 pub struct SpendQuery {
     from: Option<DateTime<Utc>>,
     to: Option<DateTime<Utc>>,
+    /// When present, switches the response to a day-bucketed `{date, cost}` series (see
+    /// `fetch_daily_spend_rows`) instead of the org/team/user-grouped rows below, and — if
+    /// `from` wasn't also given — sets it to `days` ago. This is what the dashboard's spend
+    /// graph sends; the resource-level Spend page leaves it unset to get the grouped rows.
+    days: Option<i64>,
     organization_id: Option<Uuid>,
     team_id: Option<Uuid>,
     user_id: Option<Uuid>,
@@ -101,15 +106,62 @@ async fn get_spend(
     Query(query): Query<SpendQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     Role::from_str(&claims.role).ok_or(ApiError::Forbidden)?;
-    let from = query.from;
+    let days = query.days;
+    let from = query
+        .from
+        .or_else(|| days.map(|d| Utc::now() - chrono::Duration::days(d)));
     let to = query.to;
     let (organization_id, team_id, user_id) = scope_spend_query(&claims, query);
+
+    if days.is_some() {
+        let rows = fetch_daily_spend_rows(&state.pool, from, to, organization_id, team_id, user_id)
+            .await
+            .map_err(|e| ApiError::Core(godwit_core::PasteurError::Database(e.to_string())))?;
+        return Ok(Json(serde_json::json!({ "data": rows })));
+    }
 
     let rows = fetch_spend_rows(&state.pool, from, to, organization_id, team_id, user_id)
         .await
         .map_err(|e| ApiError::Core(godwit_core::PasteurError::Database(e.to_string())))?;
 
     Ok(Json(serde_json::json!({ "data": rows })))
+}
+
+#[derive(Debug, sqlx::FromRow, serde::Serialize)]
+struct DailySpendRow {
+    date: chrono::NaiveDate,
+    cost: Decimal,
+}
+
+/// Day-bucketed spend series for the dashboard's line graph, which plots a `{date, cost}`
+/// point per day rather than the org/team/user breakdown `fetch_spend_rows` returns.
+async fn fetch_daily_spend_rows(
+    pool: &sqlx::PgPool,
+    from: Option<DateTime<Utc>>,
+    to: Option<DateTime<Utc>>,
+    organization_id: Option<Uuid>,
+    team_id: Option<Uuid>,
+    user_id: Option<Uuid>,
+) -> Result<Vec<DailySpendRow>, sqlx::Error> {
+    sqlx::query_as::<_, DailySpendRow>(
+        "SELECT date_trunc('day', created_at)::date AS date,
+                COALESCE(SUM(cost_usd), 0) AS cost
+         FROM request_logs
+         WHERE ($1::timestamptz IS NULL OR created_at >= $1)
+           AND ($2::timestamptz IS NULL OR created_at <= $2)
+           AND ($3::uuid IS NULL OR organization_id = $3)
+           AND ($4::uuid IS NULL OR team_id = $4)
+           AND ($5::uuid IS NULL OR user_id = $5)
+         GROUP BY date_trunc('day', created_at)::date
+         ORDER BY date",
+    )
+    .bind(from)
+    .bind(to)
+    .bind(organization_id)
+    .bind(team_id)
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
 }
 
 pub fn compute_cost(model: &Model, capability: Capability, usage: &UsageReport) -> Option<Decimal> {

@@ -4,6 +4,7 @@ pub mod models;
 pub mod organizations;
 pub mod provider_profiles;
 pub mod spend;
+pub mod stats;
 pub mod teams;
 pub mod users;
 
@@ -38,6 +39,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .merge(teams::router())
         .merge(users::router())
         .merge(spend::router())
+        .merge(stats::router())
         .route_layer(middleware::from_fn_with_state(state, jwt_auth));
 
     Router::new().merge(auth::router()).merge(protected)

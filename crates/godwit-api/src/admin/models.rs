@@ -14,7 +14,21 @@ use crate::{admin::require_super_admin, error::ApiError, state::AppState};
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/models", get(list_models).post(create_model))
-        .route("/models/:id", patch(update_model).delete(delete_model))
+        .route(
+            "/models/:id",
+            get(get_model).patch(update_model).delete(delete_model),
+        )
+}
+
+async fn get_model(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    require_super_admin(&claims)?;
+    let repo = ModelRepository::new(state.pool.clone());
+    let model = repo.get(id).await.map_err(ApiError::Core)?;
+    Ok(Json(serde_json::json!({ "data": model })))
 }
 
 async fn list_models(

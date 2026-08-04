@@ -34,6 +34,12 @@ async fn main() -> anyhow::Result<()> {
     let legacy_providers = bootstrap::legacy_providers_from_env();
     bootstrap::bootstrap_provider_profiles(&pool, &master_key, &legacy_providers).await?;
 
+    if let (Ok(email), Ok(password)) =
+        (std::env::var("ADMIN_EMAIL"), std::env::var("ADMIN_PASSWORD"))
+    {
+        bootstrap::bootstrap_admin_user(&pool, &email, &password).await?;
+    }
+
     let mut registry = AdapterRegistry::new();
     registry.register(Protocol::openai(), Arc::new(OpenAiAdapter::new()));
     registry.register(Protocol::anthropic(), Arc::new(AnthropicAdapter::new()));
@@ -59,13 +65,17 @@ async fn main() -> anyhow::Result<()> {
         credential_master_key: master_key,
     });
 
+    // `api_key_auth` is applied to the proxy router alone (via `route_layer` on its own
+    // value) so admin routes — authenticated by `jwt_auth` inside `admin::router` — are
+    // never subject to it. Applying it after merging the two routers would wrap both.
+    let proxy_router = proxy::router().route_layer(middleware::from_fn_with_state(
+        state.clone(),
+        godwit_api::middleware::api_key_auth,
+    ));
+
     let app = Router::new()
         .nest("/api/v1", admin::router(state.clone()))
-        .merge(proxy::router())
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            godwit_api::middleware::api_key_auth,
-        ))
+        .merge(proxy_router)
         .with_state(state.clone());
 
     let listener =

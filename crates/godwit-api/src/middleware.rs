@@ -19,11 +19,6 @@ pub async fn api_key_auth(
     mut req: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    // Skip API key auth entirely for now (admin routes use JWT, proxy routes aren't being used in dev)
-    return Ok(next.run(req).await);
-
-    // TODO: Re-enable with proper path-based routing
-    #[allow(unreachable_code)]
     let auth = req
         .headers()
         .get(AUTHORIZATION)

@@ -2,7 +2,7 @@
 
 import { setTokens } from '@/lib/auth'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.godwit.io'
+const API_URL = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'https://api.godwit.io'
 
 export async function exchangeOIDCCode(code: string, state: string): Promise<void> {
   const response = await fetch(`${API_URL}/api/v1/auth/oidc/callback`, {

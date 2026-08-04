@@ -28,6 +28,8 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       JWT_SECRET: ${JWT_SECRET}
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
     depends_on:
       db:
         condition: service_healthy
@@ -39,6 +41,10 @@ services:
     ports:
       - "3000:3000"
     environment:
+      # Server-side Server Actions run inside this container and must reach
+      # the API over the internal Docker network, not the host-published port.
+      API_URL: http://api:3000
+      # Used only for URLs sent to the browser (e.g. the OIDC redirect).
       NEXT_PUBLIC_API_URL: http://localhost:8000
       NEXT_PUBLIC_APP_URL: http://localhost:3000
       NODE_ENV: development

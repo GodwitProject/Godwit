@@ -1,6 +1,6 @@
 import { getAccessToken, setTokens, getRefreshToken, clearTokens } from './auth'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.godwit.io'
+const API_URL = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'https://api.godwit.io'
 
 export async function apiCall(
   endpoint: string,

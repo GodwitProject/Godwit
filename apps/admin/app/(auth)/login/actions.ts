@@ -3,7 +3,10 @@
 import { redirect } from 'next/navigation'
 import { setTokens } from '@/lib/auth'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.godwit.io'
+// Server-side fetches use the internal Docker network URL when set (API_URL);
+// the OIDC redirect below sends the browser to the publicly reachable URL instead.
+const API_URL = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'https://api.godwit.io'
+const PUBLIC_API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.godwit.io'
 
 export async function loginWithPassword(
   email: string,
@@ -33,5 +36,5 @@ export async function loginWithPassword(
 export async function loginWithSSO() {
   // Redirect to OIDC authorize endpoint
   // This will be handled by the backend's OIDC endpoint
-  redirect(`${API_URL}/api/v1/auth/oidc/authorize?redirect_uri=${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`)
+  redirect(`${PUBLIC_API_URL}/api/v1/auth/oidc/authorize?redirect_uri=${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`)
 }

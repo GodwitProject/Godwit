@@ -1,5 +1,11 @@
 use godwit_auth::credentials::encrypt_api_key;
-use godwit_db::repositories::provider_profiles::ProviderProfileRepository;
+use godwit_db::{
+    models::UserRole,
+    repositories::{
+        organizations::OrganizationRepository, provider_profiles::ProviderProfileRepository,
+        users::UserRepository,
+    },
+};
 use sqlx::PgPool;
 
 pub struct LegacyProviderConfig {
@@ -30,6 +36,35 @@ pub async fn bootstrap_provider_profiles(
         let secret = encrypt_api_key(master_key, &provider.api_key);
         repo.set_auth(profile.id, &secret).await?;
     }
+    Ok(())
+}
+
+/// Creates the first `super_admin` account from `ADMIN_EMAIL`/`ADMIN_PASSWORD` env vars
+/// when no user with that email exists yet. Without this, operators have no way to log
+/// into the admin UI on a fresh database short of hand-writing SQL. Idempotent by email:
+/// safe to run on every startup, including against a database that already has users.
+pub async fn bootstrap_admin_user(pool: &PgPool, email: &str, password: &str) -> anyhow::Result<()> {
+    let user_repo = UserRepository::new(pool.clone());
+    if user_repo.get_by_email(email).await.is_ok() {
+        return Ok(());
+    }
+
+    let org_repo = OrganizationRepository::new(pool.clone());
+    let existing_orgs = org_repo.list().await?;
+    let org = match existing_orgs.into_iter().next() {
+        Some(org) => org,
+        None => org_repo.create("Default Organization", None).await?,
+    };
+
+    let hash = godwit_auth::api_keys::hash_password(password);
+    let user = user_repo
+        .create(email, Some("Admin"), UserRole::SuperAdmin, Some(org.id))
+        .await?;
+    sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
+        .bind(&hash)
+        .bind(user.id)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 

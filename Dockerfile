@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-o
 COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 COPY . .
-RUN cargo build --release --bin godwit
+RUN cargo build --release -p godwit-bin
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y ca-certificates libxml2 libxmlsec1 libxmlsec1-openssl && rm -rf /var/lib/apt/lists/*

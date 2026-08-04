@@ -19,6 +19,11 @@ pub async fn api_key_auth(
     mut req: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
+    // Skip API key auth for admin routes — they use JWT instead
+    if req.uri().path().starts_with("/api/v1") {
+        return Ok(next.run(req).await);
+    }
+
     let auth = req
         .headers()
         .get(AUTHORIZATION)

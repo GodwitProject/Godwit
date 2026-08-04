@@ -60,12 +60,12 @@ async fn main() -> anyhow::Result<()> {
     });
 
     let app = Router::new()
+        .nest("/api/v1", admin::router(state.clone()))
         .merge(proxy::router())
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             godwit_api::middleware::api_key_auth,
         ))
-        .nest("/api/v1", admin::router(state.clone()))
         .with_state(state.clone());
 
     let listener =

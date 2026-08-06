@@ -10,6 +10,7 @@ pub mod registry;
 pub mod searxng;
 pub mod sglang;
 pub mod sse_egress;
+pub mod stream_translators;
 pub mod streaming;
 pub mod usage;
 pub mod vllm;

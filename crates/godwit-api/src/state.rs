@@ -1,4 +1,4 @@
-use crate::{circuit_breaker::CircuitBreakerRegistry, model_router::DbModelRouter, rate_limit::RateLimiter};
+use crate::{agentic_loop::AgenticLoop, circuit_breaker::CircuitBreakerRegistry, model_router::DbModelRouter, rate_limit::RateLimiter};
 use godwit_cache::MemoryCache;
 use godwit_core::AppConfig;
 use godwit_db::models::ApiKey;
@@ -35,4 +35,5 @@ pub struct AppState {
     pub credential_master_key: [u8; 32],
     pub rate_limiter: RateLimiter,
     pub circuit_breaker_registry: Arc<CircuitBreakerRegistry>,
+    pub agentic_loop: Arc<AgenticLoop>,
 }

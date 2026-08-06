@@ -173,4 +173,6 @@ pub struct RequestLog {
     pub cost_usd: Option<rust_decimal::Decimal>,
     pub tags: Vec<String>,
     pub created_at: DateTime<Utc>,
+    pub tool_calls_count: Option<i32>,
+    pub agentic_iteration: Option<i32>,
 }

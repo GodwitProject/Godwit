@@ -482,94 +482,6 @@ async fn web_search_result(
     }
 }
 
-/// Drive a non-streaming chat request through a bounded agentic tool loop.
-///
-/// MCP and web-search tool calls emitted by the model are resolved and fed back for a
-/// follow-up model round trip, up to [`MAX_AGENTIC_ITERATIONS`] times. When the model makes
-/// no tool calls (or they cannot be resolved) the current completion is returned.
-const MAX_AGENTIC_ITERATIONS: usize = 4;
-
-async fn run_agentic_chat(
-    state: &Arc<AppState>,
-    resolved: &ResolvedModel,
-    mut req: ChatCompletionRequest,
-) -> Result<(ChatCompletionResponse, UsageReport), godwit_providers::adapter::ProviderError>
-{
-    let mut messages = req.messages.clone();
-    let mut usage = UsageReport::default();
-    for _ in 0..MAX_AGENTIC_ITERATIONS {
-        req.messages = messages.clone();
-        let (resp, round_usage) = with_retry(&default_retry_policy(), || {
-            let adapter = Arc::clone(&resolved.adapter);
-            let credentials = resolved.resolved_credentials.clone();
-            let model = resolved.model.clone();
-            let req = req.clone();
-            async move { adapter.chat(&credentials, &model, req).await }
-        })
-        .await?;
-        usage = accumulate_usage(usage, &round_usage);
-        let ProviderResponse::Chat(completion) = resp else {
-            return Err(godwit_providers::adapter::ProviderError::Provider(
-                "unexpected provider response variant during agentic chat".to_string(),
-            ));
-        };
-
-        let tool_calls: Vec<ToolCall> = completion
-            .choices
-            .iter()
-            .flat_map(|c| c.message.tool_calls.clone().unwrap_or_default())
-            .collect();
-        if tool_calls.is_empty() {
-            return Ok((completion, usage));
-        }
-
-        // Remember the assistant turn that produced the tool calls.
-        if let Some(choice) = completion.choices.first() {
-            messages.push(choice.message.clone());
-        }
-        let results = resolve_tool_calls(state, &tool_calls).await;
-        if results.is_empty() {
-            return Ok((completion, usage));
-        }
-        messages.extend(results);
-    }
-    Err(godwit_providers::adapter::ProviderError::Provider(
-        format!(
-            "agentic tool loop exceeded {MAX_AGENTIC_ITERATIONS} iterations without converging"
-        ),
-    ))
-}
-
-fn accumulate_usage(mut acc: UsageReport, report: &UsageReport) -> UsageReport {
-    let add = |a: Option<i32>, b: Option<i32>| match (a, b) {
-        (Some(x), Some(y)) => Some(x + y),
-        (a, None) => a,
-        (None, b) => b,
-    };
-    acc.prompt_tokens = add(acc.prompt_tokens, report.prompt_tokens);
-    acc.completion_tokens = add(acc.completion_tokens, report.completion_tokens);
-    acc
-}
-
-/// Dispatch a chat request, routing it through the agentic tool loop when appropriate.
-///
-/// Streaming requests are forwarded unchanged (tool resolution in a streaming response is
-/// not yet supported). Non-streaming requests get MCP tools merged in and a bounded
-/// tool-call resolution loop.
-async fn call_chat_agentic(
-    state: &Arc<AppState>,
-    resolved: &ResolvedModel,
-    mut req: ChatCompletionRequest,
-) -> Result<(Response, Option<UsageReport>), godwit_providers::adapter::ProviderError> {
-    if req.stream == Some(true) {
-        return call_chat(state, resolved, req).await;
-    }
-
-    merge_agentic_tools(state, &mut req).await;
-    let (completion, usage) = run_agentic_chat(state, resolved, req).await?;
-    Ok((Json(completion).into_response(), Some(usage)))
-}
-
 async fn chat_completions(
     State(state): State<Arc<AppState>>,
     Extension(api_key): Extension<ApiKey>,
@@ -585,7 +497,7 @@ async fn chat_completions(
 
     let (_req_parts, req_body) = req_headers.into_parts();
     let body_bytes = axum::body::to_bytes(req_body, usize::MAX).await.unwrap();
-    let req: ChatCompletionRequest = serde_json::from_slice(&body_bytes).unwrap();
+    let mut req: ChatCompletionRequest = serde_json::from_slice(&body_bytes).unwrap();
 
     let estimated_tokens = rate_limit::estimate_request_tokens(&req);
     let primary_resolved = state
@@ -596,19 +508,35 @@ async fn chat_completions(
     check_user_budget(&state, &api_key).await?;
     check_team_budget(&state, &api_key).await?;
 
-    let fallback_result = call_chat_with_fallback(&state, &req.model, req.clone()).await
-        .map_err(map_provider_error)?;
-
+    let has_tools = req.tools.as_ref().map(|t| !t.is_empty()).unwrap_or(false);
     let streamed = req.stream == Some(true);
-    let usage = Some(fallback_result.usage.clone());
 
-    let cost_usd = usage.and_then(|u| compute_cost(&fallback_result.model_pricing, Capability::Chat, &u));
+    let (response, usage, model_used, model_pricing, attempts_made, fallback_triggered, tool_calls_count, agentic_iteration) = if has_tools && !streamed {
+        merge_agentic_tools(&state, &mut req).await;
+        match state.agentic_loop.execute(&state, &primary_resolved, req.clone()).await {
+            Ok((completion, total_usage)) => {
+                let tool_count: usize = completion.choices.iter()
+                    .map(|c| c.message.tool_calls.as_ref().map(|t| t.len()).unwrap_or(0))
+                    .sum();
+                let response = Json(completion).into_response();
+                let cost_usd = compute_cost(&primary_resolved.model.pricing, Capability::Chat, &total_usage);
+                (response, Some(total_usage), primary_resolved.model.provider_model_id.clone(), primary_resolved.model.pricing.clone(), 1, false, Some(tool_count), Some(state.agentic_loop.max_iterations))
+            }
+            Err(e) => return Err(e),
+        }
+    } else {
+        let fallback_result = call_chat_with_fallback(&state, &req.model, req.clone()).await
+            .map_err(map_provider_error)?;
+        (fallback_result.response, Some(fallback_result.usage.clone()), fallback_result.model_used.clone(), fallback_result.model_pricing, fallback_result.attempts_made, fallback_result.fallback_triggered, None, None)
+    };
+
+    let cost_usd = usage.as_ref().and_then(|u| compute_cost(&model_pricing, Capability::Chat, u));
     let log = RequestLogEntry {
         api_key_id: api_key.id,
         user_id: api_key.user_id,
         organization_id: api_key.organization_id,
         team_id: api_key.team_id,
-        model: fallback_result.model_used.clone(),
+        model: model_used.clone(),
         provider: primary_resolved.model.provider.clone(),
         provider_model_id: primary_resolved.model.provider_model_id.clone(),
         capability: Capability::Chat.as_str().to_string(),
@@ -617,12 +545,14 @@ async fn chat_completions(
         status: "success".to_string(),
         cost_usd,
         tags,
-        attempt_number: fallback_result.attempts_made,
-        fallback_triggered: fallback_result.fallback_triggered,
+        attempt_number: attempts_made,
+        fallback_triggered,
+        tool_calls_count,
+        agentic_iteration,
     };
     spawn_request_log(state.pool.clone(), log);
 
-    Ok(fallback_result.response)
+    Ok(response)
 }
 
 async fn list_models(
@@ -716,6 +646,8 @@ async fn embeddings(
         tags: vec![],
         attempt_number: 1,
         fallback_triggered: false,
+        tool_calls_count: None,
+        agentic_iteration: None,
     };
     spawn_request_log(state.pool.clone(), log);
 
@@ -831,6 +763,8 @@ async fn image_generations(
             tags: vec![],
             attempt_number: 1,
             fallback_triggered: false,
+            tool_calls_count: None,
+            agentic_iteration: None,
         },
     );
 
@@ -946,6 +880,8 @@ async fn audio_speech(
             tags: vec![],
             attempt_number: 1,
             fallback_triggered: false,
+            tool_calls_count: None,
+            agentic_iteration: None,
         },
     );
 
@@ -1109,6 +1045,8 @@ async fn audio_transcriptions(
             tags: vec![],
             attempt_number: 1,
             fallback_triggered: false,
+            tool_calls_count: None,
+            agentic_iteration: None,
         },
     );
 
@@ -1295,6 +1233,8 @@ async fn image_edits(
             tags: vec![],
             attempt_number: 1,
             fallback_triggered: false,
+            tool_calls_count: None,
+            agentic_iteration: None,
         },
     );
 
@@ -1350,8 +1290,8 @@ fn extract_tags_from_header(header_value: Option<&str>) -> Vec<String> {
 pub(crate) fn spawn_request_log(pool: sqlx::PgPool, log: RequestLogEntry) {
     tokio::spawn(async move {
         let _ = sqlx::query(
-            "INSERT INTO request_logs (api_key_id, user_id, organization_id, team_id, model, provider, provider_model_id, capability, duration_ms, streamed, status, cost_usd, tags, attempt_number, fallback_triggered)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)"
+            "INSERT INTO request_logs (api_key_id, user_id, organization_id, team_id, model, provider, provider_model_id, capability, duration_ms, streamed, status, cost_usd, tags, attempt_number, fallback_triggered, tool_calls_count, agentic_iteration)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)"
         )
         .bind(log.api_key_id)
         .bind(log.user_id)
@@ -1368,6 +1308,8 @@ pub(crate) fn spawn_request_log(pool: sqlx::PgPool, log: RequestLogEntry) {
         .bind(&log.tags)
         .bind(log.attempt_number as i32)
         .bind(log.fallback_triggered)
+        .bind(log.tool_calls_count.map(|c| c as i32))
+        .bind(log.agentic_iteration.map(|i| i as i32))
         .execute(&pool)
         .await;
     });
@@ -1390,6 +1332,8 @@ pub(crate) struct RequestLogEntry {
     pub(crate) tags: Vec<String>,
     pub(crate) attempt_number: u32,
     pub(crate) fallback_triggered: bool,
+    pub(crate) tool_calls_count: Option<usize>,
+    pub(crate) agentic_iteration: Option<usize>,
 }
 
 #[cfg(test)]
@@ -1625,6 +1569,58 @@ mod tests {
                 parameters: None,
             },
         }));
+    }
+
+    #[test]
+    fn request_log_entry_has_tool_tracking_fields() {
+        let log = RequestLogEntry {
+            api_key_id: uuid::Uuid::new_v4(),
+            user_id: uuid::Uuid::new_v4(),
+            organization_id: uuid::Uuid::new_v4(),
+            team_id: None,
+            model: "test-model".to_string(),
+            provider: "test".to_string(),
+            provider_model_id: "test".to_string(),
+            capability: "chat".to_string(),
+            duration_ms: 100,
+            streamed: false,
+            status: "success".to_string(),
+            cost_usd: None,
+            tags: vec![],
+            attempt_number: 1,
+            fallback_triggered: false,
+            tool_calls_count: Some(3),
+            agentic_iteration: Some(2),
+        };
+        
+        assert_eq!(log.tool_calls_count, Some(3));
+        assert_eq!(log.agentic_iteration, Some(2));
+    }
+
+    #[test]
+    fn request_log_entry_without_tools_has_none_for_tracking_fields() {
+        let log = RequestLogEntry {
+            api_key_id: uuid::Uuid::new_v4(),
+            user_id: uuid::Uuid::new_v4(),
+            organization_id: uuid::Uuid::new_v4(),
+            team_id: None,
+            model: "test-model".to_string(),
+            provider: "test".to_string(),
+            provider_model_id: "test".to_string(),
+            capability: "chat".to_string(),
+            duration_ms: 100,
+            streamed: false,
+            status: "success".to_string(),
+            cost_usd: None,
+            tags: vec![],
+            attempt_number: 1,
+            fallback_triggered: false,
+            tool_calls_count: None,
+            agentic_iteration: None,
+        };
+        
+        assert_eq!(log.tool_calls_count, None);
+        assert_eq!(log.agentic_iteration, None);
     }
 
 }

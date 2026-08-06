@@ -13,7 +13,7 @@ use crate::{
 };
 
 pub struct AgenticLoop {
-    max_iterations: usize,
+    pub max_iterations: usize,
     iteration_timeout: Duration,
 }
 

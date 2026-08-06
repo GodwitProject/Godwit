@@ -1,6 +1,6 @@
 use axum::{middleware, routing::Router};
 use godwit_api::{
-    admin, anthropic_proxy, batch, circuit_breaker::CircuitBreakerRegistry, health, moderation, model_router::DbModelRouter, proxy,
+    admin, agentic_loop::AgenticLoop, anthropic_proxy, batch, circuit_breaker::CircuitBreakerRegistry, health, moderation, model_router::DbModelRouter, proxy,
     rate_limit::RateLimiter, rerank, state::AppState,
 };
 use godwit_cache::MemoryCache;
@@ -70,6 +70,11 @@ async fn main() -> anyhow::Result<()> {
     let half_open_max = cb_config.map(|c| c.half_open_max_requests).unwrap_or(3);
     let circuit_breaker_registry = Arc::new(CircuitBreakerRegistry::new(threshold, timeout, half_open_max));
 
+    // Agentic loop initialization
+    let max_iterations = config.agentic.max_iterations;
+    let iteration_timeout_secs = 120;
+    let agentic_loop = Arc::new(AgenticLoop::new(max_iterations, iteration_timeout_secs));
+
     let state = Arc::new(AppState {
         config: config.clone(),
         pool: pool.clone(),
@@ -89,6 +94,7 @@ async fn main() -> anyhow::Result<()> {
         credential_master_key: master_key,
         rate_limiter: RateLimiter::new(),
         circuit_breaker_registry,
+        agentic_loop,
     });
 
     // `api_key_auth` is applied to the proxy router alone (via `route_layer` on its own

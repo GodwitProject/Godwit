@@ -334,6 +334,8 @@ async fn messages(
             tags: vec![],
             attempt_number: 1,
             fallback_triggered: false,
+            tool_calls_count: None,
+            agentic_iteration: None,
         };
         crate::proxy::spawn_request_log(state.pool.clone(), log);
 
@@ -429,6 +431,8 @@ async fn messages(
         tags: vec![],
         attempt_number: 1,
         fallback_triggered: false,
+        tool_calls_count: None,
+        agentic_iteration: None,
     };
     crate::proxy::spawn_request_log(state.pool.clone(), log);
 

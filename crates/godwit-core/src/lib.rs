@@ -138,6 +138,7 @@ pub struct ChatCompletionRequest {
     pub top_logprobs: Option<i32>,
     pub tools: Option<Vec<Tool>>,
     pub tool_choice: Option<ToolChoice>,
+    pub parallel_tool_calls: Option<bool>,
     pub response_format: Option<ResponseFormat>,
     pub reasoning: Option<ReasoningConfig>,
 }
@@ -306,6 +307,7 @@ pub struct ChatCompletionChoice {
     pub message: ChatMessage,
     pub finish_reason: Option<String>,
     pub logprobs: Option<serde_json::Value>,
+    pub tool_calls: Option<Vec<ToolCall>>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -678,11 +680,38 @@ auth:
     }
 
     #[test]
-    fn tool_choice_function_serializes() {
-        let tc = ToolChoice::Function { function: FunctionName { name: "get_weather".into() } };
-        let json = serde_json::to_string(&tc).unwrap();
+    fn tool_serializes() {
+        let tool = Tool {
+            r#type: "function".into(),
+            function: FunctionDefinition {
+                name: "get_weather".into(),
+                description: Some("Get the weather for a location".into()),
+                parameters: Some(serde_json::json!({"type": "object"})),
+            },
+        };
+        let json = serde_json::to_string(&tool).unwrap();
         assert!(json.contains("function"));
         assert!(json.contains("get_weather"));
+    }
+
+    #[test]
+    fn tool_choice_serializes() {
+        let tc_none = ToolChoice::None;
+        let json_none = serde_json::to_string(&tc_none).unwrap();
+        assert_eq!(json_none, "\"none\"");
+
+        let tc_auto = ToolChoice::Auto;
+        let json_auto = serde_json::to_string(&tc_auto).unwrap();
+        assert_eq!(json_auto, "\"auto\"");
+
+        let tc_required = ToolChoice::Required;
+        let json_required = serde_json::to_string(&tc_required).unwrap();
+        assert_eq!(json_required, "\"required\"");
+
+        let tc_function = ToolChoice::Function { function: FunctionName { name: "get_weather".into() } };
+        let json_function = serde_json::to_string(&tc_function).unwrap();
+        assert!(json_function.contains("function"));
+        assert!(json_function.contains("get_weather"));
     }
 
     #[test]

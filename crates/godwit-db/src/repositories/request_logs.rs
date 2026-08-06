@@ -156,7 +156,7 @@ mod tests {
         .await
         .expect("insert api_key");
 
-        let repo = RequestLogsRepository::new(pool);
+        let repo = RequestLogsRepository::new(pool.clone());
         let tags = vec!["tag1".to_string(), "tag2".to_string()];
         
         let log = repo
@@ -182,13 +182,13 @@ mod tests {
 
         let user = Uuid::new_v4();
         sqlx::query("INSERT INTO users (id, organization_id, email, role) VALUES ($1, $2, 'test@example.com', 'user')")
-            .bind(user)
-            .bind(org)
-            .execute(&pool)
-            .await
-            .expect("insert user");
+        .bind(user)
+        .bind(org)
+        .execute(&pool)
+        .await
+        .expect("insert user");
 
-        let repo = RequestLogsRepository::new(pool);
+        let repo = RequestLogsRepository::new(pool.clone());
         
         sqlx::query(
             "INSERT INTO request_logs 

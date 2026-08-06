@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum::{
     body::{Body, Bytes},
     extract::{Extension, Request, State},
-    http::{header::AUTHORIZATION, HeaderValue, Method},
+    http::{header::AUTHORIZATION, HeaderMap, HeaderValue, Method},
     http::{header::COOKIE, StatusCode},
     middleware::Next,
     response::Response,
@@ -12,6 +12,20 @@ use godwit_auth::{api_keys::verify_key, jwt::verify};
 use godwit_db::models::ApiKey;
 
 use crate::{error::ApiError, state::AppState};
+
+/// True when a state-changing request carries an `Origin` matching `allowed_cookie_origin`,
+/// or when `allowed_cookie_origin` is empty (check disabled). No-op for non-state-changing methods.
+pub fn origin_allowed(state: &AppState, method: &Method, headers: &HeaderMap) -> bool {
+    let allowed_origin = state.config.auth.allowed_cookie_origin.as_str();
+    if allowed_origin.is_empty() || !is_state_changing(method) {
+        return true;
+    }
+    headers
+        .get(axum::http::header::ORIGIN)
+        .and_then(|h| h.to_str().ok())
+        .map(|origin| origin == allowed_origin)
+        .unwrap_or(false)
+}
 
 pub fn extract_token(header: &str) -> Option<&str> {
     header.strip_prefix("Bearer ")
@@ -85,19 +99,8 @@ pub async fn jwt_auth(
     mut req: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    // CSRF hardening: when an allowed cookie origin is configured, state-changing
-    // requests must carry a matching Origin header. No-op in dev (empty origin).
-    let allowed_origin = state.config.auth.allowed_cookie_origin.as_str();
-    if !allowed_origin.is_empty() && is_state_changing(req.method()) {
-        let origin_matches = req
-            .headers()
-            .get(axum::http::header::ORIGIN)
-            .and_then(|h| h.to_str().ok())
-            .map(|origin| origin == allowed_origin)
-            .unwrap_or(false);
-        if !origin_matches {
-            return Err(StatusCode::FORBIDDEN);
-        }
+    if !origin_allowed(&state, req.method(), req.headers()) {
+        return Err(StatusCode::FORBIDDEN);
     }
 
     // 1. Bearer header (backward compatible)
@@ -113,6 +116,17 @@ pub async fn jwt_auth(
     let claims =
         verify(&state.config.auth.jwt_secret, &auth).map_err(|_| StatusCode::UNAUTHORIZED)?;
     req.extensions_mut().insert(claims);
+    Ok(next.run(req).await)
+}
+
+pub async fn cookie_csrf(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    if !origin_allowed(&state, req.method(), req.headers()) {
+        return Err(StatusCode::FORBIDDEN);
+    }
     Ok(next.run(req).await)
 }
 

@@ -1,6 +1,7 @@
 use axum::{
     extract::{ConnectInfo, Extension, Path, Query, State},
     http::header::{HeaderMap, HeaderValue, SET_COOKIE},
+    middleware::from_fn_with_state,
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
     Json, Router,
@@ -14,6 +15,7 @@ use godwit_db::models::User;
 use serde::Deserialize;
 use std::sync::Arc;
 
+use crate::middleware::cookie_csrf;
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -40,11 +42,15 @@ pub struct LogoutRequest {
     refresh_token: Option<String>,
 }
 
-pub fn router() -> Router<Arc<AppState>> {
-    Router::new()
-        .route("/auth/login", post(login))
+pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
+    let cookie_routes = Router::new()
         .route("/auth/refresh", post(refresh))
         .route("/auth/logout", post(logout))
+        .route_layer(from_fn_with_state(state.clone(), cookie_csrf));
+
+    Router::new()
+        .merge(cookie_routes)
+        .route("/auth/login", post(login))
         .route("/auth/oidc/:provider", get(oidc_start))
         .route("/auth/oidc/:provider/callback", get(oidc_callback))
         .route("/auth/saml/:provider/acs", post(saml_acs))

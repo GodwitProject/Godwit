@@ -48,6 +48,20 @@ use wiremock::{
 const JWT_SECRET: &str = "test-jwt-secret";
 const MASTER_KEY: [u8; 32] = [42u8; 32];
 
+fn base_auth() -> AuthConfig {
+    AuthConfig {
+        jwt_secret: JWT_SECRET.to_string(),
+        access_token_ttl_minutes: 15,
+        refresh_token_ttl_days: 7,
+        cookie_secure: false,
+        allowed_cookie_origin: "".to_string(),
+        login_max_attempts_per_minute: 10,
+        trust_proxy: false,
+        oidc_providers: vec![],
+        saml_providers: vec![],
+    }
+}
+
 fn test_config() -> AppConfig {
     AppConfig {
         server: ServerConfig {
@@ -58,17 +72,7 @@ fn test_config() -> AppConfig {
         database: DatabaseConfig {
             url: "postgres://unused".to_string(),
         },
-        auth: AuthConfig {
-            jwt_secret: JWT_SECRET.to_string(),
-            access_token_ttl_minutes: 15,
-            refresh_token_ttl_days: 7,
-            cookie_secure: false,
-            allowed_cookie_origin: "".to_string(),
-            login_max_attempts_per_minute: 10,
-            trust_proxy: false,
-            oidc_providers: vec![],
-            saml_providers: vec![],
-        },
+        auth: base_auth(),
         agentic: godwit_core::AgenticConfig::default(),
         compat: None,
         circuit_breaker: None,
@@ -3303,4 +3307,73 @@ async fn updating_a_user_without_changing_org_preserves_team_memberships(pool: P
         .await
         .expect("membership must survive an unrelated update");
     assert_eq!(still_member.role, "member");
+}
+
+// ---------------------------------------------------------------------------------------
+// Auth hardening Task 3: CSRF origin check on POST /auth/refresh and /auth/logout.
+// ---------------------------------------------------------------------------------------
+
+/// Performs a password login and returns the `godwit_refresh` cookie header value (the
+/// `Cookie: ...` line) so it can authenticate refresh/logout round-trips.
+async fn login_refresh_cookie(app: &Router, email: &str, password: &str) -> String {
+    let login = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"email": email, "password": password}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(login.status(), StatusCode::OK);
+    let set_cookies: Vec<String> = login
+        .headers()
+        .get_all(SET_COOKIE)
+        .iter()
+        .map(|v| v.to_str().unwrap().to_string())
+        .collect();
+    let refresh_cookie = set_cookies
+        .iter()
+        .find(|c| c.starts_with("godwit_refresh="))
+        .expect("godwit_refresh Set-Cookie present");
+    refresh_cookie.split(';').next().unwrap().to_string()
+}
+
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn csrf_blocks_refresh_without_matching_origin(pool: PgPool) {
+    let auth = AuthConfig { allowed_cookie_origin: "https://app.example.com".to_string(), ..base_auth() };
+    let app = build_app_with_auth(pool.clone(), auth);
+    let (email, password) = seed_password_user(&pool).await;
+    let cookie = login_refresh_cookie(&app, &email, &password).await;
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/refresh")
+        .header(COOKIE, cookie.clone())
+        .header("origin", "https://evil.example.com")
+        .body(Body::empty()).unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+
+    let req2 = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/refresh")
+        .header(COOKIE, cookie.clone())
+        .body(Body::empty()).unwrap();
+    let resp2 = app.clone().oneshot(req2).await.unwrap();
+    assert_eq!(resp2.status(), StatusCode::FORBIDDEN);
+
+    let req3 = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/refresh")
+        .header(COOKIE, cookie.clone())
+        .header("origin", "https://app.example.com")
+        .body(Body::empty()).unwrap();
+    let resp3 = app.clone().oneshot(req3).await.unwrap();
+    assert_eq!(resp3.status(), StatusCode::OK);
 }

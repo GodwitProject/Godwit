@@ -24,5 +24,6 @@ pub mod rerank;
 pub mod rerank_fallback;
 pub mod resilience;
 pub mod response_validation;
+pub mod scheduler;
 pub mod state;
 pub mod utils;

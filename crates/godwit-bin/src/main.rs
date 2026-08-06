@@ -1,8 +1,9 @@
 use axum::{middleware, routing::Router};
 use godwit_api::{
     admin, agentic_loop::AgenticLoop, anthropic_proxy, circuit_breaker::CircuitBreakerRegistry, health, metrics_endpoint, moderation, model_router::DbModelRouter, proxy,
-    rate_limit::RateLimiter, rerank, state::AppState, utils,
+    rate_limit::RateLimiter, rerank, scheduler::Scheduler, state::AppState, utils,
 };
+use godwit_core::alerting::AlertingService;
 use godwit_cache::MemoryCache;
 use godwit_core::{AppConfig, Protocol};
 use godwit_db::{
@@ -107,6 +108,12 @@ async fn main() -> anyhow::Result<()> {
         circuit_breaker_registry,
         agentic_loop,
         guardrails,
+    });
+
+    let alerting_service = AlertingService::new(pool.clone());
+    let scheduler = Scheduler::new(alerting_service);
+    tokio::spawn(async move {
+        scheduler.run().await;
     });
 
     // `api_key_auth` is applied to the proxy router alone (via `route_layer` on its own

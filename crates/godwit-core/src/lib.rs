@@ -47,6 +47,13 @@ pub struct AgenticConfig {
     pub mcp_servers: Vec<McpServerEntry>,
     #[serde(default)]
     pub searxng: Option<SearxngConfig>,
+    /// Maximum number of agentic loop iterations (default: 4)
+    #[serde(default = "default_max_iterations")]
+    pub max_iterations: usize,
+}
+
+fn default_max_iterations() -> usize {
+    4
 }
 
 /// A single MCP server spawned as a subprocess speaking JSON-RPC over stdio.

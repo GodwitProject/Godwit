@@ -1,5 +1,6 @@
 pub mod load_balancer;
 pub mod admin;
+pub mod agentic_loop;
 pub mod anthropic_proxy;
 pub mod batch;
 pub mod circuit_breaker;

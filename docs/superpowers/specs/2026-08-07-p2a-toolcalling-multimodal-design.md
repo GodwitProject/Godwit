@@ -167,7 +167,7 @@ pub struct ChatCompletionChoice {
 pub struct AgenticLoop {
     mcp_registry: Arc<McpRegistry>,
     searxng_client: Option<SearxngClient>,
-    max_iterations: u32,
+    max_iterations: u32,  // Default: 4 (configurable via app config)
 }
 
 impl AgenticLoop {
@@ -184,7 +184,7 @@ impl AgenticLoop {
             iteration += 1;
             if iteration > self.max_iterations {
                 return Err(ApiError::BadRequest(
-                    "Max agentic iterations (4) exceeded".to_string()
+                    format!("Max agentic iterations ({}) exceeded", self.max_iterations)
                 ));
             }
             
@@ -727,7 +727,7 @@ curl -X POST http://localhost:3000/v1/chat/completions \
 - [ ] `tools`, `tool_choice`, `tool_calls` dans le DTO core
 - [ ] Résolution automatique MCP tools (via `McpRegistry`)
 - [ ] Résolution automatique web search (via SearXNG)
-- [ ] Boucle agentic max 4 itérations
+- [ ] Boucle agentic max 4 itérations (configurable dans `AppConfig.agentic.max_iterations`)
 - [ ] Tests : MCP resolution, web search resolution, max iterations
 
 ### 5.2 Multimodal

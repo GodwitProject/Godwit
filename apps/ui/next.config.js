@@ -1,10 +1,14 @@
+const API_ORIGIN = process.env.NEXT_PUBLIC_API_ORIGIN || 'http://localhost:3000';
+
 /** @type {import('next').NextConfig} */
-const nextConfig = {
+module.exports = {
   output: 'standalone',
-  env: {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1',
-    NEXT_PUBLIC_WS_URL: process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3000/api/v1/ws',
+  async rewrites() {
+    return [
+      { source: '/api/v1/:path*', destination: `${API_ORIGIN}/api/v1/:path*` },
+      { source: '/health', destination: `${API_ORIGIN}/health` },
+      { source: '/metrics', destination: `${API_ORIGIN}/metrics` },
+      { source: '/v1/utils/:path*', destination: `${API_ORIGIN}/v1/utils/:path*` },
+    ];
   },
 };
-
-module.exports = nextConfig;

@@ -87,9 +87,7 @@ pub fn client_ip(
     trust_proxy: bool,
 ) -> String {
     if trust_proxy {
-        if let Some(xff) = headers.get(axum::http::header::FORWARDED).or_else(|| {
-            headers.get("x-forwarded-for")
-        }) {
+        if let Some(xff) = headers.get("x-forwarded-for") {
             let v = xff.to_str().unwrap_or("").trim();
             if let Some(first) = v.split(',').next() {
                 return first.trim().to_string();

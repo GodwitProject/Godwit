@@ -1579,7 +1579,7 @@ async fn login_rate_limits_after_repeated_failures(pool: PgPool) {
         saml_providers: vec![],
     };
     let app = build_app_with_auth(pool.clone(), auth);
-    seed_password_user(&pool).await;
+    let (email, password) = seed_password_user(&pool).await;
 
     for _ in 0..2 {
         let resp = oneshot_login(&app, "1.1.1.1", "wrong-email@example.com", "bad").await;
@@ -1589,6 +1589,16 @@ async fn login_rate_limits_after_repeated_failures(pool: PgPool) {
     assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
     let resp = oneshot_login(&app, "2.2.2.2", "wrong-email@example.com", "bad").await;
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+    // A successful login must NOT consume the rate-limit bucket on that IP. After the bucket
+    // for 1.1.1.1 is exhausted (3 failed = 2 allowed + 1 blocked), a correct-credential login
+    // from the same IP must still succeed (it would be 429 if success consumed)...
+    let resp = oneshot_login(&app, "1.1.1.1", &email, &password).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    // ...and a subsequent failed login from that IP is still rate-limited (success did not
+    // push a 4th failure off the ledger).
+    let resp = oneshot_login(&app, "1.1.1.1", "wrong-email@example.com", "bad").await;
+    assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
 }
 
 // ---------------------------------------------------------------------------------------

@@ -11,6 +11,7 @@ use godwit_core::{
 };
 use godwit_db::models::Model;
 use reqwest::Client;
+use serde_json::Value;
 
 pub struct SglangProvider {
     client: Client,
@@ -64,6 +65,19 @@ impl Adapter for SglangProvider {
             }
         }
         
+        if let Some(obj) = request_body.as_object_mut() {
+            if let Some(stop) = &request.stop {
+                let stop_value = match stop {
+                    godwit_core::Stop::String(s) => Value::String(s.clone()),
+                    godwit_core::Stop::Array(arr) => serde_json::to_value(arr).unwrap(),
+                };
+                obj.insert("stop".to_string(), stop_value);
+            }
+            if let Some(seed) = request.seed {
+                obj.insert("seed".to_string(), Value::Number(seed.into()));
+            }
+        }
+        
         let mut req = self.client.post(&url).json(&request_body);
         if let Some(key) = &profile.api_key {
             req = req.header("Authorization", format!("Bearer {key}"));
@@ -108,6 +122,19 @@ impl Adapter for SglangProvider {
                 if let Some(schema) = &json_schema.schema {
                     obj.insert("json_schema".to_string(), schema.clone());
                 }
+            }
+        }
+        
+        if let Some(obj) = request_body.as_object_mut() {
+            if let Some(stop) = &request.stop {
+                let stop_value = match stop {
+                    godwit_core::Stop::String(s) => Value::String(s.clone()),
+                    godwit_core::Stop::Array(arr) => serde_json::to_value(arr).unwrap(),
+                };
+                obj.insert("stop".to_string(), stop_value);
+            }
+            if let Some(seed) = request.seed {
+                obj.insert("seed".to_string(), Value::Number(seed.into()));
             }
         }
         

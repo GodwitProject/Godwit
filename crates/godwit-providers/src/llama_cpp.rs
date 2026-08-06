@@ -102,6 +102,16 @@ impl Adapter for LlamaCppProvider {
             }
         }
         
+        if let Some(obj) = request_body.as_object_mut() {
+            if let Some(stop) = &request.stop {
+                let stop_value = match stop {
+                    godwit_core::Stop::String(s) => Value::String(s.clone()),
+                    godwit_core::Stop::Array(arr) => serde_json::to_value(arr).unwrap(),
+                };
+                obj.insert("stop".to_string(), stop_value);
+            }
+        }
+        
         let mut req = self.client.post(&url).json(&request_body);
         if let Some(key) = &profile.api_key {
             req = req.header("Authorization", format!("Bearer {key}"));
@@ -147,6 +157,16 @@ impl Adapter for LlamaCppProvider {
                     let grammar = json_schema_to_gbnf(schema);
                     obj.insert("grammar".to_string(), Value::String(grammar));
                 }
+            }
+        }
+        
+        if let Some(obj) = request_body.as_object_mut() {
+            if let Some(stop) = &request.stop {
+                let stop_value = match stop {
+                    godwit_core::Stop::String(s) => Value::String(s.clone()),
+                    godwit_core::Stop::Array(arr) => serde_json::to_value(arr).unwrap(),
+                };
+                obj.insert("stop".to_string(), stop_value);
             }
         }
         

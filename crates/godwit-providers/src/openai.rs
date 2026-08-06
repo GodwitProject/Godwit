@@ -109,6 +109,26 @@ struct OpenAiChatRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    top_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    frequency_penalty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    presence_penalty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stop: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    seed: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    n: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    logprobs: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_logprobs: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    logit_bias: Option<std::collections::HashMap<String, i32>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<godwit_core::Tool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<godwit_core::ToolChoice>,
@@ -248,12 +268,26 @@ impl Adapter for OpenAiProvider {
                 },
             },
         });
+        let stop_value = request.stop.as_ref().map(|stop| match stop {
+            godwit_core::Stop::String(s) => serde_json::Value::String(s.clone()),
+            godwit_core::Stop::Array(arr) => serde_json::to_value(arr).unwrap(),
+        });
         let openai_request = OpenAiChatRequest {
             model: request.model.clone(),
             messages: openai_messages,
             stream: request.stream,
             temperature: request.temperature,
             max_tokens: request.max_tokens,
+            top_p: request.top_p,
+            frequency_penalty: request.frequency_penalty,
+            presence_penalty: request.presence_penalty,
+            stop: stop_value.clone(),
+            seed: request.seed,
+            n: request.n,
+            logprobs: request.logprobs,
+            top_logprobs: request.top_logprobs,
+            logit_bias: request.logit_bias.clone(),
+            user: request.user.clone(),
             tools: request.tools.clone(),
             tool_choice: request.tool_choice.clone(),
             response_format,
@@ -320,12 +354,26 @@ impl Adapter for OpenAiProvider {
                 },
             },
         });
+        let stop_value = request.stop.as_ref().map(|stop| match stop {
+            godwit_core::Stop::String(s) => serde_json::Value::String(s.clone()),
+            godwit_core::Stop::Array(arr) => serde_json::to_value(arr).unwrap(),
+        });
         let openai_request = OpenAiChatRequest {
             model: request.model.clone(),
             messages: openai_messages,
             stream: request.stream,
             temperature: request.temperature,
             max_tokens: request.max_tokens,
+            top_p: request.top_p,
+            frequency_penalty: request.frequency_penalty,
+            presence_penalty: request.presence_penalty,
+            stop: stop_value.clone(),
+            seed: request.seed,
+            n: request.n,
+            logprobs: request.logprobs,
+            top_logprobs: request.top_logprobs,
+            logit_bias: request.logit_bias.clone(),
+            user: request.user.clone(),
             tools: request.tools.clone(),
             tool_choice: request.tool_choice.clone(),
             response_format,
@@ -1581,5 +1629,77 @@ mod tests {
         let _stream2 = client.chat_stream(&profile, &model, req.clone()).await.unwrap();
         
         assert_eq!(*call_count.lock().unwrap(), 2, "Streaming requests should not be cached");
+    }
+
+    #[tokio::test]
+    async fn chat_sends_advanced_params() {
+        use std::collections::HashMap;
+        let server = MockServer::start().await;
+        let captured_body = std::sync::Arc::new(std::sync::Mutex::new(None::<serde_json::Value>));
+        let captured_clone = captured_body.clone();
+
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(move |req: &wiremock::Request| {
+                if let Ok(body) = serde_json::from_slice::<serde_json::Value>(&req.body) {
+                    *captured_clone.lock().unwrap() = Some(body);
+                }
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "id": "chatcmpl-1",
+                    "object": "chat.completion",
+                    "created": 1,
+                    "model": "gpt-4o",
+                    "choices": [{"index":0,"message":{"role":"assistant","content":"Hello"},"finish_reason":"stop"}],
+                    "usage": {"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
+                }))
+            })
+            .mount(&server)
+            .await;
+
+        let client = OpenAiAdapter::new();
+        let profile = ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
+        let mut logit_bias = HashMap::new();
+        logit_bias.insert("1234".to_string(), 5);
+        let req = ChatCompletionRequest {
+            model: "gpt-4o".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: Some(vec![ChatContent::text("Hi")]),
+                name: None,
+                ..Default::default()
+            }],
+            stream: Some(false),
+            temperature: Some(0.7),
+            max_tokens: Some(100),
+            top_p: Some(0.9),
+            frequency_penalty: Some(0.5),
+            presence_penalty: Some(0.3),
+            stop: Some(godwit_core::Stop::Array(vec!["STOP".to_string()])),
+            seed: Some(42),
+            n: Some(2),
+            logprobs: Some(true),
+            top_logprobs: Some(3),
+            logit_bias: Some(logit_bias),
+            user: Some("test-user".to_string()),
+            ..Default::default()
+        };
+        let _ = client.chat(&profile, &dummy_model(), req).await.unwrap();
+
+        let body = captured_body.lock().unwrap().take().expect("request body captured");
+        assert_eq!(body["temperature"], 0.7);
+        assert_eq!(body["max_tokens"], 100);
+        assert_eq!(body["top_p"], 0.9);
+        assert_eq!(body["frequency_penalty"], 0.5);
+        assert_eq!(body["presence_penalty"], 0.3);
+        assert_eq!(body["stop"], serde_json::json!(["STOP"]));
+        assert_eq!(body["seed"], 42);
+        assert_eq!(body["n"], 2);
+        assert_eq!(body["logprobs"], true);
+        assert_eq!(body["top_logprobs"], 3);
+        assert_eq!(body["logit_bias"]["1234"], 5);
+        assert_eq!(body["user"], "test-user");
     }
 }

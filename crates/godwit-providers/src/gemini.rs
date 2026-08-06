@@ -578,6 +578,14 @@ struct GeminiGenerationConfig {
     max_output_tokens: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_k: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stop_sequences: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    seed: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -612,6 +620,11 @@ impl GeminiChatRequest {
             Some(system_parts.join("\n\n"))
         };
 
+        let stop_sequences = request.stop.as_ref().map(|stop| match stop {
+            godwit_core::Stop::String(s) => vec![s.clone()],
+            godwit_core::Stop::Array(arr) => arr.clone(),
+        });
+
         // Gemini supports native web search via the `googleSearchGrounding` tool. Any
         // native web search tools requested by the client are mapped into that form so
         // they pass through to the provider instead of being silently dropped.
@@ -627,6 +640,10 @@ impl GeminiChatRequest {
             generation_config: GeminiGenerationConfig {
                 max_output_tokens: Some(request.max_tokens.unwrap_or(4096)),
                 temperature: request.temperature,
+                top_p: request.top_p,
+                top_k: request.top_k,
+                stop_sequences,
+                seed: request.seed,
             },
             tools: if has_native_web_search {
                 Some(vec![GeminiTool {
@@ -1965,5 +1982,63 @@ mod tests {
         let key2 = GeminiProvider::create_cache_key(&request2);
         
         assert_eq!(key1, key2);
+    }
+
+    #[tokio::test]
+    async fn chat_sends_generation_config_with_advanced_params() {
+        let server = MockServer::start().await;
+        let captured_body = std::sync::Arc::new(std::sync::Mutex::new(None::<serde_json::Value>));
+        let captured_clone = captured_body.clone();
+
+        Mock::given(method("POST"))
+            .respond_with(move |req: &wiremock::Request| {
+                if let Ok(body) = serde_json::from_slice::<serde_json::Value>(&req.body) {
+                    *captured_clone.lock().unwrap() = Some(body);
+                }
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "candidates": [{
+                        "content": { "role": "model", "parts": [{"text": "Hi"}] }
+                    }],
+                    "usageMetadata": {
+                        "promptTokenCount": 10,
+                        "candidatesTokenCount": 5,
+                        "totalTokenCount": 15
+                    }
+                }))
+            })
+            .mount(&server)
+            .await;
+
+        let client = GeminiProvider::new();
+        let profile = crate::adapter::ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
+        let req = ChatCompletionRequest {
+            model: "gemini-1.5-flash".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: Some(vec![ChatContent::text("Hi")]),
+                name: None,
+                ..Default::default()
+            }],
+            stream: Some(false),
+            temperature: Some(0.7),
+            max_tokens: Some(100),
+            top_p: Some(0.9),
+            top_k: Some(40),
+            stop: Some(godwit_core::Stop::Array(vec!["STOP".to_string()])),
+            seed: Some(42),
+            ..Default::default()
+        };
+        let _ = client.chat(&profile, &dummy_model(), req).await.unwrap();
+
+        let body = captured_body.lock().unwrap().take().expect("request body captured");
+        assert_eq!(body["generationConfig"]["temperature"], 0.7);
+        assert_eq!(body["generationConfig"]["maxOutputTokens"], 100);
+        assert_eq!(body["generationConfig"]["topP"], 0.9);
+        assert_eq!(body["generationConfig"]["topK"], 40);
+        assert_eq!(body["generationConfig"]["stopSequences"], serde_json::json!(["STOP"]));
+        assert_eq!(body["generationConfig"]["seed"], 42);
     }
 }

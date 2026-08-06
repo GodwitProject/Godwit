@@ -21,6 +21,7 @@ struct SpendTagsQuery {
     from: Option<DateTime<Utc>>,
     to: Option<DateTime<Utc>>,
     organization_id: Option<Uuid>,
+    tag: Option<String>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize)]
@@ -35,10 +36,17 @@ struct ApiKeySpend {
     spend_usd: Decimal,
 }
 
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize)]
+struct CustomTagSpend {
+    tag: String,
+    spend_usd: Decimal,
+}
+
 #[derive(Debug, serde::Serialize)]
 struct SpendTagsResponse {
     by_team: Vec<TeamSpend>,
     by_api_key: Vec<ApiKeySpend>,
+    by_custom_tag: Vec<CustomTagSpend>,
 }
 
 /// Applies RBAC scoping: super_admin gets what it asked for,
@@ -105,6 +113,56 @@ async fn fetch_api_key_spend(
     .await
 }
 
+async fn fetch_custom_tag_spend(
+    pool: &sqlx::PgPool,
+    tag: Option<&str>,
+    from: Option<DateTime<Utc>>,
+    to: Option<DateTime<Utc>>,
+    organization_id: Option<Uuid>,
+    user_id: Option<Uuid>,
+) -> Result<Vec<CustomTagSpend>, sqlx::Error> {
+    let query = if tag.is_some() {
+        "SELECT UNNEST(tags) AS tag, COALESCE(SUM(cost_usd), 0) AS spend_usd
+         FROM request_logs
+         WHERE $1 = ANY(tags)
+           AND ($2::timestamptz IS NULL OR created_at >= $2)
+           AND ($3::timestamptz IS NULL OR created_at <= $3)
+           AND ($4::uuid IS NULL OR organization_id = $4)
+           AND ($5::uuid IS NULL OR user_id = $5)
+         GROUP BY tag
+         ORDER BY spend_usd DESC"
+    } else {
+        "SELECT UNNEST(tags) AS tag, COALESCE(SUM(cost_usd), 0) AS spend_usd
+         FROM request_logs
+         WHERE tags IS NOT NULL AND array_length(tags, 1) > 0
+           AND ($1::timestamptz IS NULL OR created_at >= $1)
+           AND ($2::timestamptz IS NULL OR created_at <= $2)
+           AND ($3::uuid IS NULL OR organization_id = $3)
+           AND ($4::uuid IS NULL OR user_id = $4)
+         GROUP BY tag
+         ORDER BY spend_usd DESC"
+    };
+
+    if let Some(t) = tag {
+        sqlx::query_as::<_, CustomTagSpend>(query)
+            .bind(t)
+            .bind(from)
+            .bind(to)
+            .bind(organization_id)
+            .bind(user_id)
+            .fetch_all(pool)
+            .await
+    } else {
+        sqlx::query_as::<_, CustomTagSpend>(query)
+            .bind(from)
+            .bind(to)
+            .bind(organization_id)
+            .bind(user_id)
+            .fetch_all(pool)
+            .await
+    }
+}
+
 async fn get_spend_tags(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
@@ -122,7 +180,18 @@ async fn get_spend_tags(
         .await
         .map_err(|e| ApiError::Core(godwit_core::PasteurError::Database(e.to_string())))?;
     
-    Ok(Json(SpendTagsResponse { by_team, by_api_key }))
+    let by_custom_tag = fetch_custom_tag_spend(
+        &state.pool,
+        query.tag.as_deref(),
+        query.from,
+        query.to,
+        organization_id,
+        user_id,
+    )
+    .await
+    .map_err(|e| ApiError::Core(godwit_core::PasteurError::Database(e.to_string())))?;
+    
+    Ok(Json(SpendTagsResponse { by_team, by_api_key, by_custom_tag }))
 }
 
 #[cfg(test)]

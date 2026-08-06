@@ -196,6 +196,17 @@ async fn check_user_budget(
     .await
 }
 
+async fn check_team_budget(
+    state: &Arc<AppState>,
+    api_key: &ApiKey,
+) -> Result<(), crate::error::ApiError> {
+    if let Some(team_id) = api_key.team_id {
+        rate_limit::check_team_budget(&state.pool, team_id).await
+    } else {
+        Ok(())
+    }
+}
+
 fn default_retry_policy() -> RetryPolicy {
     RetryPolicy::default()
 }
@@ -355,7 +366,7 @@ async fn merge_agentic_tools(
 /// * `web_search` / `google_search` style calls are routed through SearXNG.
 /// * Anything else cannot be resolved here and yields a short explanatory result message so
 ///   the conversation does not deadlock on an unhandled tool call.
-async fn resolve_tool_calls(
+pub(crate) async fn resolve_tool_calls(
     state: &Arc<AppState>,
     tool_calls: &[ToolCall],
 ) -> Vec<ChatMessage> {
@@ -538,6 +549,7 @@ async fn chat_completions(
     let estimated_tokens = rate_limit::estimate_request_tokens(&req);
     check_rate_limit(&state, &api_key, &primary_resolved.model, estimated_tokens).await?;
     check_user_budget(&state, &api_key).await?;
+    check_team_budget(&state, &api_key).await?;
 
     let mut rate_limited_err: Option<crate::error::ApiError> = None;
     let mut last_err: Option<crate::error::ApiError> = None;
@@ -644,6 +656,7 @@ async fn embeddings(
     let estimated_tokens = 1u32;
     check_rate_limit(&state, &api_key, &primary_resolved.model, estimated_tokens).await?;
     check_user_budget(&state, &api_key).await?;
+    check_team_budget(&state, &api_key).await?;
 
     let mut rate_limited_err: Option<crate::error::ApiError> = None;
     let mut last_err: Option<crate::error::ApiError> = None;
@@ -755,6 +768,7 @@ async fn image_generations(
     let estimated_tokens = 1u32;
     check_rate_limit(&state, &api_key, &primary_resolved.model, estimated_tokens).await?;
     check_user_budget(&state, &api_key).await?;
+    check_team_budget(&state, &api_key).await?;
 
     let mut rate_limited_err: Option<crate::error::ApiError> = None;
     let mut last_err: Option<crate::error::ApiError> = None;
@@ -868,6 +882,7 @@ async fn audio_speech(
     let estimated_tokens = 1u32;
     check_rate_limit(&state, &api_key, &primary_resolved.model, estimated_tokens).await?;
     check_user_budget(&state, &api_key).await?;
+    check_team_budget(&state, &api_key).await?;
 
     let mut rate_limited_err: Option<crate::error::ApiError> = None;
     let mut last_err: Option<crate::error::ApiError> = None;
@@ -1020,6 +1035,7 @@ async fn audio_transcriptions(
     let estimated_tokens = 1u32;
     check_rate_limit(&state, &api_key, &primary_resolved.model, estimated_tokens).await?;
     check_user_budget(&state, &api_key).await?;
+    check_team_budget(&state, &api_key).await?;
 
     let req = godwit_core::AudioSttRequest {
         model: model_name.clone(),
@@ -1202,6 +1218,7 @@ async fn image_edits(
     let estimated_tokens = 1u32;
     check_rate_limit(&state, &api_key, &primary_resolved.model, estimated_tokens).await?;
     check_user_budget(&state, &api_key).await?;
+    check_team_budget(&state, &api_key).await?;
 
     let req = godwit_core::ImageEditRequest {
         model: model_name.clone(),

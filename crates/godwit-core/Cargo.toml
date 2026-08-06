@@ -11,3 +11,4 @@ serde_yaml = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
+regex = "1.10"

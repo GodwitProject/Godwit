@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+pub mod pii_masking;
+pub use pii_masking::{PiiMasker, PiiPattern, default_patterns};
+
 #[derive(Debug, Error)]
 pub enum PasteurError {
     #[error("configuration error: {0}")]

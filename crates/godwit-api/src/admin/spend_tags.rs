@@ -240,9 +240,9 @@ mod tests {
              (organization_id, team_id, user_id, model, provider, provider_model_id,
               tokens_in, tokens_out, cost_usd, duration_ms, streamed, status)
              VALUES
-             ($1, $2, $6, 'gpt-4o', 'openai', 'gpt-4o', 100, 50, 1.50, 10, false, 'success'),
-             ($1, $2, $6, 'gpt-4o', 'openai', 'gpt-4o', 200, 100, 2.50, 20, false, 'success'),
-             ($1, $3, $6, 'gpt-4o', 'openai', 'gpt-4o', 300, 150, 3.00, 30, false, 'success')",
+             ($1, $2, $4, 'gpt-4o', 'openai', 'gpt-4o', 100, 50, 1.50, 10, false, 'success'),
+             ($1, $2, $4, 'gpt-4o', 'openai', 'gpt-4o', 200, 100, 2.50, 20, false, 'success'),
+             ($1, $3, $4, 'gpt-4o', 'openai', 'gpt-4o', 300, 150, 3.00, 30, false, 'success')",
         )
         .bind(org)
         .bind(team_a)
@@ -286,12 +286,12 @@ mod tests {
             "INSERT INTO api_keys
              (id, user_id, organization_id, name, key_prefix, key_hash, scopes)
              VALUES
-             ($1, $2, $3, 'key-a', 'prefix-a', 'hash-a', '{proxy:write}'),
-             ($4, $2, $3, 'key-b', 'prefix-b', 'hash-b', '{proxy:write}')",
+             ($1, $3, $2, 'key-a', 'prefix-a', 'hash-a', '{proxy:write}'),
+             ($4, $3, $2, 'key-b', 'prefix-b', 'hash-b', '{proxy:write}')",
         )
         .bind(key_a)
-        .bind(user)
         .bind(org)
+        .bind(user)
         .bind(key_b)
         .execute(&pool)
         .await
@@ -302,9 +302,9 @@ mod tests {
              (organization_id, api_key_id, user_id, model, provider, provider_model_id,
               tokens_in, tokens_out, cost_usd, duration_ms, streamed, status)
              VALUES
-             ($1, $2, $5, 'gpt-4o', 'openai', 'gpt-4o', 100, 50, 1.00, 10, false, 'success'),
-             ($1, $2, $5, 'gpt-4o', 'openai', 'gpt-4o', 200, 100, 2.00, 20, false, 'success'),
-             ($1, $3, $5, 'gpt-4o', 'openai', 'gpt-4o', 300, 150, 3.00, 30, false, 'success')",
+             ($1, $2, $4, 'gpt-4o', 'openai', 'gpt-4o', 100, 50, 1.00, 10, false, 'success'),
+             ($1, $2, $4, 'gpt-4o', 'openai', 'gpt-4o', 200, 100, 2.00, 20, false, 'success'),
+             ($1, $3, $4, 'gpt-4o', 'openai', 'gpt-4o', 300, 150, 3.00, 30, false, 'success')",
         )
         .bind(org)
         .bind(key_a)

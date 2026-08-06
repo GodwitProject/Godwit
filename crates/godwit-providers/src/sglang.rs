@@ -1,7 +1,7 @@
 use crate::adapter::{
     Adapter, ProviderError, ProviderResponse, ResolvedProfile, SseEvent, UsageReport,
 };
-use crate::streaming::parse_sse_events;
+use crate::streaming::{normalize_openai_sse_event, parse_sse_events};
 use async_trait::async_trait;
 use futures::stream::{self, BoxStream, StreamExt};
 use godwit_core::{
@@ -49,6 +49,7 @@ impl Adapter for SglangProvider {
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
         // Translate the catalog/wildcard-resolved public id into the upstream model id.
         request.model = model.provider_model_id.clone();
+        crate::web_search::strip_native_web_search_from_request(&mut request);
         let url = format!("{}/chat/completions", profile.base_url);
         let mut req = self.client.post(&url).json(&request);
         if let Some(key) = &profile.api_key {
@@ -70,7 +71,8 @@ impl Adapter for SglangProvider {
             .json()
             .await
             .map_err(|e| ProviderError::Serialization(e.to_string()))?;
-        Ok((ProviderResponse::Chat(body), UsageReport::default()))
+        let usage = crate::usage::chat_usage_report(&body.usage);
+        Ok((ProviderResponse::Chat(body), usage))
     }
 
     async fn chat_stream(
@@ -82,6 +84,7 @@ impl Adapter for SglangProvider {
         request.stream = Some(true);
         // Translate the catalog/wildcard-resolved public id into the upstream model id.
         request.model = model.provider_model_id.clone();
+        crate::web_search::strip_native_web_search_from_request(&mut request);
         let url = format!("{}/chat/completions", profile.base_url);
         let mut req = self.client.post(&url).json(&request);
         if let Some(key) = &profile.api_key {
@@ -102,7 +105,12 @@ impl Adapter for SglangProvider {
             let text = bytes
                 .map(|b| String::from_utf8_lossy(&b).to_string())
                 .unwrap_or_default();
-            stream::iter(parse_sse_events(&text).into_iter().map(Ok))
+            let raw_events = parse_sse_events(&text);
+            let normalized: Vec<Result<SseEvent, ProviderError>> = raw_events
+                .into_iter()
+                .flat_map(normalize_openai_sse_event)
+                .collect();
+            stream::iter(normalized)
         });
         Ok(event_stream.boxed())
     }
@@ -209,7 +217,7 @@ impl Adapter for SglangProvider {
 mod tests {
     use super::*;
     use chrono::Utc;
-    use godwit_core::ChatMessage;
+    use godwit_core::{ChatContent, ChatMessage};
     use uuid::Uuid;
     use wiremock::{matchers::*, Mock, MockServer, ResponseTemplate};
 
@@ -255,17 +263,20 @@ mod tests {
             model: "llama-3-70b".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: "Hi".to_string(),
+                content: ChatContent::text("Hi"),
+                name: None,
+                ..Default::default()
             }],
             stream: Some(false),
             temperature: None,
             max_tokens: None,
+            ..Default::default()
         };
         let (resp, _usage) = client.chat(&profile, &dummy_model(), req).await.unwrap();
         let ProviderResponse::Chat(completion) = resp else {
             panic!("expected chat response")
         };
-        assert_eq!(completion.choices[0].message.content, "Hi there");
+        assert_eq!(completion.choices[0].message.content.as_text(), Some("Hi there".to_string()));
 
         // Verify no Authorization header was sent (since api_key is None)
         let received = server

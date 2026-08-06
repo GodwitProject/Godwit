@@ -10,14 +10,10 @@ use godwit_db::models::Model;
 use godwit_providers::UsageReport;
 use rust_decimal::Decimal;
 use serde::Deserialize;
-use std::str::FromStr;
 use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::{error::ApiError, state::AppState};
-
-const PRICING_INPUT_PER_1K: &str = "input_per_1k";
-const PRICING_OUTPUT_PER_1K: &str = "output_per_1k";
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new().route("/spend", get(get_spend))
@@ -165,31 +161,7 @@ async fn fetch_daily_spend_rows(
 }
 
 pub fn compute_cost(model: &Model, capability: Capability, usage: &UsageReport) -> Option<Decimal> {
-    let pricing = model.pricing.as_object()?;
-    match capability {
-        Capability::Chat => {
-            let input_price = pricing.get(PRICING_INPUT_PER_1K)?;
-            let output_price = pricing.get(PRICING_OUTPUT_PER_1K)?;
-            let input_rate = Decimal::from_str(input_price.as_str()?)
-                .inspect_err(|e| tracing::warn!(%e, "malformed input_per_1k pricing"))
-                .ok()?;
-            let output_rate = Decimal::from_str(output_price.as_str()?)
-                .inspect_err(|e| tracing::warn!(%e, "malformed output_per_1k pricing"))
-                .ok()?;
-            let input =
-                Decimal::from(usage.prompt_tokens.unwrap_or(0)) * input_rate / Decimal::from(1000);
-            let output = Decimal::from(usage.completion_tokens.unwrap_or(0)) * output_rate
-                / Decimal::from(1000);
-            Some(input + output)
-        }
-        _ => {
-            tracing::warn!(
-                capability = %capability,
-                "cost computation not supported for capability"
-            );
-            None
-        }
-    }
+    godwit_providers::usage::compute_cost(&model.pricing, capability, usage)
 }
 
 #[cfg(test)]
@@ -207,8 +179,8 @@ mod tests {
             provider_model_id: "gpt-4o".to_string(),
             capabilities: vec!["chat".to_string()],
             pricing: serde_json::json!({
-                "input_per_1k": "0.005",
-                "output_per_1k": "0.015"
+                "input_price_per_million": 5.0,
+                "output_price_per_million": 15.0
             }),
             config: serde_json::json!({}),
             created_at: chrono::Utc::now(),
@@ -238,6 +210,7 @@ mod tests {
         let requested = SpendQuery {
             from: None,
             to: None,
+            days: None,
             organization_id: Some(uuid::Uuid::new_v4()), // attempt to look at a different org
             team_id: None,
             user_id: None,
@@ -252,6 +225,7 @@ mod tests {
         let requested = SpendQuery {
             from: None,
             to: None,
+            days: None,
             organization_id: Some(uuid::Uuid::new_v4()),
             team_id: Some(uuid::Uuid::new_v4()),
             user_id: Some(uuid::Uuid::new_v4()), // attempt to look at someone else's usage
@@ -266,7 +240,7 @@ mod tests {
     fn spend_scope_leaves_super_admin_unscoped() {
         let claims = godwit_auth::jwt::Claims::new(uuid::Uuid::new_v4(), uuid::Uuid::new_v4(), "super_admin");
         let org_id = uuid::Uuid::new_v4();
-        let requested = SpendQuery { from: None, to: None, organization_id: Some(org_id), team_id: None, user_id: None };
+        let requested = SpendQuery { from: None, to: None, days: None, organization_id: Some(org_id), team_id: None, user_id: None };
         let scoped = scope_spend_query(&claims, requested);
         assert_eq!(scoped.0, Some(org_id));
     }

@@ -1,22 +1,7 @@
 'use server'
 
 import { apiCall } from '@/lib/api-client'
-
-interface ApiKey {
-  id: string
-  user_id: string
-  team_id: string | null
-  organization_id: string
-  name: string
-  key_prefix: string
-  scopes: string[]
-  budget_limit_usd: string | null
-  budget_spent_usd: string
-  rate_limit_requests_per_minute: number | null
-  expires_at: string | null
-  disabled: boolean
-  created_at: string
-}
+import { ApiKey, Model } from '@/lib/types'
 
 export async function listApiKeys(): Promise<ApiKey[]> {
   const response = await apiCall('/api/v1/api-keys')
@@ -32,9 +17,17 @@ export async function getApiKey(id: string): Promise<ApiKey | null> {
   return data.data
 }
 
+export async function listModels(): Promise<Model[]> {
+  const response = await apiCall('/api/v1/models')
+  if (!response.ok) return []
+  const data = await response.json()
+  return data.data || []
+}
+
 export async function createApiKey(
   name: string,
-  scopesCsv: string
+  scopesCsv: string,
+  allowedModels: string[]
 ): Promise<{ success: boolean; apiKey?: string; name?: string; error?: string }> {
   try {
     const scopes = scopesCsv
@@ -44,7 +37,7 @@ export async function createApiKey(
 
     const response = await apiCall('/api/v1/api-keys', {
       method: 'POST',
-      body: JSON.stringify({ name, scopes }),
+      body: JSON.stringify({ name, scopes, allowed_models: allowedModels }),
     })
 
     if (!response.ok) {

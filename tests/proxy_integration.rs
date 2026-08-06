@@ -1,4 +1,4 @@
-use godwit_core::{ChatCompletionRequest, ChatMessage};
+use godwit_core::{ChatCompletionRequest, ChatContent, ChatMessage};
 use reqwest::Client;
 
 #[tokio::test]
@@ -12,11 +12,14 @@ async fn proxy_chat_completion_smoke() {
             model: "gpt-4o".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: "Hi".to_string(),
+                content: ChatContent::text("Hi"),
+                name: None,
+                ..Default::default()
             }],
             stream: Some(false),
             temperature: None,
             max_tokens: None,
+            ..Default::default()
         })
         .send()
         .await

@@ -90,7 +90,7 @@ mod tests {
             .await
             .expect("create org");
         let team = TeamRepository::new(pool.clone())
-            .create(org.id, "engineering")
+            .create(org.id, "engineering", None, None)
             .await
             .expect("create team");
         let user = UserRepository::new(pool.clone())

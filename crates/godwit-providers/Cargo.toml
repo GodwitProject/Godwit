@@ -17,11 +17,13 @@ chrono = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
+rust_decimal = { version = "1.35", features = ["serde"] }
 
 [dev-dependencies]
 wiremock = "0.6"
 criterion = { workspace = true }
 uuid = { workspace = true }
+rust_decimal_macros = "1.35"
 
 [[bench]]
 name = "proxy_latency"

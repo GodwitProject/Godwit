@@ -1,7 +1,7 @@
 use crate::adapter::{
     Adapter, ProviderError, ProviderResponse, ResolvedProfile, SseEvent, UsageReport,
 };
-use crate::streaming::parse_sse_events;
+use crate::streaming::{normalize_openai_sse_event, parse_sse_events};
 use async_trait::async_trait;
 use futures::stream::{self, BoxStream, StreamExt};
 use godwit_core::{
@@ -49,6 +49,7 @@ impl Adapter for VllmProvider {
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
         // Translate the catalog/wildcard-resolved public id into the upstream model id.
         request.model = model.provider_model_id.clone();
+        crate::web_search::strip_native_web_search_from_request(&mut request);
         let url = format!("{}/chat/completions", profile.base_url);
         let mut req = self.client.post(&url).json(&request);
         if let Some(key) = &profile.api_key {
@@ -70,7 +71,8 @@ impl Adapter for VllmProvider {
             .json()
             .await
             .map_err(|e| ProviderError::Serialization(e.to_string()))?;
-        Ok((ProviderResponse::Chat(body), UsageReport::default()))
+        let usage = crate::usage::chat_usage_report(&body.usage);
+        Ok((ProviderResponse::Chat(body), usage))
     }
 
     async fn chat_stream(
@@ -82,6 +84,7 @@ impl Adapter for VllmProvider {
         request.stream = Some(true);
         // Translate the catalog/wildcard-resolved public id into the upstream model id.
         request.model = model.provider_model_id.clone();
+        crate::web_search::strip_native_web_search_from_request(&mut request);
         let url = format!("{}/chat/completions", profile.base_url);
         let mut req = self.client.post(&url).json(&request);
         if let Some(key) = &profile.api_key {
@@ -102,7 +105,12 @@ impl Adapter for VllmProvider {
             let text = bytes
                 .map(|b| String::from_utf8_lossy(&b).to_string())
                 .unwrap_or_default();
-            stream::iter(parse_sse_events(&text).into_iter().map(Ok))
+            let raw_events = parse_sse_events(&text);
+            let normalized: Vec<Result<SseEvent, ProviderError>> = raw_events
+                .into_iter()
+                .flat_map(normalize_openai_sse_event)
+                .collect();
+            stream::iter(normalized)
         });
         Ok(event_stream.boxed())
     }
@@ -209,7 +217,7 @@ impl Adapter for VllmProvider {
 mod tests {
     use super::*;
     use chrono::Utc;
-    use godwit_core::ChatMessage;
+    use godwit_core::{ChatContent, ChatMessage};
     use uuid::Uuid;
     use wiremock::{matchers::*, Mock, MockServer, ResponseTemplate};
 
@@ -255,17 +263,20 @@ mod tests {
             model: "llama-3-70b".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: "Hi".to_string(),
+                content: ChatContent::text("Hi"),
+                name: None,
+                ..Default::default()
             }],
             stream: Some(false),
             temperature: None,
             max_tokens: None,
+            ..Default::default()
         };
         let (resp, _usage) = client.chat(&profile, &dummy_model(), req).await.unwrap();
         let ProviderResponse::Chat(completion) = resp else {
             panic!("expected chat response")
         };
-        assert_eq!(completion.choices[0].message.content, "Hi there");
+        assert_eq!(completion.choices[0].message.content.as_text(), Some("Hi there".to_string()));
 
         // Verify no Authorization header was sent (since api_key is None)
         let received = server
@@ -278,6 +289,67 @@ mod tests {
             "expected no Authorization header when api_key is None, got: {:?}",
             received[0].headers.get("authorization")
         );
+    }
+
+    #[tokio::test]
+    async fn chat_strips_unsupported_web_search_tools() {
+        use godwit_core::{FunctionDefinition, Tool};
+        let server = MockServer::start().await;
+        let captured_body = std::sync::Arc::new(std::sync::Mutex::new(None::<serde_json::Value>));
+        let captured_clone = captured_body.clone();
+
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(move |req: &wiremock::Request| {
+                if let Ok(body) = serde_json::from_slice::<serde_json::Value>(&req.body) {
+                    *captured_clone.lock().unwrap() = Some(body);
+                }
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "id": "chatcmpl-1", "object": "chat.completion", "created": 1,
+                    "model": "meta-llama/Llama-3-70B-Instruct",
+                    "choices": [{"index":0,"message":{"role":"assistant","content":"Hi"},"finish_reason":"stop"}],
+                    "usage": {"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
+                }))
+            })
+            .mount(&server)
+            .await;
+
+        let client = VllmAdapter::new();
+        let profile = dummy_profile(server.uri());
+        let req = ChatCompletionRequest {
+            model: "llama-3-70b".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: ChatContent::text("Hi"),
+                name: None,
+                ..Default::default()
+            }],
+            tools: Some(vec![
+                Tool {
+                    r#type: "function".to_string(),
+                    function: FunctionDefinition {
+                        name: "get_weather".to_string(),
+                        description: None,
+                        parameters: None,
+                    },
+                },
+                Tool {
+                    r#type: "function".to_string(),
+                    function: FunctionDefinition {
+                        name: "web_search".to_string(),
+                        description: None,
+                        parameters: None,
+                    },
+                },
+            ]),
+            ..Default::default()
+        };
+        let _ = client.chat(&profile, &dummy_model(), req).await.unwrap();
+
+        let body = captured_body.lock().unwrap().take().expect("request body captured");
+        let tools = body["tools"].as_array().expect("tools present");
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0]["function"]["name"], "get_weather");
     }
 
     /// Regression guard for wildcard passthrough: `model_router` synthesises a `Model`
@@ -317,11 +389,14 @@ mod tests {
             model: "local/meta-llama/Llama-3-70B-Instruct".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: "Hi".to_string(),
+                content: ChatContent::text("Hi"),
+                name: None,
+                ..Default::default()
             }],
             stream: Some(false),
             temperature: None,
             max_tokens: None,
+            ..Default::default()
         };
         let _ = client.chat(&profile, &model, req).await.unwrap();
 

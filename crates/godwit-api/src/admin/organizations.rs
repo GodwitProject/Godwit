@@ -47,6 +47,7 @@ async fn list_organizations(
 pub struct CreateOrganizationRequest {
     name: String,
     rate_limit_requests_per_minute: Option<i32>,
+    rate_limit_tokens_per_minute: Option<i32>,
 }
 
 async fn create_organization(
@@ -57,7 +58,11 @@ async fn create_organization(
     require_super_admin(&claims)?;
     let org = state
         .org_repo
-        .create(&req.name, req.rate_limit_requests_per_minute)
+        .create_with_limits(
+            &req.name,
+            req.rate_limit_requests_per_minute,
+            req.rate_limit_tokens_per_minute,
+        )
         .await
         .map_err(ApiError::Core)?;
     Ok(Json(serde_json::json!({ "data": org })))
@@ -67,6 +72,7 @@ async fn create_organization(
 pub struct UpdateOrganizationRequest {
     name: Option<String>,
     rate_limit_requests_per_minute: Option<i32>,
+    rate_limit_tokens_per_minute: Option<i32>,
 }
 
 async fn update_organization(
@@ -78,7 +84,12 @@ async fn update_organization(
     require_super_admin(&claims)?;
     let org = state
         .org_repo
-        .update(id, req.name.as_deref(), req.rate_limit_requests_per_minute)
+        .update_with_limits(
+            id,
+            req.name.as_deref(),
+            req.rate_limit_requests_per_minute,
+            req.rate_limit_tokens_per_minute,
+        )
         .await
         .map_err(ApiError::Core)?;
     Ok(Json(serde_json::json!({ "data": org })))

@@ -5,23 +5,8 @@ import { useRouter } from 'next/navigation'
 import { ListPage } from '@/components/admin/list-page'
 import { FormDialog } from '@/components/ui/form-dialog'
 import { ColumnDef } from '@tanstack/react-table'
-import { createApiKey, listApiKeys } from './actions'
-
-interface ApiKey {
-  id: string
-  user_id: string
-  team_id: string | null
-  organization_id: string
-  name: string
-  key_prefix: string
-  scopes: string[]
-  budget_limit_usd: string | null
-  budget_spent_usd: string
-  rate_limit_requests_per_minute: number | null
-  expires_at: string | null
-  disabled: boolean
-  created_at: string
-}
+import { ApiKey, Model } from '@/lib/types'
+import { createApiKey, listApiKeys, listModels } from './actions'
 
 const columns: ColumnDef<ApiKey>[] = [
   {
@@ -38,6 +23,14 @@ const columns: ColumnDef<ApiKey>[] = [
     cell: (info) => (info.row.original.scopes || []).join(', '),
   },
   {
+    id: 'allowed_models',
+    header: 'Allowed Models',
+    cell: (info) => {
+      const models = info.row.original.allowed_models || []
+      return models.length === 0 ? 'All models' : models.join(', ')
+    },
+  },
+  {
     accessorKey: 'created_at',
     header: 'Created',
     cell: (info) => new Date(info.getValue() as string).toLocaleDateString(),
@@ -47,6 +40,7 @@ const columns: ColumnDef<ApiKey>[] = [
 export default function ApiKeysPage() {
   const router = useRouter()
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([])
+  const [models, setModels] = useState<Model[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
 
@@ -62,12 +56,21 @@ export default function ApiKeysPage() {
 
   useEffect(() => {
     fetchApiKeys()
+    const fetchModels = async () => {
+      try {
+        setModels(await listModels())
+      } catch (err) {
+        console.error('Failed to fetch models:', err)
+      }
+    }
+    fetchModels()
   }, [])
 
   const handleCreateSubmit = async (formData: FormData) => {
     const name = formData.get('name') as string
     const scopes = formData.get('scopes') as string
-    const result = await createApiKey(name, scopes)
+    const allowedModels = formData.getAll('allowed_models') as string[]
+    const result = await createApiKey(name, scopes, allowedModels)
 
     if (result.success && result.apiKey) {
       setIsCreateDialogOpen(false)
@@ -119,6 +122,25 @@ export default function ApiKeysPage() {
             required
             className="mt-1 w-full rounded border border-gray-300 px-3 py-2"
           />
+        </div>
+        <div>
+          <label htmlFor="allowed_models" className="block text-sm font-medium text-gray-700">
+            Allowed Models
+          </label>
+          <select
+            id="allowed_models"
+            name="allowed_models"
+            multiple
+            className="mt-1 w-full rounded border border-gray-300 px-3 py-2"
+            size={Math.min(6, Math.max(3, models.length))}
+          >
+            {models.map((model) => (
+              <option key={model.id} value={model.public_id}>
+                {model.public_id}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-gray-500">Hold Ctrl/Cmd to select multiple models. Leave empty to allow all models.</p>
         </div>
       </FormDialog>
     </>

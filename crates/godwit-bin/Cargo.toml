@@ -15,6 +15,7 @@ godwit-auth = { path = "../godwit-auth" }
 godwit-providers = { path = "../godwit-providers" }
 godwit-cache = { path = "../godwit-cache" }
 godwit-api = { path = "../godwit-api" }
+godwit-mcp = { path = "../godwit-mcp" }
 axum = "0.7"
 tokio = { workspace = true }
 tracing = { workspace = true }

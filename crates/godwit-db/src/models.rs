@@ -8,6 +8,7 @@ pub struct Organization {
     pub id: Uuid,
     pub name: String,
     pub rate_limit_requests_per_minute: Option<i32>,
+    pub rate_limit_tokens_per_minute: Option<i32>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -70,9 +71,11 @@ pub struct ApiKey {
     #[serde(skip_serializing)]
     pub key_hash: String,
     pub scopes: Vec<String>,
+    pub allowed_models: Vec<String>,
     pub budget_limit_usd: Option<rust_decimal::Decimal>,
     pub budget_spent_usd: rust_decimal::Decimal,
     pub rate_limit_requests_per_minute: Option<i32>,
+    pub rate_limit_tokens_per_minute: Option<i32>,
     pub expires_at: Option<DateTime<Utc>>,
     pub disabled: bool,
     pub created_at: DateTime<Utc>,
@@ -117,6 +120,8 @@ pub struct Team {
     pub id: Uuid,
     pub organization_id: Uuid,
     pub name: String,
+    pub budget_usd: Option<rust_decimal::Decimal>,
+    pub max_budget_usd: Option<rust_decimal::Decimal>,
     pub created_at: DateTime<Utc>,
 }
 

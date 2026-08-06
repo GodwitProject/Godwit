@@ -17,7 +17,7 @@ use axum::{
     http::{Request, StatusCode},
     middleware, Router,
 };
-use godwit_api::{admin, model_router::DbModelRouter, proxy, state::AppState};
+use godwit_api::{admin, anthropic_proxy, model_router::DbModelRouter, proxy, rate_limit::RateLimiter, state::AppState};
 use godwit_cache::MemoryCache;
 use godwit_core::{AppConfig, AuthConfig, DatabaseConfig, Protocol, ServerConfig};
 use godwit_db::models::UserRole;
@@ -26,6 +26,7 @@ use godwit_db::repositories::{
     provider_profiles::ProviderProfileRepository, refresh_tokens::RefreshTokenRepository,
     team_memberships::TeamMembershipRepository, teams::TeamRepository, users::UserRepository,
 };
+use godwit_mcp::McpRegistry;
 use godwit_providers::{
     anthropic::AnthropicAdapter, gemini::GeminiAdapter, llama_cpp::LlamaCppAdapter,
     ollama::OllamaAdapter, openai::OpenAiAdapter, sglang::SglangAdapter, vllm::VllmAdapter,
@@ -60,6 +61,7 @@ fn test_config() -> AppConfig {
             oidc_providers: vec![],
             saml_providers: vec![],
         },
+        agentic: godwit_core::AgenticConfig::default(),
     }
 }
 
@@ -85,6 +87,9 @@ fn build_app(pool: PgPool) -> Router {
         pool: pool.clone(),
         adapter_registry: registry.clone(),
         model_router: DbModelRouter::new(pool.clone(), registry, MASTER_KEY),
+        mcp: Arc::new(McpRegistry::new()),
+        searxng: None,
+        searxng_profile: None,
         user_repo: UserRepository::new(pool.clone()),
         org_repo: OrganizationRepository::new(pool.clone()),
         team_repo: TeamRepository::new(pool.clone()),
@@ -93,10 +98,12 @@ fn build_app(pool: PgPool) -> Router {
         refresh_token_repo: RefreshTokenRepository::new(pool.clone()),
         api_key_cache: MemoryCache::new(),
         credential_master_key: MASTER_KEY,
+        rate_limiter: RateLimiter::new(),
     });
 
     Router::new()
         .merge(proxy::router())
+        .merge(anthropic_proxy::router())
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             godwit_api::middleware::api_key_auth,
@@ -107,6 +114,11 @@ fn build_app(pool: PgPool) -> Router {
 
 /// Creates an organization, a user, and a usable proxy API key; returns the plaintext key.
 async fn seed_api_key(pool: &PgPool) -> String {
+    seed_api_key_with_models(pool, &[]).await
+}
+
+/// Creates an organization, a user, and a proxy API key scoped to the given model list.
+async fn seed_api_key_with_models(pool: &PgPool, allowed_models: &[String]) -> String {
     let org = OrganizationRepository::new(pool.clone())
         .create("test-org", None)
         .await
@@ -125,6 +137,8 @@ async fn seed_api_key(pool: &PgPool) -> String {
             &prefix,
             &hash,
             &["chat".to_string()],
+            allowed_models,
+            None,
             None,
             None,
         )
@@ -370,6 +384,107 @@ async fn keyless_self_hosted_profile_serves_chat_without_auth_header(pool: PgPoo
 }
 
 // ---------------------------------------------------------------------------------------
+// Task 2.1: Anthropic-native /v1/messages proxy.
+// ---------------------------------------------------------------------------------------
+
+/// An Anthropic-shaped request to `/v1/messages` must be translated into the OpenAI-compatible
+/// upstream format, resolve the catalog model to its upstream id, and return an
+/// Anthropic-shaped response.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn anthropic_messages_translates_to_openai_upstream(pool: PgPool) {
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "chatcmpl-anthropic",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "gpt-4o-mini-2024-07-18",
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": "Hello from OpenAI"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        })))
+        .mount(&upstream)
+        .await;
+
+    let profiles = ProviderProfileRepository::new(pool.clone());
+    let profile = profiles
+        .create("openai", "openai", Some(&upstream.uri()), false)
+        .await
+        .expect("create profile");
+    let secret = godwit_auth::credentials::encrypt_api_key(&MASTER_KEY, "sk-upstream");
+    profiles
+        .set_auth(profile.id, &secret)
+        .await
+        .expect("set auth");
+    ModelRepository::new(pool.clone())
+        .create("claude-sonnet", "openai", profile.id, "gpt-4o-mini-2024-07-18", "chat")
+        .await
+        .expect("create model");
+
+    let api_key = seed_api_key(&pool).await;
+    let app = build_app(pool);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/messages")
+                .header("Authorization", format!("Bearer {api_key}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "model": "claude-sonnet",
+                        "max_tokens": 1024,
+                        "messages": [{"role": "user", "content": "Hi"}],
+                        "system": "You are a helpful assistant.",
+                        "temperature": 0.5,
+                        "top_p": 0.9,
+                        "stop_sequences": ["STOP"]
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+
+    let status = response.status();
+    let body = body_json(response).await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+    assert_eq!(body["type"], "message");
+    assert_eq!(body["role"], "assistant");
+    assert_eq!(body["content"][0]["type"], "text");
+    assert_eq!(body["content"][0]["text"], "Hello from OpenAI");
+    assert_eq!(body["stop_reason"], "end_turn");
+    assert_eq!(body["usage"]["input_tokens"], 10);
+    assert_eq!(body["usage"]["output_tokens"], 5);
+
+    let received = upstream
+        .received_requests()
+        .await
+        .expect("request recording enabled");
+    assert_eq!(received.len(), 1);
+    let upstream_body: serde_json::Value =
+        serde_json::from_slice(&received[0].body).expect("upstream body is JSON");
+    assert_eq!(upstream_body["model"], "gpt-4o-mini-2024-07-18");
+    assert_ne!(upstream_body["model"], "claude-sonnet");
+    let messages = upstream_body["messages"].as_array().expect("messages array");
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0]["role"], "system");
+    assert_eq!(messages[0]["content"], "You are a helpful assistant.");
+    assert_eq!(messages[1]["role"], "user");
+    assert_eq!(messages[1]["content"], "Hi");
+    assert_eq!(upstream_body["max_tokens"], 1024);
+    assert_eq!(upstream_body["temperature"], 0.5);
+    assert_eq!(upstream_body["top_p"], 0.9);
+    assert_eq!(upstream_body["stop"], serde_json::json!(["STOP"]));
+}
+
+// ---------------------------------------------------------------------------------------
 // 2. Admin model creation for a non-openai/anthropic protocol.
 // ---------------------------------------------------------------------------------------
 
@@ -588,11 +703,11 @@ async fn super_admin_lists_all_teams_or_scopes_by_organization_id(pool: PgPool) 
 
     let teams = TeamRepository::new(pool.clone());
     let team_a = teams
-        .create(org_a.id, "team-a")
+        .create(org_a.id, "team-a", None, None)
         .await
         .expect("create team a");
     let team_b = teams
-        .create(org_b.id, "team-b")
+        .create(org_b.id, "team-b", None, None)
         .await
         .expect("create team b");
 
@@ -663,11 +778,11 @@ async fn org_admin_cannot_use_organization_id_to_see_another_orgs_teams(pool: Pg
 
     let teams = TeamRepository::new(pool.clone());
     let team_a = teams
-        .create(org_a.id, "team-a")
+        .create(org_a.id, "team-a", None, None)
         .await
         .expect("create team a");
     teams
-        .create(org_b.id, "team-b")
+        .create(org_b.id, "team-b", None, None)
         .await
         .expect("create team b");
 
@@ -709,7 +824,7 @@ async fn org_admin_cannot_rename_a_team_in_another_org(pool: PgPool) {
 
     let teams = TeamRepository::new(pool.clone());
     let team_b = teams
-        .create(org_b.id, "team-b")
+        .create(org_b.id, "team-b", None, None)
         .await
         .expect("create team b");
 
@@ -1375,7 +1490,7 @@ async fn team_admin_can_manage_own_team_members(pool: PgPool) {
         .await
         .expect("create org");
     let team_a = TeamRepository::new(pool.clone())
-        .create(org.id, "team-a")
+        .create(org.id, "team-a", None, None)
         .await
         .expect("create team a");
 
@@ -1459,8 +1574,8 @@ async fn team_admin_of_one_team_cannot_manage_another_teams_members(pool: PgPool
         .await
         .expect("create org");
     let teams = TeamRepository::new(pool.clone());
-    let team_a = teams.create(org.id, "team-a").await.expect("create team a");
-    let team_b = teams.create(org.id, "team-b").await.expect("create team b");
+    let team_a = teams.create(org.id, "team-a", None, None).await.expect("create team a");
+    let team_b = teams.create(org.id, "team-b", None, None).await.expect("create team b");
 
     let users = UserRepository::new(pool.clone());
     let admin_user = users
@@ -1545,7 +1660,7 @@ async fn org_admin_can_manage_any_teams_members_in_its_own_org(pool: PgPool) {
         .await
         .expect("create org");
     let team = TeamRepository::new(pool.clone())
-        .create(org.id, "engineering")
+        .create(org.id, "team-a", None, None)
         .await
         .expect("create team");
     let target_user = UserRepository::new(pool.clone())
@@ -1592,7 +1707,7 @@ async fn plain_user_without_any_team_admin_membership_is_forbidden(pool: PgPool)
         .await
         .expect("create org");
     let team = TeamRepository::new(pool.clone())
-        .create(org.id, "engineering")
+        .create(org.id, "team-a", None, None)
         .await
         .expect("create team");
     let target_user = UserRepository::new(pool.clone())
@@ -1639,7 +1754,7 @@ async fn add_member_rejects_invalid_role_before_hitting_the_database(pool: PgPoo
         .await
         .expect("create org");
     let team = TeamRepository::new(pool.clone())
-        .create(org.id, "engineering")
+        .create(org.id, "team-a", None, None)
         .await
         .expect("create team");
     let target_user = UserRepository::new(pool.clone())
@@ -2095,11 +2210,11 @@ async fn team_admin_cannot_manage_a_team_they_do_not_administer(pool: PgPool) {
         .await
         .expect("create org");
     let team_a = godwit_db::repositories::teams::TeamRepository::new(pool.clone())
-        .create(org.id, "team-a")
+        .create(org.id, "team-a", None, None)
         .await
         .expect("create team a");
     let team_b = godwit_db::repositories::teams::TeamRepository::new(pool.clone())
-        .create(org.id, "team-b")
+        .create(org.id, "team-a", None, None)
         .await
         .expect("create team b");
 
@@ -2492,7 +2607,7 @@ async fn reassigning_a_users_organization_clears_its_team_memberships(pool: PgPo
         .await
         .expect("create org b");
     let team_a = godwit_db::repositories::teams::TeamRepository::new(pool.clone())
-        .create(org_a.id, "team-a")
+        .create(org_a.id, "team-a", None, None)
         .await
         .expect("create team a");
     let user = UserRepository::new(pool.clone())
@@ -2537,6 +2652,226 @@ async fn reassigning_a_users_organization_clears_its_team_memberships(pool: PgPo
     assert_eq!(moved.organization_id, Some(org_b.id));
 }
 
+// ---------------------------------------------------------------------------------------
+// Task 2.3: API key model scope enforcement in the proxy middleware.
+// ---------------------------------------------------------------------------------------
+
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn empty_allowed_models_allows_any_chat_model(pool: PgPool) {
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "chatcmpl-scope",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "anything-goes",
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": "Ok"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+        })))
+        .mount(&upstream)
+        .await;
+
+    let profiles = ProviderProfileRepository::new(pool.clone());
+    let profile = profiles
+        .create("upstream", "openai", Some(&upstream.uri()), true)
+        .await
+        .expect("create wildcard profile");
+    let secret = godwit_auth::credentials::encrypt_api_key(&MASTER_KEY, "sk-upstream");
+    profiles
+        .set_auth(profile.id, &secret)
+        .await
+        .expect("set auth");
+
+    let api_key = seed_api_key(&pool).await;
+    let app = build_app(pool);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("Authorization", format!("Bearer {api_key}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "model": "upstream/arbitrary-model",
+                        "messages": [{"role": "user", "content": "Hi"}],
+                        "stream": false
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+
+    let status = response.status();
+    let body = body_json(response).await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+}
+
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn non_empty_allowed_models_blocks_disallowed_chat_model(pool: PgPool) {
+    let api_key = seed_api_key_with_models(&pool, &["allowed-model".to_string()]).await;
+    let app = build_app(pool);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("Authorization", format!("Bearer {api_key}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "model": "disallowed-model",
+                        "messages": [{"role": "user", "content": "Hi"}]
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "a model outside the API key's allowed_models must be rejected before routing"
+    );
+}
+
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn non_empty_allowed_models_allows_allowed_chat_model(pool: PgPool) {
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "chatcmpl-scope",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "allowed-model",
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": "Ok"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+        })))
+        .mount(&upstream)
+        .await;
+
+    let profiles = ProviderProfileRepository::new(pool.clone());
+    let profile = profiles
+        .create("openai", "openai", Some(&upstream.uri()), false)
+        .await
+        .expect("create profile");
+    let secret = godwit_auth::credentials::encrypt_api_key(&MASTER_KEY, "sk-upstream");
+    profiles
+        .set_auth(profile.id, &secret)
+        .await
+        .expect("set auth");
+    ModelRepository::new(pool.clone())
+        .create("allowed-model", "openai", profile.id, "gpt-4o-mini-2024-07-18", "chat")
+        .await
+        .expect("create model");
+
+    let api_key = seed_api_key_with_models(&pool, &["allowed-model".to_string()]).await;
+    let app = build_app(pool);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/chat/completions")
+                .header("Authorization", format!("Bearer {api_key}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "model": "allowed-model",
+                        "messages": [{"role": "user", "content": "Hi"}],
+                        "stream": false
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+
+    let status = response.status();
+    let body = body_json(response).await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+}
+
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn anthropic_messages_route_respects_model_scope(pool: PgPool) {
+    let upstream = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "chatcmpl-anthropic-scope",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "gpt-4o-mini-2024-07-18",
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": "Hello from OpenAI"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+        })))
+        .mount(&upstream)
+        .await;
+
+    let profiles = ProviderProfileRepository::new(pool.clone());
+    let profile = profiles
+        .create("openai", "openai", Some(&upstream.uri()), false)
+        .await
+        .expect("create profile");
+    let secret = godwit_auth::credentials::encrypt_api_key(&MASTER_KEY, "sk-upstream");
+    profiles
+        .set_auth(profile.id, &secret)
+        .await
+        .expect("set auth");
+    ModelRepository::new(pool.clone())
+        .create("claude-sonnet", "openai", profile.id, "gpt-4o-mini-2024-07-18", "chat")
+        .await
+        .expect("create model");
+
+    let api_key = seed_api_key_with_models(&pool, &["claude-sonnet".to_string()]).await;
+    let app = build_app(pool);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/messages")
+                .header("Authorization", format!("Bearer {api_key}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({
+                        "model": "claude-sonnet",
+                        "max_tokens": 1024,
+                        "messages": [{"role": "user", "content": "Hi"}]
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .expect("route response");
+
+    let status = response.status();
+    let body = body_json(response).await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+}
+
 /// A `PATCH /users/:id` that does NOT change `organization_id` must leave existing team
 /// memberships untouched — the clearing behavior in Fix 4 is specific to actual
 /// reassignment, not every update.
@@ -2547,7 +2882,7 @@ async fn updating_a_user_without_changing_org_preserves_team_memberships(pool: P
         .await
         .expect("create org");
     let team = godwit_db::repositories::teams::TeamRepository::new(pool.clone())
-        .create(org.id, "engineering")
+        .create(org.id, "team-a", None, None)
         .await
         .expect("create team");
     let user = UserRepository::new(pool.clone())

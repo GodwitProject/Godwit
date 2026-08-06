@@ -28,6 +28,8 @@ pub struct UsageReport {
     pub video_seconds: Option<f64>,
     pub tts_characters: Option<i64>,
     pub embedding_tokens: Option<i64>,
+    pub cache_read_tokens: Option<i32>,
+    pub cache_write_tokens: Option<i32>,
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +49,7 @@ pub enum ProviderError {
     CapabilityNotSupported(String),
 }
 
+#[derive(Clone)]
 pub struct ResolvedProfile {
     pub base_url: String,
     pub api_key: Option<String>,

@@ -10,6 +10,7 @@ godwit-db = { path = "../godwit-db" }
 godwit-auth = { path = "../godwit-auth" }
 godwit-providers = { path = "../godwit-providers" }
 godwit-cache = { path = "../godwit-cache" }
+godwit-mcp = { path = "../godwit-mcp" }
 axum = { version = "0.7", features = ["multipart"] }
 async-trait = "0.1"
 tower = "0.5"
@@ -23,6 +24,8 @@ rust_decimal = { version = "1.35", features = ["serde"] }
 sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate", "rust_decimal"] }
 tracing = { workspace = true }
 futures = "0.3"
+dashmap = "6"
+reqwest = { workspace = true }
 
 [dev-dependencies]
 hyper = { version = "1", features = ["full"] }

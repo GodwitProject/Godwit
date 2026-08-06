@@ -1,5 +1,5 @@
 use axum::{
-    http::StatusCode,
+    http::{header, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -11,6 +11,7 @@ pub enum ApiError {
     Forbidden,
     NotFound,
     BadRequest(String),
+    RateLimited(Option<u64>),
     Internal,
     Core(PasteurError),
 }
@@ -21,6 +22,7 @@ impl From<PasteurError> for ApiError {
             PasteurError::NotFound => ApiError::NotFound,
             PasteurError::Auth(_) | PasteurError::Forbidden(_) => ApiError::Unauthorized,
             PasteurError::Validation(msg) => ApiError::BadRequest(msg),
+            PasteurError::RateLimited => ApiError::RateLimited(None),
             _ => ApiError::Core(err),
         }
     }
@@ -28,23 +30,42 @@ impl From<PasteurError> for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let (status, title, detail) = match &self {
+        let (status, title, detail, retry_after) = match &self {
             ApiError::Unauthorized => (
                 StatusCode::UNAUTHORIZED,
                 "Unauthorized",
                 "Authentication required.",
+                None,
             ),
             ApiError::Forbidden => (
                 StatusCode::FORBIDDEN,
                 "Forbidden",
                 "Insufficient permissions.",
+                None,
             ),
-            ApiError::NotFound => (StatusCode::NOT_FOUND, "Not Found", "Resource not found."),
-            ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "Bad Request", msg.as_str()),
+            ApiError::NotFound => (
+                StatusCode::NOT_FOUND,
+                "Not Found",
+                "Resource not found.",
+                None,
+            ),
+            ApiError::BadRequest(msg) => (
+                StatusCode::BAD_REQUEST,
+                "Bad Request",
+                msg.as_str(),
+                None,
+            ),
+            ApiError::RateLimited(retry_after) => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "Too Many Requests",
+                "Rate limit exceeded.",
+                *retry_after,
+            ),
             ApiError::Internal | ApiError::Core(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Internal Server Error",
                 "An unexpected error occurred.",
+                None,
             ),
         };
         let body = Json(json!({
@@ -54,6 +75,15 @@ impl IntoResponse for ApiError {
             "detail": detail,
             "instance": "/"
         }));
-        (status, body).into_response()
+        if let Some(seconds) = retry_after {
+            (
+                status,
+                [(header::RETRY_AFTER, seconds.to_string())],
+                body,
+            )
+                .into_response()
+        } else {
+            (status, body).into_response()
+        }
     }
 }

@@ -1,7 +1,7 @@
 use crate::adapter::{
     Adapter, ProviderError, ProviderResponse, ResolvedProfile, SseEvent, UsageReport,
 };
-use crate::streaming::parse_sse_events;
+use crate::streaming::{normalize_openai_sse_event, parse_sse_events};
 use async_trait::async_trait;
 use futures::stream::{self, BoxStream, StreamExt};
 use godwit_core::{
@@ -77,7 +77,8 @@ impl Adapter for OpenAiProvider {
             .json()
             .await
             .map_err(|e| ProviderError::Serialization(e.to_string()))?;
-        Ok((ProviderResponse::Chat(body), UsageReport::default()))
+        let usage = crate::usage::chat_usage_report(&body.usage);
+        Ok((ProviderResponse::Chat(body), usage))
     }
 
     async fn chat_stream(
@@ -109,8 +110,12 @@ impl Adapter for OpenAiProvider {
             let text = bytes
                 .map(|b| String::from_utf8_lossy(&b).to_string())
                 .unwrap_or_default();
-            let events = parse_sse_events(&text);
-            stream::iter(events.into_iter().map(Ok))
+            let raw_events = parse_sse_events(&text);
+            let normalized: Vec<Result<SseEvent, ProviderError>> = raw_events
+                .into_iter()
+                .flat_map(normalize_openai_sse_event)
+                .collect();
+            stream::iter(normalized)
         });
         Ok(event_stream.boxed())
     }
@@ -347,8 +352,8 @@ mod tests {
     use super::*;
     use chrono::Utc;
     use godwit_core::{
-        AudioSttRequest, AudioTtsRequest, ChatCompletionRequest, ChatMessage, EmbeddingRequest,
-        ImageGenerationRequest,
+        AudioSttRequest, AudioTtsRequest, ChatCompletionRequest, ChatContent, ChatMessage,
+        EmbeddingRequest, ImageGenerationRequest,
     };
     use uuid::Uuid;
     use wiremock::{matchers::*, Mock, MockServer, ResponseTemplate};
@@ -414,11 +419,14 @@ mod tests {
             model: "my-4o".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: "Hi".to_string(),
+                content: ChatContent::text("Hi"),
+                name: None,
+                ..Default::default()
             }],
             stream: Some(false),
             temperature: None,
             max_tokens: None,
+            ..Default::default()
         };
         let model = mapped_model("my-4o", "gpt-4o-2024-08-06");
         let _ = client.chat(&profile, &model, req).await.unwrap();
@@ -431,6 +439,62 @@ mod tests {
         // ...but the upstream must see the mapped provider_model_id.
         assert_eq!(body["model"], "gpt-4o-2024-08-06");
         assert_ne!(body["model"], "my-4o");
+    }
+
+    #[tokio::test]
+    async fn chat_forwards_native_web_search_tools() {
+        use godwit_core::{FunctionDefinition, Tool};
+        let server = MockServer::start().await;
+        let captured_body = std::sync::Arc::new(std::sync::Mutex::new(None::<serde_json::Value>));
+        let captured_clone = captured_body.clone();
+
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(move |req: &wiremock::Request| {
+                if let Ok(body) = serde_json::from_slice::<serde_json::Value>(&req.body) {
+                    *captured_clone.lock().unwrap() = Some(body);
+                }
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "id": "chatcmpl-1",
+                    "object": "chat.completion",
+                    "created": 1,
+                    "model": "gpt-4o",
+                    "choices": [{"index":0,"message":{"role":"assistant","content":"Hello"},"finish_reason":"stop"}],
+                    "usage": {"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
+                }))
+            })
+            .mount(&server)
+            .await;
+
+        let client = OpenAiAdapter::new();
+        let profile = ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
+        let req = ChatCompletionRequest {
+            model: "my-4o".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: ChatContent::text("search the web"),
+                name: None,
+                ..Default::default()
+            }],
+            tools: Some(vec![Tool {
+                r#type: "function".to_string(),
+                function: FunctionDefinition {
+                    name: "web_search".to_string(),
+                    description: None,
+                    parameters: None,
+                },
+            }]),
+            ..Default::default()
+        };
+        let model = mapped_model("my-4o", "gpt-4o-2024-08-06");
+        let _ = client.chat(&profile, &model, req).await.unwrap();
+
+        let body = captured_body.lock().unwrap().take().expect("request body captured");
+        let tools = body["tools"].as_array().expect("tools present");
+        assert_eq!(tools[0]["function"]["name"], "web_search");
     }
 
     #[tokio::test]
@@ -502,17 +566,22 @@ mod tests {
             model: "gpt-4o".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: "Hi".to_string(),
+                content: ChatContent::text("Hi"),
+                name: None,
+                ..Default::default()
             }],
             stream: Some(false),
             temperature: None,
             max_tokens: None,
+            ..Default::default()
         };
-        let (resp, _usage) = client.chat(&profile, &dummy_model(), req).await.unwrap();
+        let (resp, usage) = client.chat(&profile, &dummy_model(), req).await.unwrap();
         let ProviderResponse::Chat(completion) = resp else {
             panic!("expected chat response");
         };
-        assert_eq!(completion.choices[0].message.content, "Hello");
+        assert_eq!(completion.choices[0].message.content.as_text(), Some("Hello".to_string()));
+        assert_eq!(usage.prompt_tokens, Some(1));
+        assert_eq!(usage.completion_tokens, Some(1));
     }
 
     #[tokio::test]

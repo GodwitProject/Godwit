@@ -1,0 +1,3 @@
+ALTER TABLE teams 
+DROP COLUMN IF EXISTS budget_usd,
+DROP COLUMN IF EXISTS max_budget_usd;

@@ -7,7 +7,7 @@ use chrono::Utc;
 use futures::stream::{self, BoxStream, StreamExt};
 use godwit_core::{
     AudioSttRequest, AudioTtsRequest, Capability, ChatCompletionRequest, ChatCompletionResponse,
-    ChatMessage, EmbeddingRequest, ImageGenerationRequest, VideoGenerationRequest,
+    ChatContent, ChatMessage, EmbeddingRequest, ImageGenerationRequest, VideoGenerationRequest,
 };
 use godwit_db::models::Model;
 use reqwest::Client;
@@ -45,7 +45,7 @@ struct AnthropicMessage {
 }
 
 #[derive(Debug, Serialize)]
-struct AnthropicChatRequest {
+pub struct AnthropicChatRequest {
     model: String,
     max_tokens: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -57,17 +57,19 @@ struct AnthropicChatRequest {
 }
 
 impl AnthropicChatRequest {
-    fn from_chat_request(request: ChatCompletionRequest, model_id: String) -> Self {
+    pub fn from_chat_request(request: ChatCompletionRequest, model_id: String) -> Self {
         let mut system_parts: Vec<String> = Vec::new();
         let mut messages: Vec<AnthropicMessage> = Vec::new();
 
         for msg in request.messages {
             if msg.role == "system" {
-                system_parts.push(msg.content);
+                if let Some(text) = msg.content.as_text() {
+                    system_parts.push(text);
+                }
             } else {
                 messages.push(AnthropicMessage {
                     role: msg.role,
-                    content: msg.content,
+                    content: msg.content.as_text().unwrap_or_default(),
                 });
             }
         }
@@ -140,14 +142,18 @@ fn anthropic_response_to_chat_completion(
             index: 0,
             message: ChatMessage {
                 role: "assistant".to_string(),
-                content,
+                content: ChatContent::Text(content),
+                name: None,
+                ..Default::default()
             },
             finish_reason: response.stop_reason,
+            ..Default::default()
         }],
         usage: Some(godwit_core::Usage {
             prompt_tokens: response.usage.input_tokens,
             completion_tokens: response.usage.output_tokens,
             total_tokens: response.usage.input_tokens + response.usage.output_tokens,
+            ..Default::default()
         }),
     }
 }
@@ -451,16 +457,21 @@ mod tests {
             messages: vec![
                 ChatMessage {
                     role: "system".to_string(),
-                    content: "You are a helpful assistant.".to_string(),
+                    content: ChatContent::text("You are a helpful assistant."),
+                    name: None,
+                    ..Default::default()
                 },
                 ChatMessage {
                     role: "user".to_string(),
-                    content: "Hello".to_string(),
+                    content: ChatContent::text("Hello"),
+                    name: None,
+                    ..Default::default()
                 },
             ],
             stream: Some(false),
             temperature: None,
             max_tokens: None,
+            ..Default::default()
         }
     }
 
@@ -544,11 +555,14 @@ mod tests {
             model: "claude-3-5-sonnet".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: "Hi".to_string(),
+                content: ChatContent::text("Hi"),
+                name: None,
+                ..Default::default()
             }],
             stream: Some(false),
             temperature: None,
             max_tokens: None,
+            ..Default::default()
         };
 
         let (ProviderResponse::Chat(resp), usage_report) =
@@ -557,7 +571,10 @@ mod tests {
             panic!("expected chat response");
         };
 
-        assert_eq!(resp.choices[0].message.content, "Hello, world!");
+        assert_eq!(
+            resp.choices[0].message.content.as_text(),
+            Some("Hello, world!".to_string())
+        );
         assert_eq!(resp.choices[0].message.role, "assistant");
         assert_eq!(
             resp.choices[0].finish_reason.as_deref().unwrap(),
@@ -606,11 +623,14 @@ mod tests {
             model: "claude-3-5-sonnet".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: "Hi".to_string(),
+                content: ChatContent::text("Hi"),
+                name: None,
+                ..Default::default()
             }],
             stream: Some(true),
             temperature: None,
             max_tokens: None,
+            ..Default::default()
         };
 
         let stream = client
@@ -707,11 +727,14 @@ mod tests {
             model: "claude-3-5-sonnet".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: "Hi".to_string(),
+                content: ChatContent::text("Hi"),
+                name: None,
+                ..Default::default()
             }],
             stream: Some(false),
             temperature: None,
             max_tokens: None,
+            ..Default::default()
         };
 
         let (ProviderResponse::Chat(resp), _) =
@@ -721,8 +744,8 @@ mod tests {
         };
 
         assert_eq!(
-            resp.choices[0].message.content,
-            "Hello from keyless profile"
+            resp.choices[0].message.content.as_text(),
+            Some("Hello from keyless profile".to_string())
         );
     }
 }

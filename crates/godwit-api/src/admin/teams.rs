@@ -72,6 +72,8 @@ async fn get_team(
 pub struct CreateTeamRequest {
     name: String,
     organization_id: Option<Uuid>,
+    budget_usd: Option<rust_decimal::Decimal>,
+    max_budget_usd: Option<rust_decimal::Decimal>,
 }
 
 async fn create_team(
@@ -88,7 +90,7 @@ async fn create_team(
     };
     let team = state
         .team_repo
-        .create(organization_id, &req.name)
+        .create(organization_id, &req.name, req.budget_usd, req.max_budget_usd)
         .await
         .map_err(ApiError::Core)?;
     Ok(Json(serde_json::json!({ "data": team })))
@@ -96,7 +98,9 @@ async fn create_team(
 
 #[derive(Deserialize)]
 pub struct UpdateTeamRequest {
-    name: String,
+    name: Option<String>,
+    budget_usd: Option<rust_decimal::Decimal>,
+    max_budget_usd: Option<rust_decimal::Decimal>,
 }
 
 async fn update_team(
@@ -114,9 +118,12 @@ async fn update_team(
     if role != Role::SuperAdmin && team.organization_id != claims.organization_id {
         return Err(ApiError::Forbidden);
     }
+    let new_name = req.name.unwrap_or(team.name.clone());
+    let new_budget = req.budget_usd.or(team.budget_usd);
+    let new_max_budget = req.max_budget_usd.or(team.max_budget_usd);
     let updated = state
         .team_repo
-        .update(id, &req.name)
+        .update_with_budget(id, &new_name, new_budget, new_max_budget)
         .await
         .map_err(ApiError::Core)?;
     Ok(Json(serde_json::json!({ "data": updated })))

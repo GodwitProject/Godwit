@@ -1,0 +1,19 @@
+[package]
+name = "godwit-mcp"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "Model Context Protocol (MCP) client and server support for Godwit"
+
+[dependencies]
+godwit-core = { path = "../godwit-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+
+[dev-dependencies]
+futures = "0.3"

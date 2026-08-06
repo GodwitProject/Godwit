@@ -1,5 +1,6 @@
 use crate::models::Team;
 use godwit_core::PasteurError;
+use rust_decimal::Decimal;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -12,12 +13,20 @@ impl TeamRepository {
         Self { pool }
     }
 
-    pub async fn create(&self, organization_id: Uuid, name: &str) -> Result<Team, PasteurError> {
+    pub async fn create(
+        &self,
+        organization_id: Uuid,
+        name: &str,
+        budget_usd: Option<Decimal>,
+        max_budget_usd: Option<Decimal>,
+    ) -> Result<Team, PasteurError> {
         sqlx::query_as::<_, Team>(
-            "INSERT INTO teams (organization_id, name) VALUES ($1, $2) RETURNING *",
+            "INSERT INTO teams (organization_id, name, budget_usd, max_budget_usd) VALUES ($1, $2, $3, $4) RETURNING *",
         )
         .bind(organization_id)
         .bind(name)
+        .bind(budget_usd)
+        .bind(max_budget_usd)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| PasteurError::Database(e.to_string()))
@@ -64,6 +73,28 @@ impl TeamRepository {
             })
     }
 
+    pub async fn update_with_budget(
+        &self,
+        id: Uuid,
+        name: &str,
+        budget_usd: Option<Decimal>,
+        max_budget_usd: Option<Decimal>,
+    ) -> Result<Team, PasteurError> {
+        sqlx::query_as::<_, Team>(
+            "UPDATE teams SET name = $2, budget_usd = $3, max_budget_usd = $4 WHERE id = $1 RETURNING *",
+        )
+        .bind(id)
+        .bind(name)
+        .bind(budget_usd)
+        .bind(max_budget_usd)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => PasteurError::NotFound,
+            _ => PasteurError::Database(e.to_string()),
+        })
+    }
+
     pub async fn delete(&self, id: Uuid) -> Result<(), PasteurError> {
         sqlx::query("DELETE FROM teams WHERE id = $1")
             .bind(id)
@@ -86,7 +117,7 @@ mod tests {
         let org = orgs.create("acme", None).await.expect("create org");
 
         let repo = TeamRepository::new(pool);
-        let team = repo.create(org.id, "engineering").await.expect("create team");
+        let team = repo.create(org.id, "engineering", None, None).await.expect("create team");
         assert_eq!(team.organization_id, org.id);
         assert_eq!(team.name, "engineering");
 
@@ -104,8 +135,8 @@ mod tests {
         let org_b = orgs.create("acme-b", None).await.expect("create org b");
 
         let repo = TeamRepository::new(pool);
-        repo.create(org_a.id, "team-a").await.expect("create team a");
-        repo.create(org_b.id, "team-b").await.expect("create team b");
+        repo.create(org_a.id, "team-a", None, None).await.expect("create team a");
+        repo.create(org_b.id, "team-b", None, None).await.expect("create team b");
 
         let all = repo.list_all().await.expect("list all");
         assert_eq!(all.len(), 2);
@@ -116,7 +147,7 @@ mod tests {
         let orgs = OrganizationRepository::new(pool.clone());
         let org = orgs.create("acme", None).await.expect("create org");
         let repo = TeamRepository::new(pool);
-        let team = repo.create(org.id, "old-name").await.expect("create team");
+        let team = repo.create(org.id, "old-name", None, None).await.expect("create team");
 
         let updated = repo.update(team.id, "new-name").await.expect("update team");
         assert_eq!(updated.name, "new-name");

@@ -12,3 +12,10 @@ auth:
   refresh_token_ttl_days: 7
   oidc_providers: []
   saml_providers: []
+
+# Agentic ecosystem wiring (optional). MCP servers are exposed as chat tools and SearXNG
+# backs web_search-style tool calls when the selected adapter has no native web search.
+agentic:
+  mcp_servers: []
+  # searxng:
+  #   base_url: http://localhost:8080

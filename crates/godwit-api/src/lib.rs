@@ -1,6 +1,14 @@
 pub mod admin;
+pub mod anthropic_proxy;
+pub mod batch;
 pub mod error;
+pub mod health;
 pub mod middleware;
+pub mod model_info;
 pub mod model_router;
+pub mod moderation;
 pub mod proxy;
+pub mod rate_limit;
+pub mod rerank;
+pub mod resilience;
 pub mod state;

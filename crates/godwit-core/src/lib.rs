@@ -26,6 +26,41 @@ pub struct AppConfig {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
     pub auth: AuthConfig,
+    /// Agentic ecosystem wiring: MCP tool servers and the SearXNG web-search backend.
+    #[serde(default)]
+    pub agentic: AgenticConfig,
+}
+
+/// The agentic ecosystem section of [`AppConfig`]: a list of MCP servers to expose as
+/// tools, and an optional self-hosted SearXNG instance used to back `web_search` style
+/// tool calls when the selected adapter has no native web search.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct AgenticConfig {
+    #[serde(default)]
+    pub mcp_servers: Vec<McpServerEntry>,
+    #[serde(default)]
+    pub searxng: Option<SearxngConfig>,
+}
+
+/// A single MCP server spawned as a subprocess speaking JSON-RPC over stdio.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct McpServerEntry {
+    pub name: String,
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Extra environment variables for the child process.
+    #[serde(default)]
+    pub env: std::collections::HashMap<String, String>,
+}
+
+/// Configuration for a self-hosted SearXNG web-search backend.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct SearxngConfig {
+    pub base_url: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -66,19 +101,174 @@ pub struct SamlProviderConfig {
     pub acs_url: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct ChatCompletionRequest {
     pub model: String,
     pub messages: Vec<ChatMessage>,
     pub stream: Option<bool>,
     pub temperature: Option<f32>,
     pub max_tokens: Option<i32>,
+    pub top_p: Option<f32>,
+    pub top_k: Option<i32>,
+    pub frequency_penalty: Option<f32>,
+    pub presence_penalty: Option<f32>,
+    pub stop: Option<Stop>,
+    pub seed: Option<i64>,
+    pub n: Option<i32>,
+    pub logprobs: Option<bool>,
+    pub top_logprobs: Option<i32>,
+    pub tools: Option<Vec<Tool>>,
+    pub tool_choice: Option<ToolChoice>,
+    pub response_format: Option<ResponseFormat>,
+    pub reasoning: Option<ReasoningConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case", tag = "type")]
+pub enum ResponseFormat {
+    Text,
+    JsonObject,
+    JsonSchema { json_schema: JsonSchema },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct JsonSchema {
+    pub name: String,
+    pub schema: Option<serde_json::Value>,
+    pub strict: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum Stop {
+    String(String),
+    Array(Vec<String>),
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ReasoningConfig {
+    pub effort: Option<String>,
+    pub thinking: Option<ThinkingConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ThinkingConfig {
+    pub r#type: String,
+    pub budget_tokens: i32,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CacheControl {
+    pub r#type: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum ChatContent {
+    Text(String),
+    Parts(Vec<ChatContentPart>),
+}
+
+impl Default for ChatContent {
+    fn default() -> Self {
+        Self::Text(String::new())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatContentPart {
+    Text { text: String },
+    ImageUrl { image_url: ImageUrl },
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct ImageUrl {
+    pub url: String,
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Tool {
+    pub r#type: String,
+    pub function: FunctionDefinition,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FunctionDefinition {
+    pub name: String,
+    pub description: Option<String>,
+    pub parameters: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolChoice {
+    None,
+    Auto,
+    Required,
+    Function { function: FunctionName },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FunctionName {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ToolCall {
+    pub id: String,
+    pub r#type: String,
+    pub function: FunctionCall,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FunctionCall {
+    pub name: String,
+    pub arguments: String,
+}
+
+impl ChatContent {
+    pub fn text(value: impl Into<String>) -> Self {
+        Self::Text(value.into())
+    }
+
+    pub fn as_text(&self) -> Option<String> {
+        match self {
+            ChatContent::Text(t) => Some(t.clone()),
+            ChatContent::Parts(parts) => {
+                let text: Vec<&str> = parts
+                    .iter()
+                    .filter_map(|p| match p {
+                        ChatContentPart::Text { text } => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .collect();
+                if text.is_empty() {
+                    None
+                } else {
+                    Some(text.join(""))
+                }
+            }
+        }
+    }
+
+    pub fn has_images(&self) -> bool {
+        match self {
+            ChatContent::Text(_) => false,
+            ChatContent::Parts(parts) => parts.iter().any(|p| matches!(p, ChatContentPart::ImageUrl { .. })),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct ChatMessage {
     pub role: String,
-    pub content: String,
+    pub content: ChatContent,
+    pub name: Option<String>,
+    pub tool_calls: Option<Vec<ToolCall>>,
+    pub tool_call_id: Option<String>,
+    pub cache_control: Option<CacheControl>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -91,18 +281,28 @@ pub struct ChatCompletionResponse {
     pub usage: Option<Usage>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct ChatCompletionChoice {
     pub index: i32,
     pub message: ChatMessage,
     pub finish_reason: Option<String>,
+    pub logprobs: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct Usage {
     pub prompt_tokens: i32,
     pub completion_tokens: i32,
     pub total_tokens: i32,
+    pub prompt_tokens_details: Option<TokenDetails>,
+    pub completion_tokens_details: Option<TokenDetails>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct TokenDetails {
+    pub cached_tokens: Option<i32>,
+    pub audio_tokens: Option<i32>,
+    pub image_tokens: Option<i32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -434,5 +634,85 @@ auth:
         assert_eq!(parsed.size, req.size);
         assert_eq!(parsed.quality, req.quality);
         assert_eq!(parsed.style, req.style);
+    }
+
+    #[test]
+    fn chat_content_text_roundtrips() {
+        let content = ChatContent::text("hello");
+        let json = serde_json::to_string(&content).unwrap();
+        assert_eq!(json, "\"hello\"");
+        let parsed: ChatContent = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.as_text(), Some("hello".to_string()));
+    }
+
+    #[test]
+    fn chat_content_parts_roundtrip() {
+        let content = ChatContent::Parts(vec![
+            ChatContentPart::Text { text: "What ".into() },
+            ChatContentPart::ImageUrl { image_url: ImageUrl { url: "https://example.com/img.png".into(), detail: Some("high".into()) } },
+            ChatContentPart::Text { text: " is this?".into() },
+        ]);
+        let json = serde_json::to_string(&content).unwrap();
+        let parsed: ChatContent = serde_json::from_str(&json).unwrap();
+        assert!(parsed.has_images());
+        assert!(parsed.as_text().unwrap().contains("What"));
+    }
+
+    #[test]
+    fn tool_choice_function_serializes() {
+        let tc = ToolChoice::Function { function: FunctionName { name: "get_weather".into() } };
+        let json = serde_json::to_string(&tc).unwrap();
+        assert!(json.contains("function"));
+        assert!(json.contains("get_weather"));
+    }
+
+    #[test]
+    fn tool_call_roundtrips() {
+        let call = ToolCall {
+            id: "call_1".into(),
+            r#type: "function".into(),
+            function: FunctionCall { name: "get_weather".into(), arguments: "{\"city\":\"Paris\"}".into() },
+        };
+        let json = serde_json::to_string(&call).unwrap();
+        let parsed: ToolCall = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.function.name, "get_weather");
+    }
+
+    #[test]
+    fn response_format_json_schema_serializes() {
+        let rf = ResponseFormat::JsonSchema {
+            json_schema: JsonSchema {
+                name: "answer".into(),
+                schema: Some(serde_json::json!({"type":"object"})),
+                strict: Some(true),
+            },
+        };
+        let json = serde_json::to_string(&rf).unwrap();
+        assert!(json.contains("json_schema"));
+    }
+
+    #[test]
+    fn stop_array_roundtrips() {
+        let stop = Stop::Array(vec!["stop".into(), "halt".into()]);
+        let json = serde_json::to_string(&stop).unwrap();
+        let parsed: Stop = serde_json::from_str(&json).unwrap();
+        match parsed {
+            Stop::Array(arr) => assert_eq!(arr.len(), 2),
+            _ => panic!("expected array"),
+        }
+    }
+
+    #[test]
+    fn usage_details_roundtrip() {
+        let usage = Usage {
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            total_tokens: 15,
+            prompt_tokens_details: Some(TokenDetails { cached_tokens: Some(4), audio_tokens: None, image_tokens: None }),
+            completion_tokens_details: None,
+        };
+        let json = serde_json::to_string(&usage).unwrap();
+        let parsed: Usage = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.prompt_tokens_details.unwrap().cached_tokens, Some(4));
     }
 }

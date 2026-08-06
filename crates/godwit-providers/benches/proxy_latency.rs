@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use godwit_core::{ChatCompletionRequest, ChatMessage};
-use godwit_providers::anthropic::to_anthropic_request;
+use godwit_core::{ChatCompletionRequest, ChatContent, ChatMessage};
+use godwit_providers::anthropic::AnthropicChatRequest;
 
 fn bench_anthropic_mapping(c: &mut Criterion) {
     let req = ChatCompletionRequest {
@@ -8,19 +8,24 @@ fn bench_anthropic_mapping(c: &mut Criterion) {
         messages: vec![
             ChatMessage {
                 role: "system".to_string(),
-                content: "You are helpful".to_string(),
+                content: ChatContent::text("You are helpful"),
+                name: None,
+                ..Default::default()
             },
             ChatMessage {
                 role: "user".to_string(),
-                content: "Hello".to_string(),
+                content: ChatContent::text("Hello"),
+                name: None,
+                ..Default::default()
             },
         ],
         stream: Some(false),
         temperature: Some(0.7),
         max_tokens: Some(100),
+        ..Default::default()
     };
     c.bench_function("openai_to_anthropic_mapping", |b| {
-        b.iter(|| to_anthropic_request(&req))
+        b.iter(|| AnthropicChatRequest::from_chat_request(req.clone(), "claude-3-5-sonnet".to_string()))
     });
 }
 

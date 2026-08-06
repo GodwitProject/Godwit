@@ -1356,13 +1356,16 @@ dependencies = [
  "async-trait",
  "axum",
  "chrono",
+ "dashmap",
  "futures",
  "godwit-auth",
  "godwit-cache",
  "godwit-core",
  "godwit-db",
+ "godwit-mcp",
  "godwit-providers",
  "hyper 1.11.0",
+ "reqwest 0.12.28",
  "rust_decimal",
  "rust_decimal_macros",
  "serde",
@@ -1410,6 +1413,7 @@ dependencies = [
  "godwit-cache",
  "godwit-core",
  "godwit-db",
+ "godwit-mcp",
  "godwit-providers",
  "serde_yaml",
  "sqlx",
@@ -1466,6 +1470,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "godwit-mcp"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "godwit-core",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "godwit-providers"
 version = "0.1.0"
 dependencies = [
@@ -1476,6 +1495,8 @@ dependencies = [
  "godwit-core",
  "godwit-db",
  "reqwest 0.12.28",
+ "rust_decimal",
+ "rust_decimal_macros",
  "serde",
  "serde_json",
  "thiserror 1.0.69",

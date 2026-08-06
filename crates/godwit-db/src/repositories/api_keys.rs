@@ -21,12 +21,14 @@ impl ApiKeyRepository {
         key_prefix: &str,
         key_hash: &str,
         scopes: &[String],
+        allowed_models: &[String],
         budget_limit_usd: Option<Decimal>,
         rate_limit: Option<i32>,
+        rate_limit_tokens_per_minute: Option<i32>,
     ) -> Result<ApiKey, PasteurError> {
         sqlx::query_as::<_, ApiKey>(
-            "INSERT INTO api_keys (user_id, organization_id, name, key_prefix, key_hash, scopes, budget_limit_usd, rate_limit_requests_per_minute)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *"
+            "INSERT INTO api_keys (user_id, organization_id, name, key_prefix, key_hash, scopes, allowed_models, budget_limit_usd, rate_limit_requests_per_minute, rate_limit_tokens_per_minute)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *"
         )
         .bind(user_id)
         .bind(organization_id)
@@ -34,8 +36,10 @@ impl ApiKeyRepository {
         .bind(key_prefix)
         .bind(key_hash)
         .bind(scopes)
+        .bind(allowed_models)
         .bind(budget_limit_usd)
         .bind(rate_limit)
+        .bind(rate_limit_tokens_per_minute)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| PasteurError::Database(e.to_string()))
@@ -87,5 +91,52 @@ impl ApiKeyRepository {
             .await
             .map_err(|e| PasteurError::Database(e.to_string()))?;
         Ok(())
+    }
+
+    pub async fn set_active(&self, id: Uuid, active: bool) -> Result<ApiKey, PasteurError> {
+        sqlx::query_as::<_, ApiKey>(
+            "UPDATE api_keys SET disabled = NOT $2 WHERE id = $1 RETURNING *",
+        )
+        .bind(id)
+        .bind(active)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => PasteurError::NotFound,
+            _ => PasteurError::Database(e.to_string()),
+        })
+    }
+
+    pub async fn regenerate_key(
+        &self,
+        id: Uuid,
+        key_prefix: &str,
+        key_hash: &str,
+    ) -> Result<ApiKey, PasteurError> {
+        sqlx::query_as::<_, ApiKey>(
+            "UPDATE api_keys SET key_prefix = $2, key_hash = $3, created_at = NOW() WHERE id = $1 RETURNING *",
+        )
+        .bind(id)
+        .bind(key_prefix)
+        .bind(key_hash)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => PasteurError::NotFound,
+            _ => PasteurError::Database(e.to_string()),
+        })
+    }
+
+    pub async fn reset_spend(&self, id: Uuid) -> Result<ApiKey, PasteurError> {
+        sqlx::query_as::<_, ApiKey>(
+            "UPDATE api_keys SET budget_spent_usd = 0 WHERE id = $1 RETURNING *",
+        )
+        .bind(id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::RowNotFound => PasteurError::NotFound,
+            _ => PasteurError::Database(e.to_string()),
+        })
     }
 }

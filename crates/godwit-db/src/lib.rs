@@ -397,7 +397,7 @@ mod tests {
 
         let (_, hash, prefix) = godwit_auth::api_keys::generate_api_key();
         let api_key = ApiKeyRepository::new(pool.clone())
-            .create(user.id, org.id, "test-key", &prefix, &hash, &["chat".to_string()], None, None)
+            .create(user.id, org.id, "test-key", &prefix, &hash, &["chat".to_string()], &[], None, None, None)
             .await
             .expect("create api key");
 

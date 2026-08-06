@@ -63,6 +63,7 @@ pub struct FallbackResult {
     pub response: Response,
     pub usage: UsageReport,
     pub model_used: String,
+    pub model_pricing: serde_json::Value,
     pub attempts_made: u32,
     pub fallback_triggered: bool,
 }
@@ -86,11 +87,12 @@ pub async fn call_chat_with_fallback(
         let req_clone = req.clone();
 
         match call_chat_attempt(state, model_ref, req_clone).await {
-            Ok((response, usage)) => {
+            Ok((response, usage, pricing)) => {
                 return Ok(FallbackResult {
                     response,
                     usage,
                     model_used: model_ref.clone(),
+                    model_pricing: pricing,
                     attempts_made,
                     fallback_triggered: attempt_idx > 0,
                 });
@@ -109,7 +111,7 @@ pub async fn call_chat_with_fallback(
                 last_error = Some(e);
 
                 // Check if we should continue
-                if attempts_made >= 3 || !retryable {
+                if attempts_made >= fallback_chain.len() as u32 || !retryable {
                     break;
                 }
             }
@@ -143,7 +145,7 @@ async fn call_chat_attempt(
     state: &Arc<AppState>,
     model_ref: &str,
     req: ChatCompletionRequest,
-) -> Result<(Response, UsageReport), ProviderError> {
+) -> Result<(Response, UsageReport, serde_json::Value), ProviderError> {
     // Resolve model
     let resolved = state
         .model_router
@@ -154,7 +156,7 @@ async fn call_chat_attempt(
     // Call chat (existing function, needs to be exported from proxy.rs)
     let (resp, usage_opt) = call_chat(state, &resolved, req).await?;
     let usage = usage_opt.unwrap_or_default();
-    Ok((resp, usage))
+    Ok((resp, usage, resolved.model.pricing))
 }
 
 /// Check if error is retryable (5xx, timeout, 429)

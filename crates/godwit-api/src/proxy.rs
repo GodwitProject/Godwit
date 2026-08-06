@@ -582,7 +582,7 @@ async fn chat_completions(
     let streamed = req.stream == Some(true);
     let usage = Some(fallback_result.usage.clone());
 
-    let cost_usd = usage.and_then(|u| compute_cost(&primary_resolved.model.pricing, Capability::Chat, &u));
+    let cost_usd = usage.and_then(|u| compute_cost(&fallback_result.model_pricing, Capability::Chat, &u));
     let log = RequestLogEntry {
         api_key_id: api_key.id,
         user_id: api_key.user_id,

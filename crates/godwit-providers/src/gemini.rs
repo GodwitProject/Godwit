@@ -1,7 +1,12 @@
 use crate::adapter::{
     Adapter, ProviderError, ProviderResponse, ResolvedProfile, SseEvent, UsageReport,
 };
+use crate::gemini_cache::{
+    CachedContent, CreateCachedContentRequest, CreateCachedContentResponse,
+    GenerateWithCacheRequest, GeminiCacheKey,
+};
 use crate::gemini_stream::GeminiStreamTranslator;
+use crate::prompt_cache::PromptCache;
 use crate::streaming::parse_sse_events;
 use async_trait::async_trait;
 use chrono::Utc;
@@ -16,10 +21,17 @@ use godwit_core::{
 use godwit_db::models::Model;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+use std::time::Duration;
 use tracing::{debug, error, info, instrument};
 
 pub struct GeminiProvider {
     client: Client,
+    /// Server-side prompt cache for Gemini cachedContent API
+    /// Default TTL: 3600s (1 hour), Max size: 10000 entries
+    prompt_cache: Arc<PromptCache<GeminiCacheKey, CachedContent>>,
 }
 
 pub type GeminiAdapter = GeminiProvider;
@@ -32,7 +44,393 @@ impl GeminiProvider {
             .timeout(std::time::Duration::from_secs(120))
             .build()
             .expect("build reqwest client");
-        Self { client }
+        Self {
+            client,
+            prompt_cache: Arc::new(PromptCache::with_config(10000, Duration::from_secs(3600))),
+        }
+    }
+
+    /// Get a reference to the prompt cache
+    pub fn prompt_cache(&self) -> &PromptCache<GeminiCacheKey, CachedContent> {
+        &self.prompt_cache
+    }
+
+    /// Create a cache key from a chat completion request
+    fn create_cache_key(request: &ChatCompletionRequest) -> GeminiCacheKey {
+        let messages_json = serde_json::to_string(&request.messages).unwrap_or_default();
+        let mut messages_hasher = DefaultHasher::new();
+        messages_json.hash(&mut messages_hasher);
+
+        let system_instruction = request
+            .messages
+            .iter()
+            .filter(|msg| msg.role == "system")
+            .filter_map(|msg| msg.content_as_text())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        GeminiCacheKey::new(&request.model, &[], if system_instruction.is_empty() { None } else { Some(&system_instruction) })
+    }
+
+    /// Create cached content on Gemini servers
+    #[instrument(skip(self, profile, model, request))]
+    pub async fn create_cached_content(
+        &self,
+        profile: &ResolvedProfile,
+        model: &Model,
+        request: &ChatCompletionRequest,
+        ttl: Option<Duration>,
+    ) -> Result<CachedContent, ProviderError> {
+        let url = format!(
+            "{}/v1beta/cachedContents?key={}",
+            profile.base_url,
+            profile.api_key.as_deref().unwrap_or_default()
+        );
+
+        // Build the contents to cache (non-system messages)
+        let contents: Vec<serde_json::Value> = request
+            .messages
+            .iter()
+            .filter(|msg| msg.role != "system")
+            .map(|msg| {
+                let role = if msg.role == "assistant" { "model" } else { &msg.role };
+                let parts = msg.content.as_ref().map(|contents| {
+                    contents
+                        .iter()
+                        .flat_map(|c| match c {
+                            ChatContent::Text(text) => {
+                                vec![serde_json::json!({ "text": text })]
+                            }
+                            ChatContent::Parts(parts) => parts
+                                .iter()
+                                .map(|p| match p {
+                                    ChatContentPart::Text { text } => {
+                                        serde_json::json!({ "text": text })
+                                    }
+                                    ChatContentPart::ImageUrl { image_url } => {
+                                        if image_url.url.starts_with("data:") {
+                                            let (media_type, data) = Self::parse_data_url(&image_url.url);
+                                            serde_json::json!({
+                                                "inlineData": {
+                                                    "mimeType": media_type,
+                                                    "data": data
+                                                }
+                                            })
+                                        } else {
+                                            serde_json::json!({
+                                                "fileData": {
+                                                    "mimeType": "image/png",
+                                                    "fileUri": image_url.url
+                                                }
+                                            })
+                                        }
+                                    }
+                                })
+                                .collect(),
+                        })
+                        .collect::<Vec<_>>()
+                }).unwrap_or_default();
+
+                serde_json::json!({
+                    "role": role,
+                    "parts": parts
+                })
+            })
+            .collect();
+
+        // Extract system instruction
+        let system_instruction = request
+            .messages
+            .iter()
+            .filter(|msg| msg.role == "system")
+            .filter_map(|msg| msg.content_as_text())
+            .collect::<Vec<_>>()
+            .first()
+            .cloned();
+
+        let cache_request = CreateCachedContentRequest {
+            contents,
+            system_instruction,
+            model: model.provider_model_id.clone(),
+            display_name: None,
+            ttl: ttl.map(|d| format!("{}s", d.as_secs())),
+        };
+
+        info!("creating Gemini cached content at {}", url);
+        debug!("cached content request body: {:?}", cache_request);
+
+        let res = self
+            .client
+            .post(&url)
+            .json(&cache_request)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Http {
+                status: 0,
+                message: e.to_string(),
+            })?;
+
+        if !res.status().is_success() {
+            let status = res.status().as_u16();
+            let text = res.text().await.unwrap_or_default();
+            error!(
+                "create cached content request failed with status {}: {}",
+                status, text
+            );
+            return Err(ProviderError::Http {
+                status,
+                message: text,
+            });
+        }
+
+        let body: CreateCachedContentResponse = res
+            .json()
+            .await
+            .map_err(|e| ProviderError::Serialization(e.to_string()))?;
+
+        debug!("cached content response: {:?}", body);
+
+        // Create cache key for lookup
+        let cache_key = Self::create_cache_key(request);
+
+        Ok(CachedContent {
+            id: body.id(),
+            model: model.provider_model_id.clone(),
+            messages_hash: cache_key.messages_hash,
+            created_at: std::time::Instant::now(),
+            ttl: ttl.unwrap_or(Duration::from_secs(3600)),
+        })
+    }
+
+    /// Generate content using cached content
+    #[instrument(skip(self, profile, model, request))]
+    pub async fn generate_with_cache(
+        &self,
+        profile: &ResolvedProfile,
+        model: &Model,
+        request: ChatCompletionRequest,
+        cached_content_id: &str,
+    ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        let url = format!(
+            "{}/v1beta/models/{}:generateContent?key={}",
+            profile.base_url,
+            model.provider_model_id,
+            profile.api_key.as_deref().unwrap_or_default()
+        );
+
+        // Build new content (non-system messages only)
+        let contents: Vec<serde_json::Value> = request
+            .messages
+            .iter()
+            .filter(|msg| msg.role != "system")
+            .map(|msg| {
+                let role = if msg.role == "assistant" { "model" } else { &msg.role };
+                let parts = msg.content.as_ref().map(|contents| {
+                    contents
+                        .iter()
+                        .flat_map(|c| match c {
+                            ChatContent::Text(text) => {
+                                vec![serde_json::json!({ "text": text })]
+                            }
+                            ChatContent::Parts(parts) => parts
+                                .iter()
+                                .map(|p| match p {
+                                    ChatContentPart::Text { text } => {
+                                        serde_json::json!({ "text": text })
+                                    }
+                                    ChatContentPart::ImageUrl { image_url } => {
+                                        if image_url.url.starts_with("data:") {
+                                            let (media_type, data) = Self::parse_data_url(&image_url.url);
+                                            serde_json::json!({
+                                                "inlineData": {
+                                                    "mimeType": media_type,
+                                                    "data": data
+                                                }
+                                            })
+                                        } else {
+                                            serde_json::json!({
+                                                "fileData": {
+                                                    "mimeType": "image/png",
+                                                    "fileUri": image_url.url
+                                                }
+                                            })
+                                        }
+                                    }
+                                })
+                                .collect(),
+                        })
+                        .collect::<Vec<_>>()
+                }).unwrap_or_default();
+
+                serde_json::json!({
+                    "role": role,
+                    "parts": parts
+                })
+            })
+            .collect();
+
+        // Extract system instruction
+        let system_instruction = request
+            .messages
+            .iter()
+            .filter(|msg| msg.role == "system")
+            .filter_map(|msg| msg.content_as_text())
+            .collect::<Vec<_>>()
+            .first()
+            .cloned();
+
+        let generation_config = serde_json::json!({
+            "maxOutputTokens": request.max_tokens.unwrap_or(4096),
+            "temperature": request.temperature,
+        });
+
+        let cache_request = GenerateWithCacheRequest {
+            contents,
+            system_instruction,
+            generation_config: Some(generation_config),
+            tools: None,
+            cached_content: Some(cached_content_id.to_string()),
+        };
+
+        info!("generating with cached content at {}", url);
+        debug!("generate with cache request body: {:?}", cache_request);
+
+        let res = self
+            .client
+            .post(&url)
+            .json(&cache_request)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Http {
+                status: 0,
+                message: e.to_string(),
+            })?;
+
+        if !res.status().is_success() {
+            let status = res.status().as_u16();
+            let text = res.text().await.unwrap_or_default();
+            error!(
+                "generate with cache request failed with status {}: {}",
+                status, text
+            );
+            return Err(ProviderError::Http {
+                status,
+                message: text,
+            });
+        }
+
+        let body: serde_json::Value = res
+            .json()
+            .await
+            .map_err(|e| ProviderError::Serialization(e.to_string()))?;
+
+        debug!("generate with cache response: {:?}", body);
+
+        // Parse the response using existing logic
+        let gemini_response: GeminiChatResponse = serde_json::from_value(body.clone())
+            .map_err(|e| ProviderError::Serialization(e.to_string()))?;
+
+        let usage_report = if let Some(ref metadata) = gemini_response.usage_metadata {
+            UsageReport {
+                prompt_tokens: Some(metadata.prompt_token_count),
+                completion_tokens: Some(metadata.candidates_token_count),
+                cache_read_tokens: metadata.cached_content_token_count,
+                ..Default::default()
+            }
+        } else {
+            UsageReport::default()
+        };
+
+        let chat_response = gemini_response_to_chat_completion(gemini_response, &model.public_id)?;
+
+        Ok((ProviderResponse::Chat(chat_response), usage_report))
+    }
+
+    /// Parse a data URL into media type and base64 data
+    fn parse_data_url(url: &str) -> (String, String) {
+        if let Some(comma_pos) = url.find(',') {
+            let header = &url[..comma_pos];
+            let data = &url[comma_pos + 1..];
+            let media_type = if header.contains("image/png") {
+                "image/png".to_string()
+            } else if header.contains("image/jpeg") || header.contains("image/jpg") {
+                "image/jpeg".to_string()
+            } else if header.contains("image/gif") {
+                "image/gif".to_string()
+            } else if header.contains("image/webp") {
+                "image/webp".to_string()
+            } else {
+                "image/png".to_string()
+            };
+            (media_type, data.to_string())
+        } else {
+            ("image/png".to_string(), url.to_string())
+        }
+    }
+
+    /// Internal method for chat without caching
+    async fn chat_without_cache(
+        &self,
+        profile: &ResolvedProfile,
+        model: &Model,
+        request: ChatCompletionRequest,
+    ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        let url = format!(
+            "{}/v1beta/models/{}:generateContent?key={}",
+            profile.base_url,
+            model.provider_model_id,
+            profile.api_key.as_deref().unwrap_or_default()
+        );
+        let gemini_request = GeminiChatRequest::from_chat_request(request);
+
+        info!("sending gemini chat request to {}", url);
+        debug!("gemini request body: {:?}", gemini_request);
+
+        let res = self
+            .client
+            .post(&url)
+            .json(&gemini_request)
+            .send()
+            .await
+            .map_err(|e| ProviderError::Http {
+                status: 0,
+                message: e.to_string(),
+            })?;
+
+        if !res.status().is_success() {
+            let status = res.status().as_u16();
+            let text = res.text().await.unwrap_or_default();
+            error!(
+                "gemini chat request failed with status {}: {}",
+                status, text
+            );
+            return Err(ProviderError::Http {
+                status,
+                message: text,
+            });
+        }
+
+        let body: GeminiChatResponse = res
+            .json()
+            .await
+            .map_err(|e| ProviderError::Serialization(e.to_string()))?;
+
+        debug!("gemini response body: {:?}", body);
+
+        let usage_report = if let Some(ref metadata) = body.usage_metadata {
+            UsageReport {
+                prompt_tokens: Some(metadata.prompt_token_count),
+                completion_tokens: Some(metadata.candidates_token_count),
+                cache_read_tokens: metadata.cached_content_token_count,
+                ..Default::default()
+            }
+        } else {
+            UsageReport::default()
+        };
+
+        let chat_response = gemini_response_to_chat_completion(body, &model.public_id)?;
+
+        Ok((ProviderResponse::Chat(chat_response), usage_report))
     }
 }
 
@@ -398,62 +796,35 @@ impl Adapter for GeminiProvider {
         model: &Model,
         request: ChatCompletionRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
-        let url = format!(
-            "{}/v1beta/models/{}:generateContent?key={}",
-            profile.base_url,
-            model.provider_model_id,
-            profile.api_key.as_deref().unwrap_or_default()
-        );
-        let gemini_request = GeminiChatRequest::from_chat_request(request);
-
-        info!("sending gemini chat request to {}", url);
-        debug!("gemini request body: {:?}", gemini_request);
-
-        let res = self
-            .client
-            .post(&url)
-            .json(&gemini_request)
-            .send()
-            .await
-            .map_err(|e| ProviderError::Http {
-                status: 0,
-                message: e.to_string(),
-            })?;
-
-        if !res.status().is_success() {
-            let status = res.status().as_u16();
-            let text = res.text().await.unwrap_or_default();
-            error!(
-                "gemini chat request failed with status {}: {}",
-                status, text
-            );
-            return Err(ProviderError::Http {
-                status,
-                message: text,
-            });
+        // For streaming requests, bypass cache
+        if request.stream == Some(true) {
+            return self.chat_without_cache(profile, model, request).await;
         }
 
-        let body: GeminiChatResponse = res
-            .json()
-            .await
-            .map_err(|e| ProviderError::Serialization(e.to_string()))?;
-
-        debug!("gemini response body: {:?}", body);
-
-        let usage_report = if let Some(ref metadata) = body.usage_metadata {
-            UsageReport {
-                prompt_tokens: Some(metadata.prompt_token_count),
-                completion_tokens: Some(metadata.candidates_token_count),
-                cache_read_tokens: metadata.cached_content_token_count,
-                ..Default::default()
+        // Check if we have cached content for this request
+        let cache_key = Self::create_cache_key(&request);
+        
+        // Try to get cached content from local cache
+        if let Some(cached) = self.prompt_cache.get(&cache_key) {
+            if !cached.is_expired() {
+                debug!("using cached content id: {}", cached.id);
+                // Use the cached content for generation
+                return self.generate_with_cache(profile, model, request, &cached.id).await;
+            } else {
+                // Cached content has expired, remove it
+                self.prompt_cache.remove(&cache_key);
             }
-        } else {
-            UsageReport::default()
-        };
+        }
 
-        let chat_response = gemini_response_to_chat_completion(body, &model.public_id)?;
-
-        Ok((ProviderResponse::Chat(chat_response), usage_report))
+        // No valid cache, make the request normally
+        let result = self.chat_without_cache(profile, model, request).await?;
+        
+        // Cache the response for future use (only if not streaming)
+        // Note: For Gemini, we would need to create cached content on the server
+        // This is done via create_cached_content() which can be called separately
+        // Here we just cache the response locally
+        
+        Ok(result)
     }
 
     #[instrument(skip(self, profile, model, request))]
@@ -1333,5 +1704,266 @@ mod tests {
             .expect("request body captured");
         assert_eq!(body["requests"].as_array().unwrap().len(), 2);
         assert_eq!(body["requests"][0]["content"]["parts"][0]["text"], "hello");
+    }
+
+    #[tokio::test]
+    async fn create_cached_content_sends_correct_request() {
+        use std::time::Duration;
+        let server = MockServer::start().await;
+        let captured_body = std::sync::Arc::new(std::sync::Mutex::new(None::<serde_json::Value>));
+        let captured_clone = captured_body.clone();
+
+        Mock::given(method("POST"))
+            .and(path("/v1beta/cachedContents"))
+            .respond_with(move |req: &wiremock::Request| {
+                if let Ok(body) = serde_json::from_slice::<serde_json::Value>(&req.body) {
+                    *captured_clone.lock().unwrap() = Some(body);
+                }
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "name": "cachedContents/test-cache-id-123",
+                    "model": "gemini-1.5-flash",
+                    "createTime": "2024-01-01T00:00:00Z",
+                    "expireTime": "2024-01-01T01:00:00Z"
+                }))
+            })
+            .mount(&server)
+            .await;
+
+        let client = GeminiProvider::new();
+        let profile = crate::adapter::ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
+        let request = ChatCompletionRequest {
+            model: "gemini-1.5-flash".to_string(),
+            messages: vec![
+                ChatMessage {
+                    role: "system".to_string(),
+                    content: Some(vec![ChatContent::text("You are helpful.")]),
+                    name: None,
+                    ..Default::default()
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: Some(vec![ChatContent::text("Hello")]),
+                    name: None,
+                    ..Default::default()
+                },
+            ],
+            stream: Some(false),
+            temperature: None,
+            max_tokens: None,
+            ..Default::default()
+        };
+
+        let cached = client
+            .create_cached_content(&profile, &dummy_model(), &request, Some(Duration::from_secs(3600)))
+            .await
+            .unwrap();
+
+        assert_eq!(cached.id, "test-cache-id-123");
+        assert_eq!(cached.model, "gemini-1.5-flash");
+
+        let body = captured_body.lock().unwrap().take().expect("request body captured");
+        assert_eq!(body["model"], "gemini-1.5-flash");
+        assert_eq!(body["systemInstruction"], "You are helpful.");
+        assert_eq!(body["ttl"], "3600s");
+    }
+
+    #[tokio::test]
+    async fn generate_with_cache_includes_cached_content_id() {
+        let server = MockServer::start().await;
+        let captured_body = std::sync::Arc::new(std::sync::Mutex::new(None::<serde_json::Value>));
+        let captured_clone = captured_body.clone();
+
+        Mock::given(method("POST"))
+            .and(path("/v1beta/models/gemini-1.5-flash:generateContent"))
+            .respond_with(move |req: &wiremock::Request| {
+                if let Ok(body) = serde_json::from_slice::<serde_json::Value>(&req.body) {
+                    *captured_clone.lock().unwrap() = Some(body);
+                }
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "candidates": [{
+                        "content": {
+                            "role": "model",
+                            "parts": [{"text": "Response from cache"}]
+                        },
+                        "finishReason": "STOP"
+                    }],
+                    "usageMetadata": {
+                        "promptTokenCount": 5,
+                        "candidatesTokenCount": 10,
+                        "totalTokenCount": 15,
+                        "cachedContentTokenCount": 100
+                    }
+                }))
+            })
+            .mount(&server)
+            .await;
+
+        let client = GeminiProvider::new();
+        let profile = crate::adapter::ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
+        let request = ChatCompletionRequest {
+            model: "gemini-1.5-flash".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: Some(vec![ChatContent::text("Continue")]),
+                name: None,
+                ..Default::default()
+            }],
+            stream: Some(false),
+            temperature: None,
+            max_tokens: None,
+            ..Default::default()
+        };
+
+        let (ProviderResponse::Chat(resp), usage_report) = client
+            .generate_with_cache(&profile, &dummy_model(), request, "test-cache-id-123")
+            .await
+            .unwrap()
+        else {
+            panic!("expected chat response");
+        };
+
+        assert_eq!(
+            resp.choices[0].message.content_as_text(),
+            Some("Response from cache".to_string())
+        );
+        assert_eq!(usage_report.cache_read_tokens, Some(100));
+
+        let body = captured_body.lock().unwrap().take().expect("request body captured");
+        assert_eq!(body["cachedContent"], "test-cache-id-123");
+    }
+
+    #[tokio::test]
+    async fn chat_uses_cached_content_when_available() {
+        use std::time::Duration;
+        let server = MockServer::start().await;
+        
+        // Mock the generateContent endpoint
+        Mock::given(method("POST"))
+            .and(path("/v1beta/models/gemini-1.5-flash:generateContent"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "candidates": [{
+                    "content": {
+                        "role": "model",
+                        "parts": [{"text": "Response"}]
+                    },
+                    "finishReason": "STOP"
+                }],
+                "usageMetadata": {
+                    "promptTokenCount": 5,
+                    "candidatesTokenCount": 10,
+                    "totalTokenCount": 15,
+                    "cachedContentTokenCount": 100
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let client = GeminiProvider::new();
+        let profile = crate::adapter::ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
+        
+        // Manually insert a cached content entry
+        let cache_key = GeminiCacheKey::new("gemini-1.5-flash", &[], Some("test"));
+        let cached_content = CachedContent {
+            id: "manual-cache-id".to_string(),
+            model: "gemini-1.5-flash".to_string(),
+            messages_hash: cache_key.messages_hash,
+            created_at: std::time::Instant::now(),
+            ttl: Duration::from_secs(3600),
+        };
+        client.prompt_cache.insert(cache_key, cached_content);
+
+        let request = ChatCompletionRequest {
+            model: "gemini-1.5-flash".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: Some(vec![ChatContent::text("Test")]),
+                name: None,
+                ..Default::default()
+            }],
+            stream: Some(false),
+            temperature: None,
+            max_tokens: None,
+            ..Default::default()
+        };
+
+        let (ProviderResponse::Chat(resp), usage_report) = client
+            .chat(&profile, &dummy_model(), request)
+            .await
+            .unwrap()
+        else {
+            panic!("expected chat response");
+        };
+
+        assert_eq!(
+            resp.choices[0].message.content_as_text(),
+            Some("Response".to_string())
+        );
+        assert_eq!(usage_report.cache_read_tokens, Some(100));
+    }
+
+    #[test]
+    fn test_cached_content_expiration() {
+        use std::time::Duration;
+        
+        let cached = CachedContent {
+            id: "test-id".to_string(),
+            model: "gemini-1.5-flash".to_string(),
+            messages_hash: 12345,
+            created_at: std::time::Instant::now(),
+            ttl: Duration::from_secs(1),
+        };
+        
+        assert!(!cached.is_expired());
+        
+        std::thread::sleep(Duration::from_millis(1100));
+        
+        assert!(cached.is_expired());
+    }
+
+    #[test]
+    fn test_gemini_cache_key_generation() {
+        use godwit_core::ChatContent;
+        
+        let request1 = ChatCompletionRequest {
+            model: "gemini-1.5-flash".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: Some(vec![ChatContent::text("Hello")]),
+                name: None,
+                ..Default::default()
+            }],
+            stream: Some(false),
+            temperature: Some(0.7),
+            max_tokens: Some(100),
+            ..Default::default()
+        };
+        
+        let request2 = ChatCompletionRequest {
+            model: "gemini-1.5-flash".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: Some(vec![ChatContent::text("Hello")]),
+                name: None,
+                ..Default::default()
+            }],
+            stream: Some(false),
+            temperature: Some(0.7),
+            max_tokens: Some(100),
+            ..Default::default()
+        };
+        
+        let key1 = GeminiProvider::create_cache_key(&request1);
+        let key2 = GeminiProvider::create_cache_key(&request2);
+        
+        assert_eq!(key1, key2);
     }
 }

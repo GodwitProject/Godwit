@@ -333,6 +333,8 @@ async fn messages(
             status: "success".to_string(),
             cost_usd,
             tags: vec![],
+            attempt_number: 1,
+            fallback_triggered: false,
         };
         crate::proxy::spawn_request_log(state.pool.clone(), log);
 
@@ -426,6 +428,8 @@ async fn messages(
         status: "success".to_string(),
         cost_usd,
         tags: vec![],
+        attempt_number: 1,
+        fallback_triggered: false,
     };
     crate::proxy::spawn_request_log(state.pool.clone(), log);
 

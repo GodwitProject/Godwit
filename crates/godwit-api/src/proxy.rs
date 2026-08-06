@@ -25,6 +25,7 @@ use uuid::Uuid;
 
 use crate::{
     admin::spend::compute_cost,
+    fallback::call_chat_with_fallback,
     model_info,
     model_router::{DbModelRouter, ResolvedModel},
     proxy_streaming::process_streaming_tool_calls,
@@ -567,89 +568,42 @@ async fn chat_completions(
     let body_bytes = axum::body::to_bytes(req_body, usize::MAX).await.unwrap();
     let req: ChatCompletionRequest = serde_json::from_slice(&body_bytes).unwrap();
 
-    let mut primary_resolved = state
+    let estimated_tokens = rate_limit::estimate_request_tokens(&req);
+    let primary_resolved = state
         .model_router
         .resolve(&req.model, Capability::Chat)
         .await?;
-    let fallback_chain = DbModelRouter::fallback_chain(&primary_resolved.model);
-
-    let estimated_tokens = rate_limit::estimate_request_tokens(&req);
     check_rate_limit(&state, &api_key, &primary_resolved.model, estimated_tokens).await?;
     check_user_budget(&state, &api_key).await?;
     check_team_budget(&state, &api_key).await?;
 
-    let mut rate_limited_err: Option<crate::error::ApiError> = None;
-    let (result, used_model) = match call_chat_agentic(&state, &primary_resolved, req.clone()).await
-    {
-        Ok((resp, usage)) => ((Ok(resp), usage), primary_resolved.model.clone()),
-        Err(e) => {
-            // Release the primary model's in-flight slot before attempting fallbacks.
-            std::mem::drop(primary_resolved.in_flight.take());
-            let mut fallback_result = None;
-            for fallback_id in fallback_chain {
-                tracing::info!(
-                    "falling back from {} to {} for chat completion",
-                    req.model,
-                    fallback_id
-                );
-                match state
-                    .model_router
-                    .resolve(&fallback_id, Capability::Chat)
-                    .await
-                {
-                    Ok(resolved) => {
-                        if let Err(rl_err) =
-                            check_rate_limit(&state, &api_key, &resolved.model, estimated_tokens)
-                                .await
-                        {
-                            rate_limited_err = Some(rl_err);
-                            continue;
-                        }
-                        match call_chat_agentic(&state, &resolved, req.clone()).await {
-                            Ok((resp, usage)) => {
-                                fallback_result = Some(((Ok(resp), usage), resolved.model.clone()));
-                                break;
-                            }
-                            Err(_e) => {
-                                continue;
-                            }
-                        }
-                    }
-                    Err(_) => continue,
-                }
-            }
-            fallback_result.ok_or_else(|| rate_limited_err.unwrap())?
-        }
-    };
+    let fallback_result = call_chat_with_fallback(&state, &req.model, req.clone()).await
+        .map_err(map_provider_error)?;
 
     let streamed = req.stream == Some(true);
-    let (result, usage) = result;
+    let usage = Some(fallback_result.usage.clone());
 
-    let cost_usd = usage.and_then(|u| compute_cost(&used_model, Capability::Chat, &u));
+    let cost_usd = usage.and_then(|u| compute_cost(&primary_resolved.model, Capability::Chat, &u));
     let log = RequestLogEntry {
         api_key_id: api_key.id,
         user_id: api_key.user_id,
         organization_id: api_key.organization_id,
         team_id: api_key.team_id,
-        model: used_model.public_id.clone(),
-        provider: used_model.provider.clone(),
-        provider_model_id: used_model.provider_model_id.clone(),
+        model: fallback_result.model_used.clone(),
+        provider: primary_resolved.model.provider.clone(),
+        provider_model_id: primary_resolved.model.provider_model_id.clone(),
         capability: Capability::Chat.as_str().to_string(),
         duration_ms: start.elapsed().as_millis() as i32,
         streamed,
         status: "success".to_string(),
         cost_usd,
         tags,
+        attempt_number: fallback_result.attempts_made,
+        fallback_triggered: fallback_result.fallback_triggered,
     };
     spawn_request_log(state.pool.clone(), log);
 
-    if !used_model.id.is_nil() {
-        state
-            .model_router
-            .record_latency(used_model.id, start.elapsed().as_millis() as i32);
-    }
-
-    result
+    Ok(fallback_result.response)
 }
 
 async fn list_models(
@@ -741,6 +695,8 @@ async fn embeddings(
         status: "success".to_string(),
         cost_usd,
         tags: vec![],
+        attempt_number: 1,
+        fallback_triggered: false,
     };
     spawn_request_log(state.pool.clone(), log);
 
@@ -854,6 +810,8 @@ async fn image_generations(
             status: "success".to_string(),
             cost_usd,
             tags: vec![],
+            attempt_number: 1,
+            fallback_triggered: false,
         },
     );
 
@@ -967,6 +925,8 @@ async fn audio_speech(
             status: "success".to_string(),
             cost_usd,
             tags: vec![],
+            attempt_number: 1,
+            fallback_triggered: false,
         },
     );
 
@@ -1128,6 +1088,8 @@ async fn audio_transcriptions(
             status: "success".to_string(),
             cost_usd,
             tags: vec![],
+            attempt_number: 1,
+            fallback_triggered: false,
         },
     );
 
@@ -1312,6 +1274,8 @@ async fn image_edits(
             status: "success".to_string(),
             cost_usd,
             tags: vec![],
+            attempt_number: 1,
+            fallback_triggered: false,
         },
     );
 
@@ -1367,8 +1331,8 @@ fn extract_tags_from_header(header_value: Option<&str>) -> Vec<String> {
 pub(crate) fn spawn_request_log(pool: sqlx::PgPool, log: RequestLogEntry) {
     tokio::spawn(async move {
         let _ = sqlx::query(
-            "INSERT INTO request_logs (api_key_id, user_id, organization_id, team_id, model, provider, provider_model_id, capability, duration_ms, streamed, status, cost_usd, tags)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)"
+            "INSERT INTO request_logs (api_key_id, user_id, organization_id, team_id, model, provider, provider_model_id, capability, duration_ms, streamed, status, cost_usd, tags, attempt_number, fallback_triggered)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)"
         )
         .bind(log.api_key_id)
         .bind(log.user_id)
@@ -1383,6 +1347,8 @@ pub(crate) fn spawn_request_log(pool: sqlx::PgPool, log: RequestLogEntry) {
         .bind(log.status)
         .bind(log.cost_usd)
         .bind(&log.tags)
+        .bind(log.attempt_number as i32)
+        .bind(log.fallback_triggered)
         .execute(&pool)
         .await;
     });
@@ -1403,6 +1369,8 @@ pub(crate) struct RequestLogEntry {
     pub(crate) status: String,
     pub(crate) cost_usd: Option<Decimal>,
     pub(crate) tags: Vec<String>,
+    pub(crate) attempt_number: u32,
+    pub(crate) fallback_triggered: bool,
 }
 
 #[cfg(test)]

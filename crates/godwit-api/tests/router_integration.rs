@@ -63,6 +63,7 @@ fn test_config() -> AppConfig {
             saml_providers: vec![],
         },
         agentic: godwit_core::AgenticConfig::default(),
+        compat: None,
     }
 }
 

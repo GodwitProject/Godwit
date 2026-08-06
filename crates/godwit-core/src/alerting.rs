@@ -303,3 +303,48 @@ impl AlertingService {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn budget_alert_payload_serializes_correctly() {
+        let payload = BudgetAlertPayload {
+            event_type: "budget_80".to_string(),
+            org_id: Some(Uuid::new_v4()),
+            team_id: None,
+            api_key_id: Some(Uuid::new_v4()),
+            current_spend: 80.0,
+            budget: 100.0,
+            threshold_percent: 80,
+            timestamp: Utc::now(),
+        };
+
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("budget_80"));
+        assert!(json.contains("80.0"));
+        assert!(json.contains("100.0"));
+    }
+
+    #[test]
+    fn alerting_error_from_sqlx_error() {
+        let sqlx_err = sqlx::Error::RowNotFound;
+        let alerting_err: AlertingError = sqlx_err.into();
+        
+        match alerting_err {
+            AlertingError::Database(_) => (),
+            _ => panic!("Expected Database variant"),
+        }
+    }
+
+    #[test]
+    fn alerting_error_from_reqwest_error() {
+        let err = AlertingError::Http("connection refused".to_string());
+        
+        match err {
+            AlertingError::Http(msg) => assert_eq!(msg, "connection refused"),
+            _ => panic!("Expected Http variant"),
+        }
+    }
+}

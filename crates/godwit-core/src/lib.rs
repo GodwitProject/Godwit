@@ -35,6 +35,15 @@ pub struct AppConfig {
     /// Circuit breaker configuration for provider resilience.
     #[serde(default)]
     pub circuit_breaker: Option<CircuitBreakerConfig>,
+    /// Moderation fallback configuration.
+    #[serde(default)]
+    pub moderation: ModerationConfig,
+    /// Rerank fallback configuration.
+    #[serde(default)]
+    pub rerank: RerankConfig,
+    /// Batch processing configuration.
+    #[serde(default)]
+    pub batch: BatchConfig,
 }
 
 /// The agentic ecosystem section of [`AppConfig`]: a list of MCP servers to expose as
@@ -135,6 +144,75 @@ pub struct CircuitBreakerConfig {
     pub failure_threshold: usize,
     pub recovery_timeout_secs: u64,
     pub half_open_max_requests: usize,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ModerationConfig {
+    /// Order of providers to try for moderation (e.g., ["openai", "azure", "self-hosted"])
+    #[serde(default = "default_moderation_provider_order")]
+    pub provider_order: Vec<String>,
+}
+
+fn default_moderation_provider_order() -> Vec<String> {
+    vec!["openai".to_string(), "azure".to_string(), "self-hosted".to_string()]
+}
+
+impl Default for ModerationConfig {
+    fn default() -> Self {
+        Self {
+            provider_order: default_moderation_provider_order(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RerankConfig {
+    /// Order of providers to try for rerank (e.g., ["cohere", "azure", "self-hosted"])
+    #[serde(default = "default_rerank_provider_order")]
+    pub provider_order: Vec<String>,
+}
+
+fn default_rerank_provider_order() -> Vec<String> {
+    vec!["cohere".to_string(), "azure".to_string(), "self-hosted".to_string()]
+}
+
+impl Default for RerankConfig {
+    fn default() -> Self {
+        Self {
+            provider_order: default_rerank_provider_order(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BatchConfig {
+    /// Maximum concurrent batch operations (default: 10)
+    #[serde(default = "default_batch_max_concurrent")]
+    pub max_concurrent: usize,
+    /// Maximum retry attempts for batch operations (default: 2)
+    #[serde(default = "default_batch_max_retries")]
+    pub max_retries: usize,
+    /// Optional webhook URL for batch completion notifications
+    #[serde(default)]
+    pub webhook_url: Option<String>,
+}
+
+fn default_batch_max_concurrent() -> usize {
+    10
+}
+
+fn default_batch_max_retries() -> usize {
+    2
+}
+
+impl Default for BatchConfig {
+    fn default() -> Self {
+        Self {
+            max_concurrent: default_batch_max_concurrent(),
+            max_retries: default_batch_max_retries(),
+            webhook_url: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -616,6 +694,60 @@ pub struct MultimodalRequest {
     pub body: serde_json::Value,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BatchRequest {
+    pub input_file_id: String,
+    pub endpoint: String,
+    pub completion_window: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Batch {
+    pub id: String,
+    pub object: String,
+    pub endpoint: String,
+    pub errors: Option<BatchErrors>,
+    pub input_file_id: String,
+    pub completion_window: String,
+    pub status: String,
+    pub output_file_id: Option<String>,
+    pub error_file_id: Option<String>,
+    pub created_at: i64,
+    pub in_progress_at: Option<i64>,
+    pub expires_at: Option<i64>,
+    pub finalizing_at: Option<i64>,
+    pub completed_at: Option<i64>,
+    pub failed_at: Option<i64>,
+    pub expired_at: Option<i64>,
+    pub cancelling_at: Option<i64>,
+    pub cancelled_at: Option<i64>,
+    pub request_counts: Option<BatchRequestCounts>,
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BatchErrors {
+    pub object: String,
+    pub data: Vec<BatchError>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BatchError {
+    pub code: String,
+    pub message: String,
+    pub param: Option<String>,
+    pub line: Option<i32>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BatchRequestCounts {
+    pub total: i32,
+    pub completed: i32,
+    pub failed: i32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -954,5 +1086,132 @@ agentic:
 "#;
         let config: AppConfig = serde_yaml::from_str(yaml).expect("parse yaml");
         assert_eq!(config.agentic.max_iterations, 8);
+    }
+
+    #[test]
+    fn batch_request_serde_roundtrip() {
+        let req = BatchRequest {
+            input_file_id: "file-123".to_string(),
+            endpoint: "/v1/chat/completions".to_string(),
+            completion_window: "24h".to_string(),
+            metadata: None,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let parsed: BatchRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(req.input_file_id, parsed.input_file_id);
+        assert_eq!(req.endpoint, parsed.endpoint);
+    }
+
+    #[test]
+    fn batch_serde_roundtrip() {
+        let batch = Batch {
+            id: "batch_123".to_string(),
+            object: "batch".to_string(),
+            endpoint: "/v1/chat/completions".to_string(),
+            errors: None,
+            input_file_id: "file-123".to_string(),
+            completion_window: "24h".to_string(),
+            status: "completed".to_string(),
+            output_file_id: Some("file-456".to_string()),
+            error_file_id: None,
+            created_at: 1234567890,
+            in_progress_at: Some(1234567900),
+            expires_at: None,
+            finalizing_at: None,
+            completed_at: Some(1234568000),
+            failed_at: None,
+            expired_at: None,
+            cancelling_at: None,
+            cancelled_at: None,
+            request_counts: Some(BatchRequestCounts {
+                total: 10,
+                completed: 10,
+                failed: 0,
+            }),
+            metadata: None,
+        };
+        let json = serde_json::to_string(&batch).unwrap();
+        let parsed: Batch = serde_json::from_str(&json).unwrap();
+        assert_eq!(batch.id, parsed.id);
+        assert_eq!(batch.status, parsed.status);
+    }
+
+    #[test]
+    fn moderation_config_defaults() {
+        let config = ModerationConfig::default();
+        assert_eq!(config.provider_order, vec!["openai", "azure", "self-hosted"]);
+    }
+
+    #[test]
+    fn rerank_config_defaults() {
+        let config = RerankConfig::default();
+        assert_eq!(config.provider_order, vec!["cohere", "azure", "self-hosted"]);
+    }
+
+    #[test]
+    fn batch_config_defaults() {
+        let config = BatchConfig::default();
+        assert_eq!(config.max_concurrent, 10);
+        assert_eq!(config.max_retries, 2);
+        assert!(config.webhook_url.is_none());
+    }
+
+    #[test]
+    fn app_config_parses_moderation_rerank_batch() {
+        let yaml = r#"
+server:
+  host: 127.0.0.1
+  port: 3000
+  request_timeout_seconds: 60
+database:
+  url: postgres://user:pass@localhost/pasteurllm
+auth:
+  jwt_secret: supersecret
+  access_token_ttl_minutes: 15
+  refresh_token_ttl_days: 7
+  oidc_providers: []
+  saml_providers: []
+moderation:
+  provider_order:
+    - custom-openai
+    - custom-azure
+rerank:
+  provider_order:
+    - custom-cohere
+batch:
+  max_concurrent: 20
+  max_retries: 5
+  webhook_url: https://example.com/webhook
+"#;
+        let config: AppConfig = serde_yaml::from_str(yaml).expect("parse yaml");
+        assert_eq!(config.moderation.provider_order, vec!["custom-openai", "custom-azure"]);
+        assert_eq!(config.rerank.provider_order, vec!["custom-cohere"]);
+        assert_eq!(config.batch.max_concurrent, 20);
+        assert_eq!(config.batch.max_retries, 5);
+        assert_eq!(config.batch.webhook_url, Some("https://example.com/webhook".to_string()));
+    }
+
+    #[test]
+    fn app_config_moderation_rerank_batch_defaults_when_missing() {
+        let yaml = r#"
+server:
+  host: 127.0.0.1
+  port: 3000
+  request_timeout_seconds: 60
+database:
+  url: postgres://user:pass@localhost/pasteurllm
+auth:
+  jwt_secret: supersecret
+  access_token_ttl_minutes: 15
+  refresh_token_ttl_days: 7
+  oidc_providers: []
+  saml_providers: []
+"#;
+        let config: AppConfig = serde_yaml::from_str(yaml).expect("parse yaml");
+        assert_eq!(config.moderation.provider_order, vec!["openai", "azure", "self-hosted"]);
+        assert_eq!(config.rerank.provider_order, vec!["cohere", "azure", "self-hosted"]);
+        assert_eq!(config.batch.max_concurrent, 10);
+        assert_eq!(config.batch.max_retries, 2);
+        assert!(config.batch.webhook_url.is_none());
     }
 }

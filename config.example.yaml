@@ -25,3 +25,23 @@ agentic:
   mcp_servers: []
   # searxng:
   #   base_url: http://localhost:8080
+
+# Moderation fallback configuration
+moderation:
+  provider_order:
+    - openai
+    - azure
+    - self-hosted
+
+# Rerank fallback configuration
+rerank:
+  provider_order:
+    - cohere
+    - azure
+    - self-hosted
+
+# Batch processing configuration
+batch:
+  max_concurrent: 10
+  max_retries: 2
+  # webhook_url: https://example.com/webhooks/batch-complete

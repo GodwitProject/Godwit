@@ -155,3 +155,22 @@ pub struct EndUser {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct RequestLog {
+    pub id: Uuid,
+    pub api_key_id: Option<Uuid>,
+    pub user_id: Option<Uuid>,
+    pub organization_id: Uuid,
+    pub team_id: Option<Uuid>,
+    pub model: String,
+    pub provider: String,
+    pub provider_model_id: String,
+    pub capability: String,
+    pub duration_ms: i32,
+    pub streamed: bool,
+    pub status: String,
+    pub cost_usd: Option<rust_decimal::Decimal>,
+    pub tags: Vec<String>,
+    pub created_at: DateTime<Utc>,
+}

@@ -1,4 +1,3 @@
-use dashmap::DashMap;
 use godwit_auth::credentials::{decrypt_api_key, EncryptedSecret};
 use godwit_core::{Capability, PasteurError, Protocol};
 use godwit_db::models::{Model, ProviderProfile};
@@ -8,7 +7,6 @@ use godwit_db::repositories::{
 use godwit_providers::adapter::ResolvedProfile;
 use godwit_providers::{Adapter, AdapterRegistry};
 use sqlx::PgPool;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use uuid::Uuid;
 

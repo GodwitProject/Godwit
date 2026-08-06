@@ -218,6 +218,7 @@ mod tests {
                     spend_usd: dec!(56.78),
                 },
             ],
+            by_custom_tag: vec![],
         };
         
         let json = serde_json::to_string(&response).expect("serialize");
@@ -238,6 +239,7 @@ mod tests {
             from: None,
             to: None,
             organization_id: Some(uuid::Uuid::new_v4()),
+            tag: None,
         };
         let scoped = scope_spend_tags_query(&claims, &requested);
         assert_eq!(scoped.0, Some(claims.organization_id));
@@ -254,6 +256,7 @@ mod tests {
             from: None,
             to: None,
             organization_id: Some(uuid::Uuid::new_v4()),
+            tag: None,
         };
         let scoped = scope_spend_tags_query(&claims, &requested);
         assert_eq!(scoped.0, Some(claims.organization_id));
@@ -272,6 +275,7 @@ mod tests {
             from: None,
             to: None,
             organization_id: Some(org_id),
+            tag: None,
         };
         let scoped = scope_spend_tags_query(&claims, &requested);
         assert_eq!(scoped.0, Some(org_id));

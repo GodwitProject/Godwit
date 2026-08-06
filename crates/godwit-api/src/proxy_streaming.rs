@@ -1,4 +1,4 @@
-use futures::{stream, Stream, StreamExt};
+use futures::{Stream, StreamExt};
 use godwit_core::{FunctionCall, ToolCall};
 use godwit_providers::{ProviderError, SseEvent};
 use godwit_providers::sse_egress::CanonicalEvent;
@@ -131,7 +131,7 @@ pub fn process_streaming_tool_calls(
     state: Arc<AppState>,
     stream: impl Stream<Item = Result<SseEvent, ProviderError>> + Send + 'static,
 ) -> Pin<Box<dyn Stream<Item = Result<SseEvent, ProviderError>> + Send>> {
-    let (tx, mut rx) = mpsc::channel::<Result<SseEvent, ProviderError>>(64);
+    let (tx, rx) = mpsc::channel::<Result<SseEvent, ProviderError>>(64);
 
     tokio::spawn(async move {
         let mut stream = Box::pin(stream);

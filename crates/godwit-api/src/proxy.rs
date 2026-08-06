@@ -563,7 +563,7 @@ async fn chat_completions(
             .and_then(|v| v.to_str().ok())
     );
 
-    let (req_parts, req_body) = req_headers.into_parts();
+    let (_req_parts, req_body) = req_headers.into_parts();
     let body_bytes = axum::body::to_bytes(req_body, usize::MAX).await.unwrap();
     let req: ChatCompletionRequest = serde_json::from_slice(&body_bytes).unwrap();
 
@@ -579,12 +579,10 @@ async fn chat_completions(
     check_team_budget(&state, &api_key).await?;
 
     let mut rate_limited_err: Option<crate::error::ApiError> = None;
-    let mut last_err: Option<crate::error::ApiError> = None;
     let (result, used_model) = match call_chat_agentic(&state, &primary_resolved, req.clone()).await
     {
         Ok((resp, usage)) => ((Ok(resp), usage), primary_resolved.model.clone()),
         Err(e) => {
-            last_err = Some(map_provider_error(e));
             // Release the primary model's in-flight slot before attempting fallbacks.
             std::mem::drop(primary_resolved.in_flight.take());
             let mut fallback_result = None;
@@ -612,7 +610,7 @@ async fn chat_completions(
                                 fallback_result = Some(((Ok(resp), usage), resolved.model.clone()));
                                 break;
                             }
-                            Err(e) => {
+                            Err(_e) => {
                                 continue;
                             }
                         }
@@ -620,7 +618,7 @@ async fn chat_completions(
                     Err(_) => continue,
                 }
             }
-            fallback_result.ok_or_else(|| rate_limited_err.or(last_err).unwrap())?
+            fallback_result.ok_or_else(|| rate_limited_err.unwrap())?
         }
     };
 
@@ -687,11 +685,9 @@ async fn embeddings(
     check_team_budget(&state, &api_key).await?;
 
     let mut rate_limited_err: Option<crate::error::ApiError> = None;
-    let mut last_err: Option<crate::error::ApiError> = None;
     let (body, usage, used_model) = match call_embedding(&primary_resolved, req.clone()).await {
         Ok((resp, usage)) => (resp, usage, primary_resolved.model.clone()),
         Err(e) => {
-            last_err = Some(map_provider_error(e));
             std::mem::drop(primary_resolved.in_flight.take());
             let mut fallback_result = None;
             for fallback_id in fallback_chain {
@@ -718,7 +714,7 @@ async fn embeddings(
                                 fallback_result = Some((resp, usage, resolved.model.clone()));
                                 break;
                             }
-                            Err(e) => {
+                            Err(_e) => {
                                 continue;
                             }
                         }
@@ -726,7 +722,7 @@ async fn embeddings(
                     Err(_) => continue,
                 }
             }
-            fallback_result.ok_or_else(|| rate_limited_err.or(last_err).unwrap())?
+            fallback_result.ok_or_else(|| rate_limited_err.unwrap())?
         }
     };
     let cost_usd = compute_cost(&used_model, Capability::Embedding, &usage);
@@ -800,11 +796,9 @@ async fn image_generations(
     check_team_budget(&state, &api_key).await?;
 
     let mut rate_limited_err: Option<crate::error::ApiError> = None;
-    let mut last_err: Option<crate::error::ApiError> = None;
     let (body, usage, used_model) = match call_image_generation( &primary_resolved, req.clone()).await {
         Ok((resp, usage)) => (resp, usage, primary_resolved.model.clone()),
         Err(e) => {
-            last_err = Some(map_provider_error(e));
             std::mem::drop(primary_resolved.in_flight.take());
             let mut fallback_result = None;
             for fallback_id in fallback_chain {
@@ -831,7 +825,7 @@ async fn image_generations(
                                 fallback_result = Some((resp, usage, resolved.model.clone()));
                                 break;
                             }
-                            Err(e) => {
+                            Err(_e) => {
                                 continue;
                             }
                         }
@@ -839,7 +833,7 @@ async fn image_generations(
                     Err(_) => continue,
                 }
             }
-            fallback_result.ok_or_else(|| rate_limited_err.or(last_err).unwrap())?
+            fallback_result.ok_or_else(|| rate_limited_err.unwrap())?
         }
     };
     let cost_usd = compute_cost(&used_model, Capability::ImageGeneration, &usage);
@@ -915,11 +909,9 @@ async fn audio_speech(
     check_team_budget(&state, &api_key).await?;
 
     let mut rate_limited_err: Option<crate::error::ApiError> = None;
-    let mut last_err: Option<crate::error::ApiError> = None;
     let ((bytes, content_type), usage, used_model) = match call_audio_speech( &primary_resolved, req.clone()).await {
         Ok(((bytes, content_type), usage)) => ((bytes, content_type), usage, primary_resolved.model.clone()),
         Err(e) => {
-            last_err = Some(map_provider_error(e));
             std::mem::drop(primary_resolved.in_flight.take());
             let mut fallback_result = None;
             for fallback_id in fallback_chain {
@@ -946,7 +938,7 @@ async fn audio_speech(
                                 fallback_result = Some(((bytes, content_type), usage, resolved.model.clone()));
                                 break;
                             }
-                            Err(e) => {
+                            Err(_e) => {
                                 continue;
                             }
                         }
@@ -954,7 +946,7 @@ async fn audio_speech(
                     Err(_) => continue,
                 }
             }
-            fallback_result.ok_or_else(|| rate_limited_err.or(last_err).unwrap())?
+            fallback_result.ok_or_else(|| rate_limited_err.unwrap())?
         }
     };
     let cost_usd = compute_cost(&used_model, Capability::AudioTts, &usage);
@@ -1078,11 +1070,9 @@ async fn audio_transcriptions(
     let content_type_clone = content_type.clone();
 
     let mut rate_limited_err: Option<crate::error::ApiError> = None;
-    let mut last_err: Option<crate::error::ApiError> = None;
     let (body, usage, used_model) = match call_audio_transcription( &primary_resolved, req.clone(), file_bytes_clone.clone(), filename_clone.clone(), content_type_clone.clone()).await {
         Ok((resp, usage)) => (resp, usage, primary_resolved.model.clone()),
         Err(e) => {
-            last_err = Some(map_provider_error(e));
             std::mem::drop(primary_resolved.in_flight.take());
             let mut fallback_result = None;
             for fallback_id in fallback_chain {
@@ -1109,7 +1099,7 @@ async fn audio_transcriptions(
                                 fallback_result = Some((resp, usage, resolved.model.clone()));
                                 break;
                             }
-                            Err(e) => {
+                            Err(_e) => {
                                 continue;
                             }
                         }
@@ -1117,7 +1107,7 @@ async fn audio_transcriptions(
                     Err(_) => continue,
                 }
             }
-            fallback_result.ok_or_else(|| rate_limited_err.or(last_err).unwrap())?
+            fallback_result.ok_or_else(|| rate_limited_err.unwrap())?
         }
     };
     let cost_usd = compute_cost(&used_model, Capability::AudioStt, &usage);
@@ -1264,11 +1254,9 @@ async fn image_edits(
     let mask_bytes_clone = mask_bytes.clone();
 
     let mut rate_limited_err: Option<crate::error::ApiError> = None;
-    let mut last_err: Option<crate::error::ApiError> = None;
     let (body, usage, used_model) = match call_image_edit( &primary_resolved, req.clone(), image_bytes_clone.clone(), image_filename_clone.clone(), mask_bytes_clone.clone()).await {
         Ok((resp, usage)) => (resp, usage, primary_resolved.model.clone()),
         Err(e) => {
-            last_err = Some(map_provider_error(e));
             std::mem::drop(primary_resolved.in_flight.take());
             let mut fallback_result = None;
             for fallback_id in fallback_chain {
@@ -1295,7 +1283,7 @@ async fn image_edits(
                                 fallback_result = Some((resp, usage, resolved.model.clone()));
                                 break;
                             }
-                            Err(e) => {
+                            Err(_e) => {
                                 continue;
                             }
                         }
@@ -1303,7 +1291,7 @@ async fn image_edits(
                     Err(_) => continue,
                 }
             }
-            fallback_result.ok_or_else(|| rate_limited_err.or(last_err).unwrap())?
+            fallback_result.ok_or_else(|| rate_limited_err.unwrap())?
         }
     };
     let cost_usd = compute_cost(&used_model, Capability::ImageEdit, &usage);

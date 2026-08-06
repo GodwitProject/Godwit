@@ -29,6 +29,9 @@ pub struct AppConfig {
     /// Agentic ecosystem wiring: MCP tool servers and the SearXNG web-search backend.
     #[serde(default)]
     pub agentic: AgenticConfig,
+    /// Compatibility flags for wire-format interoperability.
+    #[serde(default)]
+    pub compat: Option<CompatConfig>,
 }
 
 /// The agentic ecosystem section of [`AppConfig`]: a list of MCP servers to expose as
@@ -99,6 +102,12 @@ pub struct SamlProviderConfig {
     pub idp_metadata_url: String,
     pub sp_entity_id: String,
     pub acs_url: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct CompatConfig {
+    /// If true, emit native OpenAI chat.completion.chunk format instead of canonical envelope
+    pub openai_wire_streaming: bool,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]

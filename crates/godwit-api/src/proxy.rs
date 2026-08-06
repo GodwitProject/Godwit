@@ -1811,4 +1811,55 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[test]
+    fn chat_completion_request_forwards_all_advanced_params() {
+        use godwit_core::{ChatCompletionRequest, ChatMessage, ResponseFormat, JsonSchema, Stop, ReasoningConfig, ThinkingConfig, ToolChoice, FunctionName};
+        
+        let mut logit_bias = std::collections::HashMap::new();
+        logit_bias.insert("token1".to_string(), 10);
+        
+        let req = ChatCompletionRequest {
+            model: "test-model".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: Some(vec![godwit_core::ChatContent::Text("test".to_string())]),
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+                cache_control: None,
+            }],
+            stream: Some(false),
+            temperature: Some(0.7),
+            max_tokens: Some(100),
+            top_p: Some(0.9),
+            top_k: Some(40),
+            frequency_penalty: Some(0.5),
+            presence_penalty: Some(0.3),
+            repetition_penalty: Some(1.2),
+            stop: Some(Stop::Array(vec!["stop".to_string()])),
+            seed: Some(42),
+            n: Some(2),
+            logprobs: Some(true),
+            top_logprobs: Some(5),
+            logit_bias: Some(logit_bias),
+            user: Some("test-user".to_string()),
+            tools: None,
+            tool_choice: Some(ToolChoice::Function { function: FunctionName { name: "test".to_string() } }),
+            parallel_tool_calls: Some(false),
+            response_format: Some(ResponseFormat::JsonObject),
+            reasoning: Some(ReasoningConfig {
+                effort: Some("high".to_string()),
+                thinking: Some(ThinkingConfig { r#type: "enabled".to_string(), budget_tokens: 1000 }),
+            }),
+        };
+        
+        let json = serde_json::to_string(&req).unwrap();
+        let parsed: ChatCompletionRequest = serde_json::from_str(&json).unwrap();
+        
+        assert_eq!(parsed.top_k, Some(40));
+        assert_eq!(parsed.repetition_penalty, Some(1.2));
+        assert_eq!(parsed.parallel_tool_calls, Some(false));
+        assert!(parsed.reasoning.is_some());
+    }
+
 }

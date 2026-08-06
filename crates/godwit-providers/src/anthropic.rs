@@ -179,6 +179,10 @@ pub struct AnthropicChatRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     top_p: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    top_k: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    repetition_penalty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<AnthropicTool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<AnthropicToolChoice>,
@@ -242,6 +246,8 @@ impl AnthropicChatRequest {
             stream: request.stream == Some(true),
             stop_sequences,
             top_p: request.top_p,
+            top_k: request.top_k,
+            repetition_penalty: request.repetition_penalty,
             tools: if tools.is_empty() { None } else { Some(tools) },
             tool_choice,
         }
@@ -1208,5 +1214,55 @@ mod tests {
         assert_eq!(body["top_p"], 0.9);
         assert_eq!(body["temperature"], 0.7);
         assert_eq!(body["max_tokens"], 100);
+    }
+
+    #[tokio::test]
+    async fn chat_sends_new_advanced_params() {
+        let server = MockServer::start().await;
+        let captured_body = std::sync::Arc::new(std::sync::Mutex::new(None::<serde_json::Value>));
+        let captured_clone = captured_body.clone();
+
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .respond_with(move |req: &wiremock::Request| {
+                if let Ok(body) = serde_json::from_slice::<serde_json::Value>(&req.body) {
+                    *captured_clone.lock().unwrap() = Some(body);
+                }
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "id": "msg_01",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-3-5-sonnet-20241022",
+                    "content": [{"type": "text", "text": "Hi"}],
+                    "stop_reason": "end_turn",
+                    "usage": {"input_tokens": 10, "output_tokens": 5}
+                }))
+            })
+            .mount(&server)
+            .await;
+
+        let client = AnthropicAdapter::new();
+        let profile = crate::adapter::ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
+        let req = ChatCompletionRequest {
+            model: "claude-3-5-sonnet".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: Some(vec![ChatContent::text("Hi")]),
+                name: None,
+                ..Default::default()
+            }],
+            stream: Some(false),
+            top_k: Some(40),
+            repetition_penalty: Some(1.2),
+            ..Default::default()
+        };
+        let _ = client.chat(&profile, &dummy_model(), req).await.unwrap();
+
+        let body = captured_body.lock().unwrap().take().expect("request body captured");
+        assert_eq!(body["top_k"], 40);
+        assert_eq!(body["repetition_penalty"], 1.2);
     }
 }

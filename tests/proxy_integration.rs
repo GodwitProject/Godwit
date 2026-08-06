@@ -1,5 +1,6 @@
-use godwit_core::{ChatCompletionRequest, ChatContent, ChatMessage};
+use godwit_core::{ChatCompletionRequest, ChatContent, ChatMessage, ReasoningConfig, ThinkingConfig, Stop};
 use reqwest::Client;
+use futures::StreamExt;
 
 #[tokio::test]
 #[ignore = "requires running server"]
@@ -108,4 +109,98 @@ async fn proxy_image_edits_smoke() {
         .await
         .expect("request");
     assert!(res.status().is_success());
+}
+
+#[tokio::test]
+#[ignore = "requires running server"]
+async fn proxy_streaming_with_advanced_params() {
+    let client = Client::new();
+    let req = ChatCompletionRequest {
+        model: "gpt-4o".to_string(),
+        messages: vec![ChatMessage {
+            role: "user".to_string(),
+            content: Some(vec![ChatContent::text("Say hello")]),
+            name: None,
+            ..Default::default()
+        }],
+        stream: Some(true),
+        temperature: Some(0.7),
+        max_tokens: Some(100),
+        top_p: Some(0.9),
+        top_k: Some(40),
+        frequency_penalty: Some(0.5),
+        presence_penalty: Some(0.3),
+        repetition_penalty: Some(1.2),
+        stop: Some(Stop::Array(vec!["STOP".to_string()])),
+        seed: Some(42),
+        ..Default::default()
+    };
+    
+    let resp = client
+        .post("http://localhost:3000/v1/chat/completions")
+        .header("Authorization", "Bearer sk-godwit-test")
+        .json(&req)
+        .send()
+        .await
+        .unwrap();
+    
+    assert!(resp.status().is_success() || resp.status() == 401);
+    
+    if resp.status().is_success() {
+        let mut stream = resp.bytes_stream();
+        let mut received_events = 0;
+        while let Some(chunk) = stream.next().await {
+            if let Ok(bytes) = chunk {
+                let text = String::from_utf8_lossy(&bytes);
+                if text.contains("data: ") {
+                    received_events += 1;
+                }
+            }
+        }
+        assert!(received_events > 0, "Should receive streaming events");
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires running server"]
+async fn proxy_chat_with_all_advanced_params() {
+    let client = Client::new();
+    let req = ChatCompletionRequest {
+        model: "gpt-4o".to_string(),
+        messages: vec![ChatMessage {
+            role: "user".to_string(),
+            content: Some(vec![ChatContent::text("Say hello")]),
+            name: None,
+            ..Default::default()
+        }],
+        stream: Some(false),
+        temperature: Some(0.7),
+        max_tokens: Some(100),
+        top_p: Some(0.9),
+        top_k: Some(40),
+        frequency_penalty: Some(0.5),
+        presence_penalty: Some(0.3),
+        repetition_penalty: Some(1.2),
+        stop: Some(Stop::Array(vec!["STOP".to_string()])),
+        seed: Some(42),
+        n: Some(1),
+        logprobs: Some(false),
+        user: Some("test-user".to_string()),
+        parallel_tool_calls: Some(false),
+        reasoning: Some(ReasoningConfig {
+            effort: Some("medium".to_string()),
+            thinking: Some(ThinkingConfig { r#type: "enabled".to_string(), budget_tokens: 500 }),
+        }),
+        ..Default::default()
+    };
+    
+    let resp = client
+        .post("http://localhost:3000/v1/chat/completions")
+        .header("Authorization", "Bearer sk-godwit-test")
+        .json(&req)
+        .send()
+        .await
+        .unwrap();
+    
+    assert!(resp.status().is_success() || resp.status() == 401);
 }

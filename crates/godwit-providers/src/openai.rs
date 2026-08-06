@@ -111,9 +111,13 @@ struct OpenAiChatRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     top_p: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    top_k: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     frequency_penalty: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     presence_penalty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    repetition_penalty: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stop: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -133,7 +137,11 @@ struct OpenAiChatRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<godwit_core::ToolChoice>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    parallel_tool_calls: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     response_format: Option<OpenAiResponseFormat>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning: Option<godwit_core::ReasoningConfig>,
 }
 
 /// Cache key for prompt caching - hashes the essential request parameters
@@ -279,8 +287,10 @@ impl Adapter for OpenAiProvider {
             temperature: request.temperature,
             max_tokens: request.max_tokens,
             top_p: request.top_p,
+            top_k: request.top_k,
             frequency_penalty: request.frequency_penalty,
             presence_penalty: request.presence_penalty,
+            repetition_penalty: request.repetition_penalty,
             stop: stop_value.clone(),
             seed: request.seed,
             n: request.n,
@@ -290,7 +300,9 @@ impl Adapter for OpenAiProvider {
             user: request.user.clone(),
             tools: request.tools.clone(),
             tool_choice: request.tool_choice.clone(),
+            parallel_tool_calls: request.parallel_tool_calls,
             response_format,
+            reasoning: request.reasoning.clone(),
         };
         let url = format!("{}/chat/completions", profile.base_url);
         let mut req = self.client.post(&url).json(&openai_request);
@@ -365,8 +377,10 @@ impl Adapter for OpenAiProvider {
             temperature: request.temperature,
             max_tokens: request.max_tokens,
             top_p: request.top_p,
+            top_k: request.top_k,
             frequency_penalty: request.frequency_penalty,
             presence_penalty: request.presence_penalty,
+            repetition_penalty: request.repetition_penalty,
             stop: stop_value.clone(),
             seed: request.seed,
             n: request.n,
@@ -376,7 +390,9 @@ impl Adapter for OpenAiProvider {
             user: request.user.clone(),
             tools: request.tools.clone(),
             tool_choice: request.tool_choice.clone(),
+            parallel_tool_calls: request.parallel_tool_calls,
             response_format,
+            reasoning: request.reasoning.clone(),
         };
         let url = format!("{}/chat/completions", profile.base_url);
         let mut req = self.client.post(&url).json(&openai_request);
@@ -1701,5 +1717,63 @@ mod tests {
         assert_eq!(body["top_logprobs"], 3);
         assert_eq!(body["logit_bias"]["1234"], 5);
         assert_eq!(body["user"], "test-user");
+    }
+
+    #[tokio::test]
+    async fn chat_sends_new_advanced_params() {
+        use godwit_core::{ReasoningConfig, ThinkingConfig};
+        let server = MockServer::start().await;
+        let captured_body = std::sync::Arc::new(std::sync::Mutex::new(None::<serde_json::Value>));
+        let captured_clone = captured_body.clone();
+
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(move |req: &wiremock::Request| {
+                if let Ok(body) = serde_json::from_slice::<serde_json::Value>(&req.body) {
+                    *captured_clone.lock().unwrap() = Some(body);
+                }
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "id": "chatcmpl-1",
+                    "object": "chat.completion",
+                    "created": 1,
+                    "model": "gpt-4o",
+                    "choices": [{"index":0,"message":{"role":"assistant","content":"Hello"},"finish_reason":"stop"}],
+                    "usage": {"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
+                }))
+            })
+            .mount(&server)
+            .await;
+
+        let client = OpenAiAdapter::new();
+        let profile = ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
+        let req = ChatCompletionRequest {
+            model: "gpt-4o".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: Some(vec![ChatContent::text("Hi")]),
+                name: None,
+                ..Default::default()
+            }],
+            stream: Some(false),
+            top_k: Some(40),
+            repetition_penalty: Some(1.2),
+            parallel_tool_calls: Some(false),
+            reasoning: Some(ReasoningConfig {
+                effort: Some("high".to_string()),
+                thinking: Some(ThinkingConfig { r#type: "enabled".to_string(), budget_tokens: 1000 }),
+            }),
+            ..Default::default()
+        };
+        let _ = client.chat(&profile, &dummy_model(), req).await.unwrap();
+
+        let body = captured_body.lock().unwrap().take().expect("request body captured");
+        assert_eq!(body["top_k"], 40);
+        assert_eq!(body["repetition_penalty"], 1.2);
+        assert_eq!(body["parallel_tool_calls"], false);
+        assert!(body["reasoning"].is_object());
+        assert_eq!(body["reasoning"]["effort"], "high");
     }
 }

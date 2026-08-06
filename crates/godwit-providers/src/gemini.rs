@@ -586,6 +586,8 @@ struct GeminiGenerationConfig {
     stop_sequences: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     seed: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    repetition_penalty: Option<f32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -644,6 +646,7 @@ impl GeminiChatRequest {
                 top_k: request.top_k,
                 stop_sequences,
                 seed: request.seed,
+                repetition_penalty: request.repetition_penalty,
             },
             tools: if has_native_web_search {
                 Some(vec![GeminiTool {

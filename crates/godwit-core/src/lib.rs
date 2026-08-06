@@ -10,6 +10,9 @@ pub use guardrails::{
     PreCallResult, PostCallResult, ModerationResult,
 };
 
+pub mod alerting;
+pub use alerting::{AlertingService, BudgetAlertPayload, AlertingError};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PiiConfig {
     #[serde(default = "default_pii_enabled")]

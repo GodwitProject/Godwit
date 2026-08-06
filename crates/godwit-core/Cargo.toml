@@ -14,3 +14,4 @@ chrono = { workspace = true }
 regex = "1.10"
 reqwest = { workspace = true }
 tokio = { workspace = true }
+sqlx = { workspace = true }

@@ -29,6 +29,8 @@ dashmap = "6"
 reqwest = { workspace = true }
 jsonschema = "0.17"
 thiserror = { workspace = true }
+prometheus = "0.13"
+lazy_static = "1.4"
 
 [dev-dependencies]
 hyper = { version = "1", features = ["full"] }

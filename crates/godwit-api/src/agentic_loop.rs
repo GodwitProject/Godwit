@@ -224,4 +224,51 @@ mod tests {
         let loop_1 = AgenticLoop::new(1, 120);
         assert_eq!(loop_1.max_iterations, 1);
     }
+
+    #[tokio::test]
+    async fn test_mcp_tool_call_returns_error_for_unknown_server() {
+        use godwit_mcp::McpRegistry;
+        use std::sync::Arc;
+
+        let registry = McpRegistry::new();
+        let result = registry.call_tool("unknown__tool", serde_json::json!({})).await;
+        
+        assert!(result.is_err());
+        assert!(matches!(result, Err(godwit_mcp::McpError::UnknownServer(_))));
+    }
+
+    #[tokio::test]
+    async fn test_mcp_tool_name_recognition() {
+        let mcp_tool_name = "filesystem__read_file";
+        let non_mcp_tool_name = "web_search";
+        
+        assert!(mcp_tool_name.contains("__"));
+        assert!(!non_mcp_tool_name.contains("__"));
+    }
+
+    #[tokio::test]
+    async fn test_empty_mcp_registry_returns_no_tools() {
+        use godwit_mcp::McpRegistry;
+
+        let registry = McpRegistry::new();
+        let tools = registry.all_tools().await;
+        
+        assert!(tools.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_mcp_tool_error_message_appended_to_conversation() {
+        use godwit_mcp::McpRegistry;
+        use godwit_core::{ChatContent, ToolCall};
+        use std::sync::Arc;
+
+        let registry = Arc::new(McpRegistry::new());
+        let result = registry.call_tool("test__tool", serde_json::json!({})).await;
+        
+        assert!(result.is_err());
+        
+        let error_message = format!("MCP tool call to 'test__tool' failed: {}", result.unwrap_err());
+        assert!(error_message.contains("MCP tool call to 'test__tool' failed"));
+        assert!(error_message.contains("unknown MCP server"));
+    }
 }

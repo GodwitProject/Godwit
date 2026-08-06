@@ -1,6 +1,7 @@
 use rust_decimal::Decimal;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
+use tokio::time::{sleep, Duration};
 
 use godwit_core::{Capability, ChatCompletionRequest, ChatMessage};
 
@@ -9,6 +10,7 @@ use crate::error::ApiError;
 use crate::state::AppState;
 
 const DEFAULT_MAX_CONCURRENT: usize = 10;
+const MAX_RETRIES: u32 = 2;
 
 #[derive(Debug, Clone)]
 pub struct BatchItemResult {
@@ -76,11 +78,39 @@ impl BatchProcessor {
         state: &Arc<AppState>,
         request: crate::batch_parser::ParsedBatchLine,
     ) -> BatchItemResult {
+        let mut last_error: Option<String> = None;
+
+        for attempt in 0..=MAX_RETRIES {
+            if attempt > 0 {
+                let delay = Self::exponential_backoff_delay(attempt);
+                sleep(delay).await;
+            }
+
+            let result = Self::attempt_request(state, &request).await;
+            if result.success {
+                return result;
+            }
+
+            last_error = result.error;
+        }
+
+        BatchItemResult {
+            custom_id: request.custom_id,
+            success: false,
+            estimated_cost: request.estimated_cost,
+            error: last_error,
+        }
+    }
+
+    async fn attempt_request(
+        state: &Arc<AppState>,
+        request: &crate::batch_parser::ParsedBatchLine,
+    ) -> BatchItemResult {
         let resolved = match state.model_router.resolve(&request.body.model, Capability::Chat).await {
             Ok(r) => r,
             Err(e) => {
                 return BatchItemResult {
-                    custom_id: request.custom_id,
+                    custom_id: request.custom_id.clone(),
                     success: false,
                     estimated_cost: request.estimated_cost,
                     error: Some(format!("Model resolution failed: {}", e)),
@@ -92,23 +122,29 @@ impl BatchProcessor {
             .chat(
                 &resolved.resolved_credentials,
                 &resolved.model,
-                convert_to_chat_request(request.body),
+                convert_to_chat_request(request.body.clone()),
             )
             .await
         {
             Ok((_response, _usage)) => BatchItemResult {
-                custom_id: request.custom_id,
+                custom_id: request.custom_id.clone(),
                 success: true,
                 estimated_cost: request.estimated_cost,
                 error: None,
             },
             Err(e) => BatchItemResult {
-                custom_id: request.custom_id,
+                custom_id: request.custom_id.clone(),
                 success: false,
                 estimated_cost: request.estimated_cost,
                 error: Some(format!("Request failed: {}", e)),
             },
         }
+    }
+
+    fn exponential_backoff_delay(attempt: u32) -> Duration {
+        let base_ms = 1000u64;
+        let delay_ms = base_ms * 2u64.pow(attempt - 1);
+        Duration::from_millis(delay_ms)
     }
 
     fn aggregate_results(item_results: Vec<BatchItemResult>) -> BatchProcessResult {
@@ -212,5 +248,57 @@ mod tests {
         assert_eq!(aggregated.success_count, 2);
         assert_eq!(aggregated.failure_count, 1);
         assert_eq!(aggregated.total_estimated_cost, Decimal::from(10));
+    }
+
+    #[test]
+    fn test_exponential_backoff_delay() {
+        assert_eq!(BatchProcessor::exponential_backoff_delay(1), Duration::from_secs(1));
+        assert_eq!(BatchProcessor::exponential_backoff_delay(2), Duration::from_secs(2));
+        assert_eq!(BatchProcessor::exponential_backoff_delay(3), Duration::from_secs(4));
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_limit_enforced() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::sync::Mutex;
+
+        let max_concurrent = 3;
+        let processor = BatchProcessor::with_max_concurrent(max_concurrent);
+        let concurrent_count = Arc::new(AtomicUsize::new(0));
+        let max_observed = Arc::new(Mutex::new(0usize));
+
+        let semaphore = Arc::new(Semaphore::new(max_concurrent));
+        let mut handles = Vec::new();
+
+        for _ in 0..10 {
+            let semaphore = Arc::clone(&semaphore);
+            let concurrent_count = Arc::clone(&concurrent_count);
+            let max_observed = Arc::clone(&max_observed);
+
+            let handle = tokio::spawn(async move {
+                let _permit = semaphore.acquire().await.unwrap();
+                let current = concurrent_count.fetch_add(1, Ordering::SeqCst) + 1;
+                
+                {
+                    let mut max = max_observed.lock().await;
+                    if current > *max {
+                        *max = current;
+                    }
+                }
+
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                concurrent_count.fetch_sub(1, Ordering::SeqCst);
+                current
+            });
+
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.await.unwrap();
+        }
+
+        let max = *max_observed.lock().await;
+        assert!(max <= max_concurrent, "Max concurrent {} exceeded limit {}", max, max_concurrent);
     }
 }

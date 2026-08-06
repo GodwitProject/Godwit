@@ -9,6 +9,7 @@ pub mod model_info;
 pub mod model_router;
 pub mod moderation;
 pub mod proxy;
+pub mod proxy_streaming;
 pub mod rate_limit;
 pub mod rerank;
 pub mod resilience;

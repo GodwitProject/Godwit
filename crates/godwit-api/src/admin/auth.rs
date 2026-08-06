@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Extension, Path, Query, State},
     http::header::{HeaderMap, HeaderValue, SET_COOKIE},
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
@@ -179,6 +179,23 @@ async fn logout(
     Ok((headers, Json(serde_json::json!({ "logged_out": true }))))
 }
 
+pub async fn me(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<serde_json::Value>, crate::error::ApiError> {
+    let user = state
+        .user_repo
+        .get_by_id(uuid::Uuid::parse_str(&claims.sub).unwrap())
+        .await
+        .map_err(|_| crate::error::ApiError::Unauthorized)?;
+    Ok(Json(serde_json::json!({ "user": {
+        "id": user.id,
+        "email": user.email,
+        "role": user.role,
+        "organization_id": user.organization_id,
+    }})))
+}
+
 async fn oidc_start(
     State(state): State<Arc<AppState>>,
     Path(provider_id): Path<String>,
@@ -251,6 +268,7 @@ async fn saml_acs(
 mod tests {
     use super::*;
     use axum::http::header::SET_COOKIE;
+    use axum::http::StatusCode;
     use sqlx::PgPool;
     use uuid::Uuid;
 
@@ -441,5 +459,93 @@ mod tests {
             cookie_strs.iter().any(|c| c == "godwit_refresh=; HttpOnly; Path=/api/v1/auth; Max-Age=0"),
             "refresh clear cookie missing: {cookie_strs:?}"
         );
+    }
+
+    async fn issue_cookie_for_user(
+        state: &AppState,
+        user: &User,
+    ) -> String {
+        let (headers, _body) = issue_token_pair(state, user).await.expect("issue tokens");
+        let access = headers
+            .get_all(SET_COOKIE)
+            .iter()
+            .map(|v| v.to_str().unwrap().to_string())
+            .find(|c| c.starts_with("godwit_access="))
+            .expect("godwit_access Set-Cookie present");
+        access.split(';').next().unwrap().to_string()
+    }
+
+    async fn me_request(
+        state: Arc<AppState>,
+        cookie: Option<&str>,
+    ) -> (StatusCode, serde_json::Value) {
+        use axum::body::Body;
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        let app = axum::Router::new()
+            .nest("/api/v1", crate::admin::router(state.clone()))
+            .with_state(state);
+        let mut builder = Request::builder().uri("/api/v1/auth/me");
+        if let Some(cookie) = cookie {
+            builder = builder.header(axum::http::header::COOKIE, cookie);
+        }
+        let res = app
+            .oneshot(builder.body(Body::empty()).unwrap())
+            .await
+            .expect("request succeeds");
+        let status = res.status();
+        let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .expect("read body");
+        let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+        (status, json)
+    }
+
+    #[tokio::test]
+    async fn me_with_valid_cookie_returns_current_user() {
+        let pool = PgPool::connect(&std::env::var("DATABASE_URL").expect("DATABASE_URL set"))
+            .await
+            .expect("connect to test db");
+        godwit_db::MIGRATOR.run(&pool).await.expect("run migrations");
+        let state = test_state(pool).await;
+
+        let org = state.org_repo.create("me-test-org", None).await.expect("create org");
+        let unique = Uuid::new_v4().to_string();
+        let user = state
+            .user_repo
+            .create(
+                &format!("me-test-{unique}@example.com"),
+                None,
+                godwit_db::models::UserRole::OrgAdmin,
+                Some(org.id),
+            )
+            .await
+            .expect("create user");
+
+        let cookie = issue_cookie_for_user(&state, &user).await;
+        let (status, json) = me_request(state, Some(&cookie)).await;
+
+        assert_eq!(status, StatusCode::OK);
+        let user_json = json.get("user").expect("user key present");
+        assert_eq!(user_json["id"], serde_json::json!(user.id));
+        assert_eq!(user_json["email"], serde_json::json!(user.email));
+        assert_eq!(user_json["role"], serde_json::json!(user.role));
+        assert_eq!(
+            user_json["organization_id"],
+            serde_json::json!(user.organization_id)
+        );
+    }
+
+    #[tokio::test]
+    async fn me_without_auth_returns_401() {
+        let pool = PgPool::connect(&std::env::var("DATABASE_URL").expect("DATABASE_URL set"))
+            .await
+            .expect("connect to test db");
+        godwit_db::MIGRATOR.run(&pool).await.expect("run migrations");
+        let state = test_state(pool).await;
+
+        let (status, _json) = me_request(state, None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
 }

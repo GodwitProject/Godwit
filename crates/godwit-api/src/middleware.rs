@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum::{
     body::{Body, Bytes},
     extract::{Extension, Request, State},
-    http::{header::AUTHORIZATION, HeaderValue},
+    http::{header::AUTHORIZATION, HeaderValue, Method},
     http::{header::COOKIE, StatusCode},
     middleware::Next,
     response::Response,
@@ -85,6 +85,21 @@ pub async fn jwt_auth(
     mut req: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
+    // CSRF hardening: when an allowed cookie origin is configured, state-changing
+    // requests must carry a matching Origin header. No-op in dev (empty origin).
+    let allowed_origin = state.config.auth.allowed_cookie_origin.as_str();
+    if !allowed_origin.is_empty() && is_state_changing(req.method()) {
+        let origin_matches = req
+            .headers()
+            .get(axum::http::header::ORIGIN)
+            .and_then(|h| h.to_str().ok())
+            .map(|origin| origin == allowed_origin)
+            .unwrap_or(false);
+        if !origin_matches {
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+
     // 1. Bearer header (backward compatible)
     let token = req
         .headers()
@@ -99,6 +114,13 @@ pub async fn jwt_auth(
         verify(&state.config.auth.jwt_secret, &auth).map_err(|_| StatusCode::UNAUTHORIZED)?;
     req.extensions_mut().insert(claims);
     Ok(next.run(req).await)
+}
+
+fn is_state_changing(method: &Method) -> bool {
+    matches!(
+        *method,
+        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
+    )
 }
 
 async fn extract_model_from_body(body: Bytes) -> Option<String> {
@@ -307,8 +329,18 @@ mod auth_tests {
         use tower::ServiceExt;
         let app = axum::Router::new()
             .route("/", axum::routing::get(|| async { "ok" }))
+            .route("/", axum::routing::post(|| async { "ok" }))
             .layer(axum::middleware::from_fn_with_state(state, jwt_auth));
         app.oneshot(req).await.expect("request succeeds").status()
+    }
+
+    fn set_origin(mut state: Arc<AppState>, origin: &str) -> Arc<AppState> {
+        Arc::get_mut(&mut state)
+            .expect("unique Arc in test")
+            .config
+            .auth
+            .allowed_cookie_origin = origin.to_string();
+        state
     }
 
     #[tokio::test]
@@ -375,5 +407,73 @@ mod auth_tests {
         assert_eq!(cookie_value(None, "godwit_access"), None);
         let other: HeaderValue = "godwit_refresh=r".parse().unwrap();
         assert_eq!(cookie_value(Some(&other), "godwit_access"), None);
+    }
+
+    #[test]
+    fn state_changing_method_detection() {
+        assert!(is_state_changing(&Method::POST));
+        assert!(is_state_changing(&Method::PUT));
+        assert!(is_state_changing(&Method::PATCH));
+        assert!(is_state_changing(&Method::DELETE));
+        assert!(!is_state_changing(&Method::GET));
+        assert!(!is_state_changing(&Method::HEAD));
+        assert!(!is_state_changing(&Method::OPTIONS));
+    }
+
+    #[tokio::test]
+    async fn csrf_origin_check_suppresses_when_empty_in_dev() {
+        let pool = PgPool::connect(&std::env::var("DATABASE_URL").expect("DATABASE_URL set"))
+            .await
+            .expect("connect to test db");
+        godwit_db::MIGRATOR.run(&pool).await.expect("run migrations");
+        let state = test_state(pool).await; // allowed_cookie_origin is ""
+        let token = valid_token();
+        let req = Request::builder()
+            .method(Method::POST)
+            .header(axum::http::header::AUTHORIZATION, format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(check_auth(state, req).await, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn csrf_state_changing_with_wrong_origin_rejected() {
+        let pool = PgPool::connect(&std::env::var("DATABASE_URL").expect("DATABASE_URL set"))
+            .await
+            .expect("connect to test db");
+        godwit_db::MIGRATOR.run(&pool).await.expect("run migrations");
+        let state = set_origin(test_state(pool).await, "https://app.example.com");
+        let token = valid_token();
+        let wrong = Request::builder()
+            .method(Method::POST)
+            .header(axum::http::header::AUTHORIZATION, format!("Bearer {token}"))
+            .header(axum::http::header::ORIGIN, "https://evil.example.com")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(check_auth(state.clone(), wrong).await, StatusCode::FORBIDDEN);
+
+        let missing = Request::builder()
+            .method(Method::POST)
+            .header(axum::http::header::AUTHORIZATION, format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(check_auth(state, missing).await, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn csrf_state_changing_with_matching_origin_passes() {
+        let pool = PgPool::connect(&std::env::var("DATABASE_URL").expect("DATABASE_URL set"))
+            .await
+            .expect("connect to test db");
+        godwit_db::MIGRATOR.run(&pool).await.expect("run migrations");
+        let state = set_origin(test_state(pool).await, "https://app.example.com");
+        let token = valid_token();
+        let req = Request::builder()
+            .method(Method::POST)
+            .header(axum::http::header::AUTHORIZATION, format!("Bearer {token}"))
+            .header(axum::http::header::ORIGIN, "https://app.example.com")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(check_auth(state, req).await, StatusCode::OK);
     }
 }

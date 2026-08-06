@@ -10,8 +10,6 @@ const navItems = [
   { href: '/providers', label: 'Providers', icon: 'hub' },
   { href: '/keys', label: 'API Keys', icon: 'vpn_key' },
   { href: '/logs', label: 'Logs', icon: 'list_alt' },
-  { href: '/usage', label: 'Usage', icon: 'data_usage' },
-  { href: '/settings', label: 'Settings', icon: 'settings' },
 ];
 
 export function Sidebar() {

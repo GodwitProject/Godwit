@@ -28,9 +28,9 @@ export function Header() {
       </nav>
 
       <div className="flex items-center gap-4">
-        <button className="hover:bg-surface-container-high p-1 rounded-full hairline-border">
-          <img src="/avatar.png" alt="User" className="w-8 h-8 rounded-full" />
-        </button>
+        <span className="material-symbols-outlined text-on-surface-variant" aria-hidden>
+          account_circle
+        </span>
       </div>
     </header>
   );

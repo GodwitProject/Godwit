@@ -14,10 +14,6 @@ export interface SpendPoint {
   cost: number;
 }
 
-export interface HealthStatus {
-  status: string;
-}
-
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`);
   if (!res.ok) throw new Error(`Failed to fetch ${path}`);
@@ -34,12 +30,6 @@ export async function fetchSpend(days = 30): Promise<SpendPoint[]> {
     date: point.date,
     cost: typeof point.cost === 'string' ? parseFloat(point.cost) : point.cost,
   }));
-}
-
-export async function fetchHealth(): Promise<HealthStatus> {
-  const res = await fetch('/health');
-  if (!res.ok) throw new Error('Health check failed');
-  return res.json();
 }
 
 export function parsePrometheusMetrics(text: string): MetricsUpdate {

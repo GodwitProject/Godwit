@@ -54,6 +54,7 @@ Browser ──► http://localhost:3002  (UI origin only)
             PostgreSQL (db)
 ```
 
+- The **refresh token lives only in the httpOnly `godwit_refresh` cookie** (scoped to `Path=/api/v1/auth`, so only the auth routes receive it). Because JavaScript cannot read it, `/api/v1/auth/refresh` and `/api/v1/auth/logout` read the refresh token from the cookie server-side; the UI sends those POSTs **without a body** and the frontend auto-refresh/re-login flow relies on the server rotating the cookie.
 - The browser **never** talks to the `api` host port (`8000`) directly for authenticated flows. `next.config.js` rewrites `/api/v1/*`, `/health`, `/metrics`, and `/v1/utils/*` to `NEXT_PUBLIC_API_ORIGIN`.
 - `NEXT_PUBLIC_API_ORIGIN` is a **build-time** value (inlined by `next.config.js` into the client bundle), so it must target an **internal, browser-unreachable** backend address in docker. The `ui` service passes it as a compose build arg: `NEXT_PUBLIC_API_ORIGIN: ${NEXT_PUBLIC_API_ORIGIN:-http://api:3000}`.
 - `cookie_secure: false` (default in `config.example.yaml`) is correct for local/dev docker over plain HTTP. Before exposing the UI over HTTPS in production, set `cookie_secure: true` and, if you need cross-origin cookie auth, populate `allowed_cookie_origin` (the UI rewrite keeps the origin same, so this is normally left empty).

@@ -16,6 +16,7 @@ pub enum ApiError {
     BudgetExceeded,
     Internal,
     Core(PasteurError),
+    Database(String),
 }
 
 impl From<PasteurError> for ApiError {
@@ -69,7 +70,7 @@ impl IntoResponse for ApiError {
                 "End-user budget has been exceeded.",
                 None,
             ),
-            ApiError::Internal | ApiError::Core(_) => (
+            ApiError::Internal | ApiError::Core(_) | ApiError::Database(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Internal Server Error",
                 "An unexpected error occurred.",

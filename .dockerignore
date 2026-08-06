@@ -3,3 +3,5 @@ target/
 .gitignore
 *.md
 .env
+node_modules/
+apps/**/node_modules/

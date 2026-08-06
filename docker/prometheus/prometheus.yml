@@ -1,0 +1,17 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: godwit
+
+scrape_configs:
+  - job_name: godwit
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - api:3000
+  - job_name: prometheus
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - localhost:9090

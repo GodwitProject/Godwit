@@ -1,29 +1,35 @@
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres:15-alpine
     environment:
-      POSTGRES_USER: godwit
-      POSTGRES_PASSWORD: godwit
-      POSTGRES_DB: godwit
+      POSTGRES_USER: ${POSTGRES_USER:-godwit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-godwit}
+      POSTGRES_DB: ${POSTGRES_DB:-godwit}
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U godwit"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-godwit} -d ${POSTGRES_DB:-godwit}"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 10s
+    networks:
+      - godwit
+    restart: unless-stopped
 
   api:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
       - "8000:3000"
     volumes:
       - ./config.yaml:/app/config.yaml
     environment:
       CONFIG_PATH: /app/config.yaml
-      DATABASE_URL: postgres://godwit:godwit@db:5432/godwit
+      DATABASE_URL: postgres://${POSTGRES_USER:-godwit}:${POSTGRES_PASSWORD:-godwit}@db:5432/${POSTGRES_DB:-godwit}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       JWT_SECRET: ${JWT_SECRET}
@@ -33,7 +39,75 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - godwit
+    restart: unless-stopped
 
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=3d
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - godwit
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3001}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    networks:
+      - godwit
+    restart: unless-stopped
+
+  # Next.js UI (optional). If the multi-stage UI build fails (e.g. node runtime
+  # SIGBUS on this host/kernel), add `-f docker-compose.ui.stub.yml` or comment
+  # this service out. TODO: verify `next build` succeeds in the CI/registry
+  # environment before relying on this service in production.
+  ui:
+    build:
+      context: .
+      dockerfile: apps/ui/Dockerfile
+    ports:
+      - "3002:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://localhost:8000}
+      NODE_ENV: production
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - godwit
+    restart: unless-stopped
+
+  # Legacy admin console (Next.js dev server from apps/admin).
   admin:
     build:
       context: .
@@ -41,15 +115,21 @@ services:
     ports:
       - "3000:3000"
     environment:
-      # Server-side Server Actions run inside this container and must reach
-      # the API over the internal Docker network, not the host-published port.
       API_URL: http://api:3000
-      # Used only for URLs sent to the browser (e.g. the OIDC redirect).
       NEXT_PUBLIC_API_URL: http://localhost:8000
       NEXT_PUBLIC_APP_URL: http://localhost:3000
       NODE_ENV: development
     depends_on:
       - api
+    profiles: ["admin"]
+    networks:
+      - godwit
 
 volumes:
   pgdata:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  godwit:
+    driver: bridge

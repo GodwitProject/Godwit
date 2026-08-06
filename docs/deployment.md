@@ -41,6 +41,24 @@ Key variables:
 
 The backend reads `config.yaml` (a copy of `config.example.yaml`, mounted into the container at `/app/config.yaml`). The compose file points `DATABASE_URL` at the `db` service, overriding the `database.url` in the YAML when the environment variable is honored. Metrics are exposed by the binary at `GET /metrics` on the server port.
 
+## UI same-origin topology (cookie auth)
+
+The Next.js UI authenticates with **httpOnly cookies** (`godwit_access` / `godwit_refresh`) issued by the backend. Because the cookies are not readable by JavaScript and are scoped to the origin that set them, the browser must talk to **only one origin**. In docker that origin is the UI service on host port `3002`:
+
+```
+Browser ──► http://localhost:3002  (UI origin only)
+                 │  next.config.js rewrites /api/v1/* → ${NEXT_PUBLIC_API_ORIGIN}
+                 ▼
+            api service (internal bridge network, e.g. http://api:3000)
+                 ▼
+            PostgreSQL (db)
+```
+
+- The browser **never** talks to the `api` host port (`8000`) directly for authenticated flows. `next.config.js` rewrites `/api/v1/*`, `/health`, `/metrics`, and `/v1/utils/*` to `NEXT_PUBLIC_API_ORIGIN`.
+- `NEXT_PUBLIC_API_ORIGIN` is a **build-time** value (inlined by `next.config.js` into the client bundle), so it must target an **internal, browser-unreachable** backend address in docker. The `ui` service passes it as a compose build arg: `NEXT_PUBLIC_API_ORIGIN: ${NEXT_PUBLIC_API_ORIGIN:-http://api:3000}`.
+- `cookie_secure: false` (default in `config.example.yaml`) is correct for local/dev docker over plain HTTP. Before exposing the UI over HTTPS in production, set `cookie_secure: true` and, if you need cross-origin cookie auth, populate `allowed_cookie_origin` (the UI rewrite keeps the origin same, so this is normally left empty).
+- **The `api` service must remain browser-unreachable except through the UI rewrite.** Its host port `8000` mapping exists for legacy/curl tooling and firewall/proxy rules should block direct browser access to it; otherwise the CSRF origin check in the auth middleware may reject cookie-authenticated calls made straight at the api origin.
+
 ## Startup
 
 ```bash

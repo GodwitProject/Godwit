@@ -136,6 +136,15 @@ pub struct AppConfig {
     /// PII masking configuration.
     #[serde(default)]
     pub pii: PiiConfig,
+    /// Pre-call moderation enabled.
+    #[serde(default)]
+    pub moderation_pre: Option<bool>,
+    /// Post-call moderation enabled.
+    #[serde(default)]
+    pub moderation_post: Option<bool>,
+    /// Block request when moderation fails.
+    #[serde(default)]
+    pub block_on_moderation_failure: Option<bool>,
 }
 
 /// The agentic ecosystem section of [`AppConfig`]: a list of MCP servers to expose as

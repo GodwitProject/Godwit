@@ -5,18 +5,32 @@ use axum::{
 };
 use godwit_core::PasteurError;
 use serde_json::json;
+use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum ApiError {
+    #[error("unauthorized")]
     Unauthorized,
+    #[error("forbidden")]
     Forbidden,
+    #[error("not found")]
     NotFound,
+    #[error("bad request: {0}")]
     BadRequest(String),
+    #[error("rate limited")]
     RateLimited(Option<u64>),
+    #[error("budget exceeded")]
     BudgetExceeded,
+    #[error("internal error")]
     Internal,
+    #[error("core error: {0}")]
     Core(PasteurError),
+    #[error("database error: {0}")]
     Database(String),
+    #[error("moderation blocked: {0:?}")]
+    ModerationBlocked(Vec<String>),
+    #[error("guardrails error: {0}")]
+    GuardrailsError(#[from] godwit_core::guardrails::GuardrailsError),
 }
 
 impl From<PasteurError> for ApiError {
@@ -70,7 +84,19 @@ impl IntoResponse for ApiError {
                 "End-user budget has been exceeded.",
                 None,
             ),
-            ApiError::Internal | ApiError::Core(_) | ApiError::Database(_) => (
+            ApiError::ModerationBlocked(categories) => {
+                let detail = format!("Content flagged by moderation: {:?}", categories);
+                let body = Json(json!({
+                    "type": "https://api.godwit.local/errors/moderation-blocked",
+                    "title": "Moderation Blocked",
+                    "status": 400,
+                    "detail": detail,
+                    "instance": "/",
+                    "categories": categories
+                }));
+                return (StatusCode::BAD_REQUEST, body).into_response();
+            }
+            ApiError::Internal | ApiError::Core(_) | ApiError::Database(_) | ApiError::GuardrailsError(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Internal Server Error",
                 "An unexpected error occurred.",

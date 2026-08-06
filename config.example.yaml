@@ -74,3 +74,11 @@ pii:
       pattern: "\\b\\d{3}-\\d{2}-\\d{4}\\b"
       replacement: "[SSN]"
       enabled: true
+
+# Guardrails configuration
+# Pre-call moderation checks content before sending to provider
+moderation_pre: false
+# Post-call moderation checks provider response
+moderation_post: false
+# Block request when moderation flags content
+block_on_moderation_failure: true

@@ -75,6 +75,17 @@ async fn main() -> anyhow::Result<()> {
     let iteration_timeout_secs = 120;
     let agentic_loop = Arc::new(AgenticLoop::new(max_iterations, iteration_timeout_secs));
 
+    // Guardrails orchestrator initialization
+    let guardrails_config = godwit_core::guardrails::GuardrailsConfig {
+        pii_enabled: config.pii.enabled,
+        moderation_pre: config.moderation_pre.unwrap_or(false),
+        moderation_post: config.moderation_post.unwrap_or(false),
+        block_on_moderation_failure: config.block_on_moderation_failure.unwrap_or(true),
+    };
+    let guardrails = Arc::new(tokio::sync::Mutex::new(
+        godwit_core::guardrails::GuardrailsOrchestrator::new(guardrails_config)
+    ));
+
     let state = Arc::new(AppState {
         config: config.clone(),
         pool: pool.clone(),
@@ -95,6 +106,7 @@ async fn main() -> anyhow::Result<()> {
         rate_limiter: RateLimiter::new(),
         circuit_breaker_registry,
         agentic_loop,
+        guardrails,
     });
 
     // `api_key_auth` is applied to the proxy router alone (via `route_layer` on its own

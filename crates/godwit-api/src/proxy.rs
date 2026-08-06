@@ -36,6 +36,8 @@ use crate::{
     resilience::{with_retry, RetryPolicy},
     state::AppState,
 };
+use godwit_core::guardrails::GuardrailsOrchestrator;
+use godwit_core::{ChatCompletionResponse, ResponseFormat};
 
 pub fn router() -> Router<Arc<AppState>> {
     let chat_router = Router::new()
@@ -499,6 +501,7 @@ async fn chat_completions(
     req_headers: axum::http::Request<axum::body::Body>,
 ) -> Result<Response, crate::error::ApiError> {
     let start = std::time::Instant::now();
+    let request_id = uuid::Uuid::new_v4().to_string();
 
     let tags = extract_tags_from_header(
         req_headers.headers()
@@ -525,12 +528,51 @@ async fn chat_completions(
     let has_tools = req.tools.as_ref().map(|t| !t.is_empty()).unwrap_or(false);
     let streamed = req.stream == Some(true);
 
+    {
+        let mut guardrails = state.guardrails.lock().await;
+        match guardrails.pre_call(&mut req, &request_id).await {
+            Ok(godwit_core::guardrails::PreCallResult::Blocked(result)) => {
+                MetricsCollector::increment_active(&model, &provider);
+                MetricsCollector::decrement_active(&model, &provider);
+                return Err(crate::error::ApiError::ModerationBlocked(
+                    result.categories.as_array().unwrap_or(&vec![]).iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                ));
+            }
+            Ok(godwit_core::guardrails::PreCallResult::Allowed) => {}
+            Err(e) => {
+                MetricsCollector::increment_active(&model, &provider);
+                MetricsCollector::decrement_active(&model, &provider);
+                return Err(crate::error::ApiError::GuardrailsError(e));
+            }
+        }
+    }
+
     MetricsCollector::increment_active(&model, &provider);
 
     let (response, usage, model_used, model_pricing, attempts_made, fallback_triggered, tool_calls_count, agentic_iteration) = if has_tools && !streamed {
         merge_agentic_tools(&state, &mut req).await;
         match state.agentic_loop.execute(&state, &primary_resolved, req.clone()).await {
-            Ok((completion, total_usage)) => {
+            Ok((mut completion, total_usage)) => {
+                {
+                    let mut guardrails = state.guardrails.lock().await;
+                    match guardrails.post_call(&mut completion, &request_id).await {
+                        Ok(godwit_core::guardrails::PostCallResult::Blocked(result)) => {
+                            MetricsCollector::decrement_active(&model, &provider);
+                            return Err(crate::error::ApiError::ModerationBlocked(
+                                result.categories.as_array().unwrap_or(&vec![]).iter()
+                                    .filter_map(|v| v.as_str().map(String::from))
+                                    .collect()
+                            ));
+                        }
+                        Ok(godwit_core::guardrails::PostCallResult::Allowed) => {}
+                        Err(e) => {
+                            MetricsCollector::decrement_active(&model, &provider);
+                            return Err(crate::error::ApiError::GuardrailsError(e));
+                        }
+                    }
+                }
                 let tool_count: usize = completion.choices.iter()
                     .map(|c| c.message.tool_calls.as_ref().map(|t| t.len()).unwrap_or(0))
                     .sum();
@@ -1662,6 +1704,10 @@ mod tests {
             rerank: godwit_core::RerankConfig::default(),
             batch: godwit_core::BatchConfig::default(),
             cache: godwit_core::CacheConfig::default(),
+            pii: godwit_core::PiiConfig::default(),
+            moderation_pre: None,
+            moderation_post: None,
+            block_on_moderation_failure: None,
         };
 
         let config_without_wire = AppConfig {
@@ -1689,6 +1735,10 @@ mod tests {
             rerank: godwit_core::RerankConfig::default(),
             batch: godwit_core::BatchConfig::default(),
             cache: godwit_core::CacheConfig::default(),
+            pii: godwit_core::PiiConfig::default(),
+            moderation_pre: None,
+            moderation_post: None,
+            block_on_moderation_failure: None,
         };
 
         let config_default = AppConfig {
@@ -1714,6 +1764,10 @@ mod tests {
             rerank: godwit_core::RerankConfig::default(),
             batch: godwit_core::BatchConfig::default(),
             cache: godwit_core::CacheConfig::default(),
+            pii: godwit_core::PiiConfig::default(),
+            moderation_pre: None,
+            moderation_post: None,
+            block_on_moderation_failure: None,
         };
 
         assert!(config_with_wire

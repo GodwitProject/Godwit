@@ -69,6 +69,10 @@ fn test_config() -> AppConfig {
         rerank: godwit_core::RerankConfig::default(),
         batch: godwit_core::BatchConfig::default(),
         cache: godwit_core::CacheConfig::default(),
+        pii: godwit_core::PiiConfig::default(),
+        moderation_pre: None,
+        moderation_post: None,
+        block_on_moderation_failure: None,
     }
 }
 
@@ -111,6 +115,9 @@ fn build_app(pool: PgPool) -> Router {
         rate_limiter: RateLimiter::new(),
         circuit_breaker_registry: Arc::new(CircuitBreakerRegistry::new(5, std::time::Duration::from_secs(60), 3)),
         agentic_loop: Arc::new(AgenticLoop::new(4, 120)),
+        guardrails: Arc::new(tokio::sync::Mutex::new(
+            godwit_core::guardrails::GuardrailsOrchestrator::new(godwit_core::guardrails::GuardrailsConfig::default())
+        )),
     });
 
     Router::new()

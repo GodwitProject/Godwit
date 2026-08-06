@@ -2,8 +2,8 @@
 CREATE TABLE IF NOT EXISTS batches (
     id BIGSERIAL PRIMARY KEY,
     public_id VARCHAR(64) NOT NULL UNIQUE,
-    user_id BIGSERIAL NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    team_id BIGSERIAL REFERENCES teams(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    team_id UUID REFERENCES teams(id) ON DELETE CASCADE,
     
     -- Batch metadata
     operation_type VARCHAR(32) NOT NULL, -- 'chat', 'embedding', 'moderation', 'rerank'
@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS batch_requests (
     
     -- Request details
     model_id VARCHAR(128) NOT NULL,
-    provider_profile_id BIGINT NOT NULL REFERENCES provider_profiles(id),
+    provider_profile_id UUID NOT NULL REFERENCES provider_profiles(id),
     
     -- Input/output
     input_tokens BIGINT DEFAULT 0,

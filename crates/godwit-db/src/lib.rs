@@ -442,4 +442,89 @@ mod tests {
         assert_eq!(log_user_id, None, "request_logs.user_id should be nulled, not the row deleted");
         assert_eq!(log_api_key_id, None, "request_logs.api_key_id should be nulled, not the row deleted");
     }
+
+    #[sqlx::test]
+    async fn metrics_tables_exist_after_migration(pool: PgPool) {
+        run_migrations(&pool).await.expect("migrations should run");
+
+        let metrics_requests_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'metrics_requests')"
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("query metrics_requests existence");
+        assert!(metrics_requests_exists, "metrics_requests table should exist");
+
+        let metrics_latency_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'metrics_latency')"
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("query metrics_latency existence");
+        assert!(metrics_latency_exists, "metrics_latency table should exist");
+
+        let alerting_webhooks_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'alerting_webhooks')"
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("query alerting_webhooks existence");
+        assert!(alerting_webhooks_exists, "alerting_webhooks table should exist");
+    }
+
+    #[sqlx::test]
+    async fn pii_tables_exist_after_migration(pool: PgPool) {
+        run_migrations(&pool).await.expect("migrations should run");
+
+        let pii_patterns_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pii_patterns')"
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("query pii_patterns existence");
+        assert!(pii_patterns_exists, "pii_patterns table should exist");
+
+        let alerting_config_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'alerting_config')"
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("query alerting_config existence");
+        assert!(alerting_config_exists, "alerting_config table should exist");
+    }
+
+    #[sqlx::test]
+    async fn pii_default_patterns_are_inserted(pool: PgPool) {
+        run_migrations(&pool).await.expect("migrations should run");
+
+        let pattern_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pii_patterns")
+            .fetch_one(&pool)
+            .await
+            .expect("count pii_patterns");
+        assert_eq!(pattern_count, 4, "should have 4 default PII patterns");
+
+        let email_pattern: String = sqlx::query_scalar("SELECT pattern FROM pii_patterns WHERE name = 'email'")
+            .fetch_one(&pool)
+            .await
+            .expect("fetch email pattern");
+        assert_eq!(email_pattern, "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}");
+
+        let phone_pattern: String = sqlx::query_scalar("SELECT pattern FROM pii_patterns WHERE name = 'phone'")
+            .fetch_one(&pool)
+            .await
+            .expect("fetch phone pattern");
+        assert_eq!(phone_pattern, "\\+?[\\d\\s-()]{10,}");
+
+        let credit_card_pattern: String = sqlx::query_scalar("SELECT pattern FROM pii_patterns WHERE name = 'credit_card'")
+            .fetch_one(&pool)
+            .await
+            .expect("fetch credit_card pattern");
+        assert_eq!(credit_card_pattern, "\\b\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}\\b");
+
+        let ssn_pattern: String = sqlx::query_scalar("SELECT pattern FROM pii_patterns WHERE name = 'ssn'")
+            .fetch_one(&pool)
+            .await
+            .expect("fetch ssn pattern");
+        assert_eq!(ssn_pattern, "\\b\\d{3}-\\d{2}-\\d{4}\\b");
+    }
 }

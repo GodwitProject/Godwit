@@ -7,8 +7,8 @@ use chrono::Utc;
 use futures::stream::{self, BoxStream, StreamExt};
 use godwit_core::{
     AudioSttRequest, AudioTtsRequest, Capability, ChatCompletionChoice, ChatCompletionRequest,
-    ChatCompletionResponse, ChatContent, ChatMessage, EmbeddingData, EmbeddingRequest,
-    EmbeddingResponse, ImageGenerationRequest, VideoGenerationRequest,
+    ChatCompletionResponse, ChatContent, ChatContentPart, ChatMessage, EmbeddingData,
+    EmbeddingRequest, EmbeddingResponse, ImageGenerationRequest, VideoGenerationRequest,
 };
 use godwit_db::models::Model;
 use reqwest::Client;
@@ -41,8 +41,42 @@ impl Default for GeminiProvider {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct GeminiPart {
+struct GeminiTextPart {
     text: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiInlineDataPart {
+    inline_data: GeminiBlob,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiFileDataPart {
+    file_data: GeminiFileData,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+enum GeminiPart {
+    Text(GeminiTextPart),
+    InlineData(GeminiInlineDataPart),
+    FileData(GeminiFileDataPart),
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiBlob {
+    mime_type: String,
+    data: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiFileData {
+    mime_type: String,
+    file_uri: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -50,6 +84,80 @@ struct GeminiPart {
 struct GeminiContent {
     role: String,
     parts: Vec<GeminiPart>,
+}
+
+impl GeminiContent {
+    fn from_chat_message(msg: &ChatMessage) -> Self {
+        let role = if msg.role == "assistant" {
+            "model".to_string()
+        } else {
+            msg.role.clone()
+        };
+
+        let parts = msg
+            .content
+            .as_ref()
+            .map(|contents| {
+                contents
+                    .iter()
+                    .flat_map(|c| match c {
+                        ChatContent::Text(text) => {
+                            vec![GeminiPart::Text(GeminiTextPart { text: text.clone() })]
+                        }
+                        ChatContent::Parts(parts) => parts
+                            .iter()
+                            .map(|p| match p {
+                                ChatContentPart::Text { text } => {
+                                    GeminiPart::Text(GeminiTextPart { text: text.clone() })
+                                }
+                                ChatContentPart::ImageUrl { image_url } => {
+                                    if image_url.url.starts_with("data:") {
+                                        let (media_type, data) = Self::parse_data_url(&image_url.url);
+                                        GeminiPart::InlineData(GeminiInlineDataPart {
+                                            inline_data: GeminiBlob {
+                                                mime_type: media_type,
+                                                data,
+                                            },
+                                        })
+                                    } else {
+                                        GeminiPart::FileData(GeminiFileDataPart {
+                                            file_data: GeminiFileData {
+                                                mime_type: "image/png".to_string(),
+                                                file_uri: image_url.url.clone(),
+                                            },
+                                        })
+                                    }
+                                }
+                            })
+                            .collect(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Self { role, parts }
+    }
+
+    fn parse_data_url(url: &str) -> (String, String) {
+        if let Some(comma_pos) = url.find(',') {
+            let header = &url[..comma_pos];
+            let data = &url[comma_pos + 1..];
+            let media_type = if header.contains("image/png") {
+                "image/png".to_string()
+            } else if header.contains("image/jpeg") || header.contains("image/jpg") {
+                "image/jpeg".to_string()
+            } else if header.contains("image/gif") {
+                "image/gif".to_string()
+            } else if header.contains("image/webp") {
+                "image/webp".to_string()
+            } else {
+                "image/png".to_string()
+            };
+            (media_type, data.to_string())
+        } else {
+            ("image/png".to_string(), url.to_string())
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -93,16 +201,7 @@ impl GeminiChatRequest {
                     system_parts.push(text);
                 }
             } else {
-                let role = if msg.role == "assistant" {
-                    "model".to_string()
-                } else {
-                    msg.role.clone()
-                };
-                let text = msg.content_as_text().unwrap_or_default();
-                contents.push(GeminiContent {
-                    role,
-                    parts: vec![GeminiPart { text }],
-                });
+                contents.push(GeminiContent::from_chat_message(&msg));
             }
         }
 
@@ -555,7 +654,7 @@ impl Adapter for GeminiProvider {
             .map(|text| GeminiEmbedContentRequest {
                 model: model.provider_model_id.clone(),
                 content: GeminiEmbedContent {
-                    parts: vec![GeminiPart { text }],
+                    parts: vec![GeminiPart::Text(GeminiTextPart { text })],
                 },
             })
             .collect();
@@ -983,6 +1082,79 @@ mod tests {
         assert_eq!(usage.total_tokens, 15);
         assert_eq!(usage_report.prompt_tokens, Some(10));
         assert_eq!(usage_report.completion_tokens, Some(5));
+    }
+
+    #[tokio::test]
+    async fn chat_multimodal_text_and_image_inline_data() {
+        use godwit_core::{ChatContentPart, ImageUrl};
+        let server = MockServer::start().await;
+        let captured_body = std::sync::Arc::new(std::sync::Mutex::new(None::<serde_json::Value>));
+        let captured_clone = captured_body.clone();
+
+        Mock::given(method("POST"))
+            .and(path("/v1beta/models/gemini-1.5-flash:generateContent"))
+            .respond_with(move |req: &wiremock::Request| {
+                if let Ok(body) = serde_json::from_slice::<serde_json::Value>(&req.body) {
+                    *captured_clone.lock().unwrap() = Some(body);
+                }
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "candidates": [{
+                        "content": {
+                            "role": "model",
+                            "parts": [{"text": "I see an image"}]
+                        },
+                        "finishReason": "STOP"
+                    }],
+                    "usageMetadata": {
+                        "promptTokenCount": 10,
+                        "candidatesTokenCount": 5,
+                        "totalTokenCount": 15
+                    }
+                }))
+            })
+            .mount(&server)
+            .await;
+
+        let client = GeminiProvider::new();
+        let profile = crate::adapter::ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
+        let base64_image = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+        let data_url = format!("data:image/png;base64,{}", base64_image);
+        let req = ChatCompletionRequest {
+            model: "gemini-1.5-flash".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: Some(vec![
+                    ChatContent::Text("What's in this image?".to_string()),
+                    ChatContent::Parts(vec![
+                        ChatContentPart::Text { text: "Describe this:".to_string() },
+                        ChatContentPart::ImageUrl { image_url: ImageUrl { url: data_url, detail: None } },
+                    ]),
+                ]),
+                name: None,
+                ..Default::default()
+            }],
+            stream: Some(false),
+            temperature: None,
+            max_tokens: None,
+            ..Default::default()
+        };
+        let _ = client.chat(&profile, &dummy_model(), req).await.unwrap();
+
+        let body = captured_body.lock().unwrap().take().expect("request body captured");
+        let contents = body["contents"].as_array().expect("contents present");
+        assert_eq!(contents.len(), 1);
+        let parts = contents[0]["parts"].as_array().expect("parts present");
+        assert_eq!(parts.len(), 3);
+        assert!(parts[0]["text"].is_string());
+        assert_eq!(parts[0]["text"], "What's in this image?");
+        assert!(parts[1]["text"].is_string());
+        assert_eq!(parts[1]["text"], "Describe this:");
+        assert!(parts[2]["inlineData"].is_object());
+        assert_eq!(parts[2]["inlineData"]["mimeType"], "image/png");
+        assert_eq!(parts[2]["inlineData"]["data"], base64_image);
     }
 
     #[tokio::test]

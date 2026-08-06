@@ -7,7 +7,8 @@ use chrono::Utc;
 use futures::stream::{self, BoxStream, StreamExt};
 use godwit_core::{
     AudioSttRequest, AudioTtsRequest, Capability, ChatCompletionRequest, ChatCompletionResponse,
-    ChatContent, ChatMessage, EmbeddingRequest, ImageGenerationRequest, VideoGenerationRequest,
+    ChatContent, ChatContentPart, ChatMessage, EmbeddingRequest, ImageGenerationRequest,
+    VideoGenerationRequest,
 };
 use godwit_db::models::Model;
 use reqwest::Client;
@@ -39,9 +40,89 @@ impl Default for AnthropicProvider {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum AnthropicContentBlock {
+    Text { text: String },
+    Image { source: AnthropicImageSource },
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+struct AnthropicImageSource {
+    r#type: String,
+    media_type: String,
+    data: String,
+}
+
+#[derive(Debug, Serialize)]
 struct AnthropicMessage {
     role: String,
-    content: String,
+    content: Vec<AnthropicContentBlock>,
+}
+
+impl AnthropicMessage {
+    fn from_chat_message(msg: &ChatMessage) -> Self {
+        let content = msg
+            .content
+            .as_ref()
+            .map(|contents| {
+                contents
+                    .iter()
+                    .flat_map(|c| match c {
+                        ChatContent::Text(text) => {
+                            vec![AnthropicContentBlock::Text { text: text.clone() }]
+                        }
+                        ChatContent::Parts(parts) => parts
+                            .iter()
+                            .map(|p| match p {
+                                ChatContentPart::Text { text } => {
+                                    AnthropicContentBlock::Text { text: text.clone() }
+                                }
+                                ChatContentPart::ImageUrl { image_url } => {
+                                    let (media_type, data) = Self::parse_image_url(&image_url.url);
+                                    AnthropicContentBlock::Image {
+                                        source: AnthropicImageSource {
+                                            r#type: "base64".to_string(),
+                                            media_type,
+                                            data,
+                                        },
+                                    }
+                                }
+                            })
+                            .collect(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Self {
+            role: msg.role.clone(),
+            content,
+        }
+    }
+
+    fn parse_image_url(url: &str) -> (String, String) {
+        if url.starts_with("data:") {
+            let parts: Vec<&str> = url.split(',').collect();
+            if parts.len() == 2 {
+                let header = parts[0];
+                let data = parts[1];
+                let media_type = if header.contains("image/png") {
+                    "image/png".to_string()
+                } else if header.contains("image/jpeg") || header.contains("image/jpg") {
+                    "image/jpeg".to_string()
+                } else if header.contains("image/gif") {
+                    "image/gif".to_string()
+                } else if header.contains("image/webp") {
+                    "image/webp".to_string()
+                } else {
+                    "image/png".to_string()
+                };
+                return (media_type, data.to_string());
+            }
+        }
+        ("image/png".to_string(), url.to_string())
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -67,12 +148,7 @@ impl AnthropicChatRequest {
                     system_parts.push(text);
                 }
             } else {
-                let role = msg.role.clone();
-                let content = msg.content_as_text().unwrap_or_default();
-                messages.push(AnthropicMessage {
-                    role,
-                    content,
-                });
+                messages.push(AnthropicMessage::from_chat_message(&msg));
             }
         }
 
@@ -94,7 +170,7 @@ impl AnthropicChatRequest {
 }
 
 #[derive(Debug, Deserialize)]
-struct AnthropicContentBlock {
+struct AnthropicResponseContentBlock {
     #[serde(rename = "type")]
     block_type: String,
     text: Option<String>,
@@ -118,7 +194,7 @@ struct AnthropicMessageResponse {
     message_type: String,
     role: String,
     model: String,
-    content: Vec<AnthropicContentBlock>,
+    content: Vec<AnthropicResponseContentBlock>,
     stop_reason: Option<String>,
     usage: AnthropicUsage,
 }
@@ -531,7 +607,8 @@ mod tests {
         assert_eq!(body["max_tokens"], 4096);
         assert_eq!(body["messages"].as_array().unwrap().len(), 1);
         assert_eq!(body["messages"][0]["role"], "user");
-        assert_eq!(body["messages"][0]["content"], "Hello");
+        assert_eq!(body["messages"][0]["content"][0]["type"], "text");
+        assert_eq!(body["messages"][0]["content"][0]["text"], "Hello");
     }
 
     #[tokio::test]
@@ -659,6 +736,75 @@ mod tests {
         assert_eq!(finish["usage"]["prompt_tokens"], 0);
         assert_eq!(finish["usage"]["completion_tokens"], 5);
         assert_eq!(finish["usage"]["total_tokens"], 5);
+    }
+
+    #[tokio::test]
+    async fn chat_multimodal_text_and_image_base64() {
+        use godwit_core::{ChatContentPart, ImageUrl};
+        let server = MockServer::start().await;
+        let captured_body = std::sync::Arc::new(std::sync::Mutex::new(None::<serde_json::Value>));
+        let captured_clone = captured_body.clone();
+
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .respond_with(move |req: &wiremock::Request| {
+                if let Ok(body) = serde_json::from_slice::<serde_json::Value>(&req.body) {
+                    *captured_clone.lock().unwrap() = Some(body);
+                }
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "id": "msg_01",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-3-5-sonnet-20241022",
+                    "content": [{"type": "text", "text": "I see an image"}],
+                    "stop_reason": "end_turn",
+                    "usage": {"input_tokens": 10, "output_tokens": 5}
+                }))
+            })
+            .mount(&server)
+            .await;
+
+        let client = AnthropicAdapter::new();
+        let profile = crate::adapter::ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
+        let base64_image = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+        let data_url = format!("data:image/png;base64,{}", base64_image);
+        let req = ChatCompletionRequest {
+            model: "claude-3-5-sonnet".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: Some(vec![
+                    ChatContent::Text("What's in this image?".to_string()),
+                    ChatContent::Parts(vec![
+                        ChatContentPart::Text { text: "Describe this:".to_string() },
+                        ChatContentPart::ImageUrl { image_url: ImageUrl { url: data_url, detail: None } },
+                    ]),
+                ]),
+                name: None,
+                ..Default::default()
+            }],
+            stream: Some(false),
+            temperature: None,
+            max_tokens: None,
+            ..Default::default()
+        };
+        let _ = client.chat(&profile, &dummy_model(), req).await.unwrap();
+
+        let body = captured_body.lock().unwrap().take().expect("request body captured");
+        let messages = body["messages"].as_array().expect("messages present");
+        assert_eq!(messages.len(), 1);
+        let content = messages[0]["content"].as_array().expect("content is array");
+        assert_eq!(content.len(), 3);
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[0]["text"], "What's in this image?");
+        assert_eq!(content[1]["type"], "text");
+        assert_eq!(content[1]["text"], "Describe this:");
+        assert_eq!(content[2]["type"], "image");
+        assert_eq!(content[2]["source"]["type"], "base64");
+        assert_eq!(content[2]["source"]["media_type"], "image/png");
+        assert_eq!(content[2]["source"]["data"], base64_image);
     }
 
     #[tokio::test]

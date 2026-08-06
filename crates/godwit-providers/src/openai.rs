@@ -6,11 +6,91 @@ use async_trait::async_trait;
 use futures::stream::{self, BoxStream, StreamExt};
 use godwit_core::{
     AudioSttRequest, AudioSttResponse, AudioTtsRequest, Capability, ChatCompletionRequest,
-    ChatCompletionResponse, EmbeddingRequest, EmbeddingResponse, ImageGenerationRequest,
-    ImageGenerationResponse,
+    ChatCompletionResponse, ChatContent, ChatContentPart, EmbeddingRequest, EmbeddingResponse,
+    ImageGenerationRequest, ImageGenerationResponse,
 };
 use godwit_db::models::Model;
 use reqwest::Client;
+use serde::Serialize;
+
+#[derive(Debug, Serialize)]
+struct OpenAiImageUrl {
+    url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum OpenAiContentPart {
+    Text { text: String },
+    ImageUrl { image_url: OpenAiImageUrl },
+}
+
+#[derive(Debug, Serialize)]
+struct OpenAiMessage {
+    role: String,
+    content: Option<Vec<OpenAiContentPart>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_calls: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_call_id: Option<String>,
+}
+
+impl OpenAiMessage {
+    fn from_chat_message(msg: &godwit_core::ChatMessage) -> Self {
+        let content = msg.content.as_ref().map(|contents| {
+            contents
+                .iter()
+                .flat_map(|c| match c {
+                    ChatContent::Text(text) => vec![OpenAiContentPart::Text { text: text.clone() }],
+                    ChatContent::Parts(parts) => parts
+                        .iter()
+                        .map(|p| match p {
+                            ChatContentPart::Text { text } => {
+                                OpenAiContentPart::Text { text: text.clone() }
+                            }
+                            ChatContentPart::ImageUrl { image_url } => {
+                                OpenAiContentPart::ImageUrl {
+                                    image_url: OpenAiImageUrl {
+                                        url: image_url.url.clone(),
+                                        detail: image_url.detail.clone(),
+                                    },
+                                }
+                            }
+                        })
+                        .collect(),
+                })
+                .collect()
+        });
+
+        Self {
+            role: msg.role.clone(),
+            content,
+            name: msg.name.clone(),
+            tool_calls: msg.tool_calls.as_ref().map(|tc| serde_json::to_value(tc).unwrap()),
+            tool_call_id: msg.tool_call_id.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct OpenAiChatRequest {
+    model: String,
+    messages: Vec<OpenAiMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_tokens: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<godwit_core::Tool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<godwit_core::ToolChoice>,
+}
 
 pub struct OpenAiProvider {
     client: Client,
@@ -56,8 +136,22 @@ impl Adapter for OpenAiProvider {
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
         // Translate the catalog/wildcard-resolved public id into the upstream model id.
         request.model = model.provider_model_id.clone();
+        let openai_messages: Vec<OpenAiMessage> = request
+            .messages
+            .iter()
+            .map(OpenAiMessage::from_chat_message)
+            .collect();
+        let openai_request = OpenAiChatRequest {
+            model: request.model.clone(),
+            messages: openai_messages,
+            stream: request.stream,
+            temperature: request.temperature,
+            max_tokens: request.max_tokens,
+            tools: request.tools.clone(),
+            tool_choice: request.tool_choice.clone(),
+        };
         let url = format!("{}/chat/completions", profile.base_url);
-        let mut req = self.client.post(&url).json(&request);
+        let mut req = self.client.post(&url).json(&openai_request);
         if let Some(key) = &profile.api_key {
             req = req.header("Authorization", format!("Bearer {key}"));
         }
@@ -90,8 +184,22 @@ impl Adapter for OpenAiProvider {
         request.stream = Some(true);
         // Translate the catalog/wildcard-resolved public id into the upstream model id.
         request.model = model.provider_model_id.clone();
+        let openai_messages: Vec<OpenAiMessage> = request
+            .messages
+            .iter()
+            .map(OpenAiMessage::from_chat_message)
+            .collect();
+        let openai_request = OpenAiChatRequest {
+            model: request.model.clone(),
+            messages: openai_messages,
+            stream: request.stream,
+            temperature: request.temperature,
+            max_tokens: request.max_tokens,
+            tools: request.tools.clone(),
+            tool_choice: request.tool_choice.clone(),
+        };
         let url = format!("{}/chat/completions", profile.base_url);
-        let mut req = self.client.post(&url).json(&request);
+        let mut req = self.client.post(&url).json(&openai_request);
         if let Some(key) = &profile.api_key {
             req = req.header("Authorization", format!("Bearer {key}"));
         }
@@ -508,6 +616,71 @@ mod tests {
         let body = captured_body.lock().unwrap().take().expect("request body captured");
         let tools = body["tools"].as_array().expect("tools present");
         assert_eq!(tools[0]["function"]["name"], "web_search");
+    }
+
+    #[tokio::test]
+    async fn chat_multimodal_text_and_image_url() {
+        use godwit_core::{ChatContentPart, ImageUrl};
+        let server = MockServer::start().await;
+        let captured_body = std::sync::Arc::new(std::sync::Mutex::new(None::<serde_json::Value>));
+        let captured_clone = captured_body.clone();
+
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(move |req: &wiremock::Request| {
+                if let Ok(body) = serde_json::from_slice::<serde_json::Value>(&req.body) {
+                    *captured_clone.lock().unwrap() = Some(body);
+                }
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "id": "chatcmpl-1",
+                    "object": "chat.completion",
+                    "created": 1,
+                    "model": "gpt-4o",
+                    "choices": [{"index":0,"message":{"role":"assistant","content":"I see an image"},"finish_reason":"stop"}],
+                    "usage": {"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}
+                }))
+            })
+            .mount(&server)
+            .await;
+
+        let client = OpenAiAdapter::new();
+        let profile = ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
+        let req = ChatCompletionRequest {
+            model: "gpt-4o".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: Some(vec![
+                    ChatContent::Text("What's in this image?".to_string()),
+                    ChatContent::Parts(vec![
+                        ChatContentPart::Text { text: "Describe this:".to_string() },
+                        ChatContentPart::ImageUrl { image_url: ImageUrl { url: "https://example.com/img.png".to_string(), detail: Some("high".to_string()) } },
+                    ]),
+                ]),
+                name: None,
+                ..Default::default()
+            }],
+            stream: Some(false),
+            temperature: None,
+            max_tokens: None,
+            ..Default::default()
+        };
+        let _ = client.chat(&profile, &dummy_model(), req).await.unwrap();
+
+        let body = captured_body.lock().unwrap().take().expect("request body captured");
+        let messages = body["messages"].as_array().expect("messages present");
+        assert_eq!(messages.len(), 1);
+        let content = messages[0]["content"].as_array().expect("content is array");
+        assert_eq!(content.len(), 3);
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[0]["text"], "What's in this image?");
+        assert_eq!(content[1]["type"], "text");
+        assert_eq!(content[1]["text"], "Describe this:");
+        assert_eq!(content[2]["type"], "image_url");
+        assert_eq!(content[2]["image_url"]["url"], "https://example.com/img.png");
+        assert_eq!(content[2]["image_url"]["detail"], "high");
     }
 
     #[tokio::test]

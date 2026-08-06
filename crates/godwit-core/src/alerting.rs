@@ -39,6 +39,12 @@ impl From<reqwest::Error> for AlertingError {
     }
 }
 
+impl From<serde_json::Error> for AlertingError {
+    fn from(err: serde_json::Error) -> Self {
+        AlertingError::Http(err.to_string())
+    }
+}
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct AlertingConfig {
     id: i64,
@@ -181,10 +187,119 @@ impl AlertingService {
 
     async fn send_webhook(
         &self,
-        _event_type: &str,
-        _url: &str,
-        _payload: BudgetAlertPayload,
+        event_type: &str,
+        url: &str,
+        payload: BudgetAlertPayload,
     ) -> Result<(), AlertingError> {
+        let webhook_id = self.record_webhook_attempt(
+            event_type,
+            url,
+            &payload,
+            "pending",
+        ).await?;
+        
+        let max_retries = 5;
+        let delays = [30, 120, 600, 3600];
+        
+        for attempt in 0..=max_retries {
+            match self.http_client
+                .post(url)
+                .json(&payload)
+                .send()
+                .await
+            {
+                Ok(response) if response.status().is_success() => {
+                    self.update_webhook_status(webhook_id, "success", attempt as i32).await?;
+                    return Ok(());
+                }
+                Ok(response) => {
+                    tracing::warn!("Webhook returned non-success status: {}", response.status());
+                }
+                Err(e) => {
+                    tracing::warn!("Webhook delivery failed (attempt {}): {}", attempt + 1, e);
+                }
+            }
+            
+            if attempt < max_retries {
+                let delay = if attempt < delays.len() {
+                    delays[attempt]
+                } else {
+                    delays[delays.len() - 1]
+                };
+                
+                tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+                
+                self.update_webhook_retry(webhook_id, attempt as i32 + 1).await?;
+            } else {
+                self.update_webhook_status(webhook_id, "failed", attempt as i32).await?;
+                return Err(AlertingError::WebhookFailed(
+                    "Max retries exceeded".to_string()
+                ));
+            }
+        }
+        
+        Ok(())
+    }
+
+    async fn record_webhook_attempt(
+        &self,
+        event_type: &str,
+        target_url: &str,
+        payload: &BudgetAlertPayload,
+        status: &str,
+    ) -> Result<i64, AlertingError> {
+        let payload_json = serde_json::to_value(payload)?;
+        
+        let id = sqlx::query_scalar::<_, i64>(
+            "INSERT INTO alerting_webhooks (event_type, target_url, payload, status)
+             VALUES ($1, $2, $3, $4)
+             RETURNING id"
+        )
+        .bind(event_type)
+        .bind(target_url)
+        .bind(payload_json)
+        .bind(status)
+        .fetch_one(&self.db_pool)
+        .await?;
+        
+        Ok(id)
+    }
+    
+    async fn update_webhook_status(
+        &self,
+        webhook_id: i64,
+        status: &str,
+        retry_count: i32,
+    ) -> Result<(), AlertingError> {
+        sqlx::query(
+            "UPDATE alerting_webhooks
+             SET status = $1, retry_count = $2, last_attempt = NOW()
+             WHERE id = $3"
+        )
+        .bind(status)
+        .bind(retry_count)
+        .bind(webhook_id)
+        .execute(&self.db_pool)
+        .await?;
+        
+        Ok(())
+    }
+    
+    async fn update_webhook_retry(
+        &self,
+        webhook_id: i64,
+        retry_count: i32,
+    ) -> Result<(), AlertingError> {
+        sqlx::query(
+            "UPDATE alerting_webhooks
+             SET retry_count = $1, last_attempt = NOW()
+             WHERE id = $2"
+        )
+        .bind(retry_count)
+        .bind(webhook_id)
+        .execute(&self.db_pool)
+        .await?;
+        
         Ok(())
     }
 }

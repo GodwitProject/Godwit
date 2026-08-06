@@ -1,6 +1,5 @@
 .worktrees/
 /target/
-docs/
 .playwright-mcp/
 tsconfig.tsbuildinfo
 node_modules/

@@ -12,7 +12,7 @@ export PATH="/usr/local/opt/rustup/bin:$PATH"
 
 - Rust workspace rooted in the current directory; members are all crates under `crates/*`.
 - Root `Cargo.toml` is also a package (`godwit-integration-tests`) so that integration tests in `tests/` can depend on workspace crates.
-- `docs/` is intentionally not version-controlled.
+- `docs/` is version-controlled (design specs, plans, and API docs live under `docs/`; transient SDD scratch lives under `.superpowers/sdd/`, which has its own `.gitignore`).
 
 ## Build / test commands
 

@@ -1,7 +1,6 @@
 use crate::adapter::UsageReport;
 use godwit_core::Capability;
 use rust_decimal::Decimal;
-use std::str::FromStr;
 
 const INPUT_PRICE_PER_MILLION: &str = "input_price_per_million";
 const OUTPUT_PRICE_PER_MILLION: &str = "output_price_per_million";

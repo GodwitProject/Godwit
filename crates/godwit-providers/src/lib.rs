@@ -2,6 +2,7 @@ pub mod adapter;
 pub mod anthropic;
 pub mod azure_openai;
 pub mod gemini;
+pub mod gemini_stream;
 pub mod llama_cpp;
 pub mod ollama;
 pub mod openai;

@@ -1,10 +1,12 @@
 use crate::adapter::{
     Adapter, ProviderError, ProviderResponse, ResolvedProfile, SseEvent, UsageReport,
 };
-use crate::streaming::{build_sse_delta, build_sse_finish, build_sse_error, parse_sse_events};
+use crate::gemini_stream::GeminiStreamTranslator;
+use crate::streaming::parse_sse_events;
 use async_trait::async_trait;
 use chrono::Utc;
-use futures::stream::{self, BoxStream, StreamExt};
+use futures::stream::{self, BoxStream};
+use futures::StreamExt;
 use godwit_core::{
     AudioSttRequest, AudioTtsRequest, Batch, BatchRequest, Capability, ChatCompletionChoice,
     ChatCompletionRequest, ChatCompletionResponse, ChatContent, ChatContentPart, ChatMessage,
@@ -383,69 +385,6 @@ fn gemini_response_to_chat_completion(
     })
 }
 
-/// Normalizes a single Gemini `streamGenerateContent` SSE chunk into proxy-canonical
-/// `{ "type": "delta" }` / `{ "type": "finish" }` events.
-///
-/// Each Gemini streaming chunk carries `candidates[].content.parts[].text` fragments and,
-/// on the terminating chunk, a `finishReason` plus `usageMetadata` token counts.
-fn normalize_gemini_sse_event(raw: SseEvent) -> Vec<Result<SseEvent, ProviderError>> {
-    let parsed: serde_json::Value = match serde_json::from_str(&raw.data) {
-        Ok(v) => v,
-        Err(e) => {
-            return vec![Ok(SseEvent {
-                data: build_sse_error(&format!("failed to parse gemini sse event: {e}")),
-            })];
-        }
-    };
-
-    let mut out: Vec<Result<SseEvent, ProviderError>> = Vec::new();
-
-    if let Some(candidates) = parsed.get("candidates").and_then(|c| c.as_array()) {
-        for candidate in candidates {
-            if let Some(parts) = candidate
-                .get("content")
-                .and_then(|c| c.get("parts"))
-                .and_then(|p| p.as_array())
-            {
-                for part in parts {
-                    if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                        if !text.is_empty() {
-                            out.push(Ok(SseEvent {
-                                data: build_sse_delta(text),
-                            }));
-                        }
-                    }
-                }
-            }
-            let finish_reason = candidate
-                .get("finishReason")
-                .and_then(|f| f.as_str())
-                .filter(|r| !r.is_empty())
-                .map(|s| s.to_string());
-            if finish_reason.is_some() {
-                let meta = parsed.get("usageMetadata").cloned().unwrap_or_default();
-                let prompt = meta
-                    .get("promptTokenCount")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0);
-                let completion = meta
-                    .get("candidatesTokenCount")
-                    .and_then(|v| v.as_i64())
-                    .unwrap_or(0);
-                out.push(Ok(SseEvent {
-                    data: build_sse_finish(prompt, completion, finish_reason.as_deref()),
-                }));
-            }
-        }
-    }
-
-    if out.is_empty() {
-        debug!("ignoring gemini streaming chunk: no emit-able parts");
-    }
-
-    out
-}
-
 #[async_trait]
 impl Adapter for GeminiProvider {
     fn supported_capabilities(&self) -> Vec<Capability> {
@@ -560,19 +499,23 @@ impl Adapter for GeminiProvider {
         }
 
         let byte_stream = res.bytes_stream();
-        let event_stream = byte_stream.flat_map(|bytes| {
-            let text = bytes
-                .map(|b| String::from_utf8_lossy(&b).to_string())
-                .unwrap_or_default();
-            let raw_events = parse_sse_events(&text);
-            let normalized: Vec<Result<SseEvent, ProviderError>> = raw_events
-                .into_iter()
-                .flat_map(normalize_gemini_sse_event)
-                .collect();
-            stream::iter(normalized)
-        });
+        let mut translator = GeminiStreamTranslator::new();
+        let event_stream = byte_stream
+            .filter_map(|bytes_result| async move {
+                bytes_result
+                    .map(|b| String::from_utf8_lossy(&b).to_string())
+                    .ok()
+            })
+            .flat_map(move |text| {
+                let events: Vec<_> = parse_sse_events(&text)
+                    .into_iter()
+                    .flat_map(|sse_event| translator.translate_chunk(&sse_event.data))
+                    .collect();
+                stream::iter(events)
+            })
+            .boxed();
 
-        Ok(event_stream.boxed())
+        Ok(event_stream)
     }
 
     async fn image_generation(

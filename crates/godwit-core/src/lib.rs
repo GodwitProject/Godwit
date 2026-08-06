@@ -281,10 +281,56 @@ impl ChatContent {
     }
 }
 
+impl ChatMessage {
+    pub fn content_as_text(&self) -> Option<String> {
+        self.content.as_ref().map(|contents| {
+            contents
+                .iter()
+                .filter_map(|c| c.as_text())
+                .collect::<Vec<_>>()
+                .join("")
+        }).filter(|s| !s.is_empty())
+    }
+}
+
+fn deserialize_chat_content<'de, D>(deserializer: D) -> Result<Option<Vec<ChatContent>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    use serde_json::Value;
+
+    let value = Option::<Value>::deserialize(deserializer)?;
+    match value {
+        None => Ok(None),
+        Some(Value::String(s)) => Ok(Some(vec![ChatContent::Text(s)])),
+        Some(Value::Array(arr)) => {
+            let contents = arr
+                .into_iter()
+                .map(|v| match v {
+                    Value::String(s) => Ok(ChatContent::Text(s)),
+                    Value::Object(_) => {
+                        let part = ChatContentPart::deserialize(v).map_err(D::Error::custom)?;
+                        Ok(ChatContent::Parts(vec![part]))
+                    }
+                    _ => Err(D::Error::custom("array element must be string or object")),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Some(contents))
+        }
+        Some(Value::Object(_)) => {
+            let content = ChatContent::deserialize(value.unwrap()).map_err(D::Error::custom)?;
+            Ok(Some(vec![content]))
+        }
+        _ => Err(D::Error::custom("content must be a string, array, or object")),
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct ChatMessage {
     pub role: String,
-    pub content: ChatContent,
+    #[serde(default, deserialize_with = "deserialize_chat_content")]
+    pub content: Option<Vec<ChatContent>>,
     pub name: Option<String>,
     pub tool_calls: Option<Vec<ToolCall>>,
     pub tool_call_id: Option<String>,
@@ -762,5 +808,92 @@ auth:
         let json = serde_json::to_string(&usage).unwrap();
         let parsed: Usage = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.prompt_tokens_details.unwrap().cached_tokens, Some(4));
+    }
+
+    #[test]
+    fn chat_message_content_string_deserializes_to_vec() {
+        let json = r#"{"role": "user", "content": "Hello, world!"}"#;
+        let msg: ChatMessage = serde_json::from_str(json).unwrap();
+        assert_eq!(msg.role, "user");
+        assert!(msg.content.is_some());
+        let contents = msg.content.unwrap();
+        assert_eq!(contents.len(), 1);
+        match &contents[0] {
+            ChatContent::Text(s) => assert_eq!(s, "Hello, world!"),
+            _ => panic!("expected Text variant"),
+        }
+    }
+
+    #[test]
+    fn chat_message_content_array_deserializes() {
+        let json = r#"{"role": "user", "content": ["Hello", {"text": {"text": "World"}}]}"#;
+        let msg: ChatMessage = serde_json::from_str(json).unwrap();
+        assert_eq!(msg.role, "user");
+        assert!(msg.content.is_some());
+        let contents = msg.content.unwrap();
+        assert_eq!(contents.len(), 2);
+        match &contents[0] {
+            ChatContent::Text(s) => assert_eq!(s, "Hello"),
+            _ => panic!("expected first element to be Text"),
+        }
+        match &contents[1] {
+            ChatContent::Parts(parts) => {
+                assert_eq!(parts.len(), 1);
+                match &parts[0] {
+                    ChatContentPart::Text { text } => assert_eq!(text, "World"),
+                    _ => panic!("expected Text part"),
+                }
+            }
+            _ => panic!("expected second element to be Parts"),
+        }
+    }
+
+    #[test]
+    fn chat_message_content_array_with_image_deserializes() {
+        let json = r#"{"role": "user", "content": [{"text": {"text": "What is this?"}}, {"image_url": {"image_url": {"url": "https://example.com/img.png", "detail": "high"}}}]}"#;
+        let msg: ChatMessage = serde_json::from_str(json).unwrap();
+        assert_eq!(msg.role, "user");
+        assert!(msg.content.is_some());
+        let contents = msg.content.unwrap();
+        assert_eq!(contents.len(), 2);
+        match &contents[0] {
+            ChatContent::Parts(parts) => {
+                assert_eq!(parts.len(), 1);
+                match &parts[0] {
+                    ChatContentPart::Text { text } => assert_eq!(text, "What is this?"),
+                    _ => panic!("expected Text part"),
+                }
+            }
+            _ => panic!("expected first element to be Parts"),
+        }
+        match &contents[1] {
+            ChatContent::Parts(parts) => {
+                assert_eq!(parts.len(), 1);
+                match &parts[0] {
+                    ChatContentPart::ImageUrl { image_url } => {
+                        assert_eq!(image_url.url, "https://example.com/img.png");
+                        assert_eq!(image_url.detail, Some("high".to_string()));
+                    }
+                    _ => panic!("expected ImageUrl part"),
+                }
+            }
+            _ => panic!("expected second element to be Parts with ImageUrl"),
+        }
+    }
+
+    #[test]
+    fn chat_message_content_null_deserializes_to_none() {
+        let json = r#"{"role": "assistant", "content": null}"#;
+        let msg: ChatMessage = serde_json::from_str(json).unwrap();
+        assert_eq!(msg.role, "assistant");
+        assert!(msg.content.is_none());
+    }
+
+    #[test]
+    fn chat_message_content_missing_field_deserializes_to_none() {
+        let json = r#"{"role": "system"}"#;
+        let msg: ChatMessage = serde_json::from_str(json).unwrap();
+        assert_eq!(msg.role, "system");
+        assert!(msg.content.is_none());
     }
 }

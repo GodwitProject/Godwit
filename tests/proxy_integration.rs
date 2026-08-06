@@ -12,7 +12,7 @@ async fn proxy_chat_completion_smoke() {
             model: "gpt-4o".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: ChatContent::text("Hi"),
+                content: Some(vec![ChatContent::text("Hi")]),
                 name: None,
                 ..Default::default()
             }],

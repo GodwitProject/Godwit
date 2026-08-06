@@ -412,7 +412,7 @@ pub(crate) async fn resolve_tool_calls(
 
         out.push(ChatMessage {
             role: "tool".to_string(),
-            content: ChatContent::Text(result),
+            content: Some(vec![ChatContent::Text(result)]),
             name: None,
             tool_calls: None,
             tool_call_id: Some(id),
@@ -1493,7 +1493,7 @@ mod tests {
             model: "gpt-4o".to_string(),
             messages: vec![godwit_core::ChatMessage {
                 role: "user".to_string(),
-                content: godwit_core::ChatContent::Text("hello".to_string()),
+                content: Some(vec![godwit_core::ChatContent::Text("hello".to_string())]),
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,

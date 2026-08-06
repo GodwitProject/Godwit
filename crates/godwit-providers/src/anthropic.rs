@@ -63,13 +63,15 @@ impl AnthropicChatRequest {
 
         for msg in request.messages {
             if msg.role == "system" {
-                if let Some(text) = msg.content.as_text() {
+                if let Some(text) = msg.content_as_text() {
                     system_parts.push(text);
                 }
             } else {
+                let role = msg.role.clone();
+                let content = msg.content_as_text().unwrap_or_default();
                 messages.push(AnthropicMessage {
-                    role: msg.role,
-                    content: msg.content.as_text().unwrap_or_default(),
+                    role,
+                    content,
                 });
             }
         }
@@ -146,7 +148,7 @@ fn anthropic_response_to_chat_completion(
             index: 0,
             message: ChatMessage {
                 role: "assistant".to_string(),
-                content: ChatContent::Text(content),
+                content: Some(vec![ChatContent::Text(content)]),
                 name: None,
                 ..Default::default()
             },
@@ -460,13 +462,13 @@ mod tests {
             messages: vec![
                 ChatMessage {
                     role: "system".to_string(),
-                    content: ChatContent::text("You are a helpful assistant."),
+                    content: Some(vec![ChatContent::text("You are a helpful assistant.")]),
                     name: None,
                     ..Default::default()
                 },
                 ChatMessage {
                     role: "user".to_string(),
-                    content: ChatContent::text("Hello"),
+                    content: Some(vec![ChatContent::text("Hello")]),
                     name: None,
                     ..Default::default()
                 },
@@ -558,7 +560,7 @@ mod tests {
             model: "claude-3-5-sonnet".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: ChatContent::text("Hi"),
+                content: Some(vec![ChatContent::text("Hi")]),
                 name: None,
                 ..Default::default()
             }],
@@ -575,7 +577,7 @@ mod tests {
         };
 
         assert_eq!(
-            resp.choices[0].message.content.as_text(),
+            resp.choices[0].message.content_as_text(),
             Some("Hello, world!".to_string())
         );
         assert_eq!(resp.choices[0].message.role, "assistant");
@@ -626,7 +628,7 @@ mod tests {
             model: "claude-3-5-sonnet".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: ChatContent::text("Hi"),
+                content: Some(vec![ChatContent::text("Hi")]),
                 name: None,
                 ..Default::default()
             }],
@@ -754,7 +756,7 @@ mod tests {
             model: "claude-3-5-sonnet".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: ChatContent::text("Hi"),
+                content: Some(vec![ChatContent::text("Hi")]),
                 name: None,
                 ..Default::default()
             }],
@@ -771,7 +773,7 @@ mod tests {
         };
 
         assert_eq!(
-            resp.choices[0].message.content.as_text(),
+            resp.choices[0].message.content_as_text(),
             Some("Hello from keyless profile".to_string())
         );
     }

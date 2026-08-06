@@ -89,18 +89,19 @@ impl GeminiChatRequest {
 
         for msg in request.messages {
             if msg.role == "system" {
-                if let Some(text) = msg.content.as_text() {
+                if let Some(text) = msg.content_as_text() {
                     system_parts.push(text);
                 }
             } else {
                 let role = if msg.role == "assistant" {
                     "model".to_string()
                 } else {
-                    msg.role
+                    msg.role.clone()
                 };
+                let text = msg.content_as_text().unwrap_or_default();
                 contents.push(GeminiContent {
                     role,
-                    parts: vec![GeminiPart { text: msg.content.as_text().unwrap_or_default() }],
+                    parts: vec![GeminiPart { text }],
                 });
             }
         }
@@ -271,7 +272,7 @@ fn gemini_response_to_chat_completion(
             index: 0,
             message: ChatMessage {
                 role: "assistant".to_string(),
-                content: ChatContent::Text(content),
+                content: Some(vec![ChatContent::Text(content)]),
                 name: None,
                 ..Default::default()
             },
@@ -642,19 +643,19 @@ mod tests {
             messages: vec![
                 ChatMessage {
                     role: "system".to_string(),
-                    content: ChatContent::text("You are a helpful assistant."),
+                    content: Some(vec![ChatContent::text("You are a helpful assistant.")]),
                     name: None,
                     ..Default::default()
                 },
                 ChatMessage {
                     role: "user".to_string(),
-                    content: ChatContent::text("Hello"),
+                    content: Some(vec![ChatContent::text("Hello")]),
                     name: None,
                     ..Default::default()
                 },
                 ChatMessage {
                     role: "assistant".to_string(),
-                    content: ChatContent::text("Hi there"),
+                    content: Some(vec![ChatContent::text("Hi there")]),
                     name: None,
                     ..Default::default()
                 },
@@ -696,7 +697,7 @@ mod tests {
             model: "gemini-1.5-flash".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: ChatContent::text("Hello"),
+                content: Some(vec![ChatContent::text("Hello")]),
                 name: None,
                 ..Default::default()
             }],
@@ -757,7 +758,7 @@ mod tests {
             model: "google/gemini-2.0-flash-001".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: ChatContent::text("Hello"),
+                content: Some(vec![ChatContent::text("Hello")]),
                 name: None,
                 ..Default::default()
             }],
@@ -953,7 +954,7 @@ mod tests {
             model: "gemini-1.5-flash".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: ChatContent::text("Hi"),
+                content: Some(vec![ChatContent::text("Hi")]),
                 name: None,
                 ..Default::default()
             }],
@@ -970,7 +971,7 @@ mod tests {
         };
 
         assert_eq!(
-            resp.choices[0].message.content.as_text(),
+            resp.choices[0].message.content_as_text(),
             Some("Hello, world!".to_string())
         );
         assert_eq!(resp.choices[0].message.role, "assistant");
@@ -1005,7 +1006,7 @@ mod tests {
             model: "gemini-1.5-flash".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: ChatContent::text("Hi"),
+                content: Some(vec![ChatContent::text("Hi")]),
                 name: None,
                 ..Default::default()
             }],
@@ -1086,7 +1087,7 @@ mod tests {
             model: "gemini-1.5-flash".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: ChatContent::text("Hi"),
+                content: Some(vec![ChatContent::text("Hi")]),
                 name: None,
                 ..Default::default()
             }],

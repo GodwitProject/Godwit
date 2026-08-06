@@ -263,7 +263,7 @@ mod tests {
             model: "llama-3-70b".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: ChatContent::text("Hi"),
+                content: Some(vec![ChatContent::text("Hi")]),
                 name: None,
                 ..Default::default()
             }],
@@ -276,7 +276,7 @@ mod tests {
         let ProviderResponse::Chat(completion) = resp else {
             panic!("expected chat response")
         };
-        assert_eq!(completion.choices[0].message.content.as_text(), Some("Hi there".to_string()));
+        assert_eq!(completion.choices[0].message.content_as_text(), Some("Hi there".to_string()));
 
         // Verify no Authorization header was sent (since api_key is None)
         let received = server
@@ -320,7 +320,7 @@ mod tests {
             model: "llama-3-70b".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: ChatContent::text("Hi"),
+                content: Some(vec![ChatContent::text("Hi")]),
                 name: None,
                 ..Default::default()
             }],
@@ -389,7 +389,7 @@ mod tests {
             model: "local/meta-llama/Llama-3-70B-Instruct".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: ChatContent::text("Hi"),
+                content: Some(vec![ChatContent::text("Hi")]),
                 name: None,
                 ..Default::default()
             }],

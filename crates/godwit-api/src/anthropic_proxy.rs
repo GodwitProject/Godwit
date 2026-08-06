@@ -96,7 +96,7 @@ pub fn router() -> Router<Arc<AppState>> {
 fn anthropic_message_to_core(msg: AnthropicMessage) -> ChatMessage {
     ChatMessage {
         role: msg.role,
-        content: ChatContent::text(msg.content),
+        content: Some(vec![ChatContent::text(msg.content)]),
         name: None,
         tool_calls: None,
         tool_call_id: None,
@@ -120,7 +120,7 @@ fn anthropic_request_to_core(req: AnthropicMessagesRequest) -> ChatCompletionReq
     if let Some(system) = req.system {
         messages.push(ChatMessage {
             role: "system".into(),
-            content: ChatContent::text(system),
+            content: Some(vec![ChatContent::text(system)]),
             name: None,
             tool_calls: None,
             tool_call_id: None,
@@ -182,20 +182,20 @@ fn core_response_to_anthropic(response: godwit_core::ChatCompletionResponse) -> 
     if let Some(choice) = choice {
         stop_reason = core_finish_reason_to_anthropic(choice.finish_reason.as_deref());
 
-        if let Some(tool_calls) = choice.message.tool_calls {
+        if let Some(tool_calls) = &choice.message.tool_calls {
             for call in tool_calls {
                 let input = serde_json::from_str(&call.function.arguments).unwrap_or_else(|_| {
                     serde_json::json!({"arguments": call.function.arguments})
                 });
                 content_blocks.push(AnthropicContentBlock::ToolUse {
-                    id: call.id,
-                    name: call.function.name,
+                    id: call.id.clone(),
+                    name: call.function.name.clone(),
                     input,
                 });
             }
         }
 
-        if let Some(text) = choice.message.content.as_text() {
+        if let Some(text) = choice.message.content_as_text() {
             if !text.is_empty() {
                 content_blocks.push(AnthropicContentBlock::Text { text });
             }

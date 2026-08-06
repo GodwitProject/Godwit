@@ -432,7 +432,7 @@ mod tests {
             model: "my-4o".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: ChatContent::text("Hi"),
+                content: Some(vec![ChatContent::text("Hi")]),
                 name: None,
                 ..Default::default()
             }],
@@ -488,7 +488,7 @@ mod tests {
             model: "my-4o".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: ChatContent::text("search the web"),
+                content: Some(vec![ChatContent::text("search the web")]),
                 name: None,
                 ..Default::default()
             }],
@@ -579,7 +579,7 @@ mod tests {
             model: "gpt-4o".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: ChatContent::text("Hi"),
+                content: Some(vec![ChatContent::text("Hi")]),
                 name: None,
                 ..Default::default()
             }],
@@ -592,7 +592,7 @@ mod tests {
         let ProviderResponse::Chat(completion) = resp else {
             panic!("expected chat response");
         };
-        assert_eq!(completion.choices[0].message.content.as_text(), Some("Hello".to_string()));
+        assert_eq!(completion.choices[0].message.content_as_text(), Some("Hello".to_string()));
         assert_eq!(usage.prompt_tokens, Some(1));
         assert_eq!(usage.completion_tokens, Some(1));
     }

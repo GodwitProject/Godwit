@@ -8,13 +8,13 @@ fn bench_anthropic_mapping(c: &mut Criterion) {
         messages: vec![
             ChatMessage {
                 role: "system".to_string(),
-                content: ChatContent::text("You are helpful"),
+                content: Some(vec![ChatContent::text("You are helpful")]),
                 name: None,
                 ..Default::default()
             },
             ChatMessage {
                 role: "user".to_string(),
-                content: ChatContent::text("Hello"),
+                content: Some(vec![ChatContent::text("Hello")]),
                 name: None,
                 ..Default::default()
             },

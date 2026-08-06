@@ -155,14 +155,20 @@ pub fn estimate_request_tokens(req: &godwit_core::ChatCompletionRequest) -> u32 
         .iter()
         .map(|m| {
             let text = match &m.content {
-                godwit_core::ChatContent::Text(t) => t.len(),
-                godwit_core::ChatContent::Parts(parts) => parts
+                None => 0,
+                Some(contents) => contents
                     .iter()
-                    .map(|p| match p {
-                        godwit_core::ChatContentPart::Text { text } => text.len(),
-                        godwit_core::ChatContentPart::ImageUrl { image_url } => {
-                            image_url.url.len()
-                        }
+                    .map(|c| match c {
+                        godwit_core::ChatContent::Text(t) => t.len(),
+                        godwit_core::ChatContent::Parts(parts) => parts
+                            .iter()
+                            .map(|p| match p {
+                                godwit_core::ChatContentPart::Text { text } => text.len(),
+                                godwit_core::ChatContentPart::ImageUrl { image_url } => {
+                                    image_url.url.len()
+                                }
+                            })
+                            .sum(),
                     })
                     .sum(),
             };
@@ -390,7 +396,7 @@ mod tests {
             model: "gpt-4o".to_string(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
-                content: ChatContent::Text("hello world".to_string()),
+                content: Some(vec![ChatContent::Text("hello world".to_string())]),
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,

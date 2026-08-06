@@ -2,9 +2,22 @@
 'use client';
 
 import Link from 'next/link';
-import { clsx } from 'clsx';
+import { useRouter } from 'next/navigation';
+import { Button } from '@/components/ui/Button';
+import { logout } from '@/lib/auth';
+import { useAuthStore } from '@/store/auth';
 
 export function Header() {
+  const router = useRouter();
+  const user = useAuthStore((s) => s.user);
+  const setUser = useAuthStore((s) => s.setUser);
+
+  async function handleSignOut() {
+    await logout();
+    setUser(null);
+    router.push('/login');
+  }
+
   return (
     <header className="fixed top-0 w-full z-50 bg-surface border-b hairline-border h-16 flex items-center justify-between px-margin-mobile md:px-margin-desktop">
       <Link href="/" className="flex items-center gap-2 text-primary">
@@ -28,9 +41,16 @@ export function Header() {
       </nav>
 
       <div className="flex items-center gap-4">
-        <span className="material-symbols-outlined text-on-surface-variant" aria-hidden>
-          account_circle
-        </span>
+        {user && (
+          <span className="text-label-sm text-on-surface-variant hidden sm:inline">
+            {user.email}
+          </span>
+        )}
+        {user && (
+          <Button variant="ghost" size="sm" onClick={handleSignOut}>
+            Sign out
+          </Button>
+        )}
       </div>
     </header>
   );

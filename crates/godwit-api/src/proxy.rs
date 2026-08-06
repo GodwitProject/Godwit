@@ -553,9 +553,19 @@ async fn call_chat_agentic(
 async fn chat_completions(
     State(state): State<Arc<AppState>>,
     Extension(api_key): Extension<ApiKey>,
-    Json(req): Json<ChatCompletionRequest>,
+    req_headers: axum::http::Request<axum::body::Body>,
 ) -> Result<Response, crate::error::ApiError> {
     let start = std::time::Instant::now();
+
+    let tags = extract_tags_from_header(
+        req_headers.headers()
+            .get("x-godwit-tags")
+            .and_then(|v| v.to_str().ok())
+    );
+
+    let (req_parts, req_body) = req_headers.into_parts();
+    let body_bytes = axum::body::to_bytes(req_body, usize::MAX).await.unwrap();
+    let req: ChatCompletionRequest = serde_json::from_slice(&body_bytes).unwrap();
 
     let mut primary_resolved = state
         .model_router
@@ -631,7 +641,7 @@ async fn chat_completions(
         streamed,
         status: "success".to_string(),
         cost_usd,
-        tags: vec![],
+        tags,
     };
     spawn_request_log(state.pool.clone(), log);
 
@@ -1358,6 +1368,12 @@ async fn call_image_edit(
         ));
     };
     Ok((body, usage))
+}
+
+fn extract_tags_from_header(header_value: Option<&str>) -> Vec<String> {
+    header_value
+        .map(|h| h.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+        .unwrap_or_default()
 }
 
 pub(crate) fn spawn_request_log(pool: sqlx::PgPool, log: RequestLogEntry) {

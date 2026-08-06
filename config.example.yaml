@@ -13,6 +13,12 @@ auth:
   oidc_providers: []
   saml_providers: []
 
+# Circuit breaker configuration for provider resilience
+circuit_breaker:
+  failure_threshold: 5
+  recovery_timeout_secs: 60
+  half_open_max_requests: 3
+
 # Agentic ecosystem wiring (optional). MCP servers are exposed as chat tools and SearXNG
 # backs web_search-style tool calls when the selected adapter has no native web search.
 agentic:

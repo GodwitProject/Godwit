@@ -32,6 +32,9 @@ pub struct AppConfig {
     /// Compatibility flags for wire-format interoperability.
     #[serde(default)]
     pub compat: Option<CompatConfig>,
+    /// Circuit breaker configuration for provider resilience.
+    #[serde(default)]
+    pub circuit_breaker: Option<CircuitBreakerConfig>,
 }
 
 /// The agentic ecosystem section of [`AppConfig`]: a list of MCP servers to expose as
@@ -108,6 +111,13 @@ pub struct SamlProviderConfig {
 pub struct CompatConfig {
     /// If true, emit native OpenAI chat.completion.chunk format instead of canonical envelope
     pub openai_wire_streaming: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CircuitBreakerConfig {
+    pub failure_threshold: usize,
+    pub recovery_timeout_secs: u64,
+    pub half_open_max_requests: usize,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]

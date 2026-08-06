@@ -1631,6 +1631,7 @@ mod tests {
             moderation: godwit_core::ModerationConfig::default(),
             rerank: godwit_core::RerankConfig::default(),
             batch: godwit_core::BatchConfig::default(),
+            cache: godwit_core::CacheConfig::default(),
         };
 
         let config_without_wire = AppConfig {
@@ -1657,6 +1658,7 @@ mod tests {
             moderation: godwit_core::ModerationConfig::default(),
             rerank: godwit_core::RerankConfig::default(),
             batch: godwit_core::BatchConfig::default(),
+            cache: godwit_core::CacheConfig::default(),
         };
 
         let config_default = AppConfig {
@@ -1681,6 +1683,7 @@ mod tests {
             moderation: godwit_core::ModerationConfig::default(),
             rerank: godwit_core::RerankConfig::default(),
             batch: godwit_core::BatchConfig::default(),
+            cache: godwit_core::CacheConfig::default(),
         };
 
         assert!(config_with_wire

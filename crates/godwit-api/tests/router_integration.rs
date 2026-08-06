@@ -68,6 +68,7 @@ fn test_config() -> AppConfig {
         moderation: godwit_core::ModerationConfig::default(),
         rerank: godwit_core::RerankConfig::default(),
         batch: godwit_core::BatchConfig::default(),
+        cache: godwit_core::CacheConfig::default(),
     }
 }
 

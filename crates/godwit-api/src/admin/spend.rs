@@ -5,9 +5,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use godwit_auth::{jwt::Claims, rbac::Role};
-use godwit_core::Capability;
-use godwit_db::models::Model;
-use godwit_providers::UsageReport;
+
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -160,13 +158,12 @@ async fn fetch_daily_spend_rows(
     .await
 }
 
-pub fn compute_cost(model: &Model, capability: Capability, usage: &UsageReport) -> Option<Decimal> {
-    godwit_providers::usage::compute_cost(&model.pricing, capability, usage)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use godwit_core::Capability;
+    use godwit_db::models::Model;
+    use godwit_providers::{compute_cost, UsageReport};
     use rust_decimal_macros::dec;
 
     #[test]
@@ -190,7 +187,7 @@ mod tests {
             completion_tokens: Some(500),
             ..Default::default()
         };
-        let cost = compute_cost(&model, Capability::Chat, &usage).expect("cost");
+        let cost = compute_cost(&model.pricing, Capability::Chat, &usage).expect("cost");
         assert_eq!(cost, dec!(0.0125));
     }
 

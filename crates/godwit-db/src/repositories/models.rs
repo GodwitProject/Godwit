@@ -19,6 +19,19 @@ fn parse_capabilities(capabilities: &str) -> Vec<String> {
     caps
 }
 
+fn validate_pricing(pricing: &serde_json::Value) -> Result<(), PasteurError> {
+    let has_input_price = pricing.get("input_price_per_million").is_some();
+    let has_output_price = pricing.get("output_price_per_million").is_some();
+    
+    if !has_input_price || !has_output_price {
+        return Err(PasteurError::Validation(
+            "pricing must include input_price_per_million and output_price_per_million".to_string()
+        ));
+    }
+    
+    Ok(())
+}
+
 impl ModelRepository {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
@@ -31,15 +44,18 @@ impl ModelRepository {
         provider_profile_id: Uuid,
         provider_model_id: &str,
         capabilities: &str,
+        pricing: serde_json::Value,
     ) -> Result<Model, PasteurError> {
+        validate_pricing(&pricing)?;
         sqlx::query_as::<_, Model>(
-            "INSERT INTO models (public_id, provider, provider_profile_id, provider_model_id, capabilities) VALUES ($1, $2, $3, $4, $5) RETURNING *"
+            "INSERT INTO models (public_id, provider, provider_profile_id, provider_model_id, capabilities, pricing) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *"
         )
         .bind(public_id)
         .bind(provider)
         .bind(provider_profile_id)
         .bind(provider_model_id)
         .bind(parse_capabilities(capabilities))
+        .bind(pricing)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| PasteurError::Database(e.to_string()))
@@ -138,8 +154,12 @@ mod tests {
             .expect("create profile");
 
         let models = ModelRepository::new(pool);
+        let pricing = serde_json::json!({
+            "input_price_per_million": 5.0,
+            "output_price_per_million": 15.0
+        });
         let created = models
-            .create("gpt-4o", "openai", profile.id, "gpt-4o", "chat")
+            .create("gpt-4o", "openai", profile.id, "gpt-4o", "chat", pricing)
             .await
             .expect("create model");
         assert_eq!(created.public_id, "gpt-4o");
@@ -163,8 +183,12 @@ mod tests {
             .await
             .expect("create profile");
         let models = ModelRepository::new(pool);
+        let pricing = serde_json::json!({
+            "input_price_per_million": 5.0,
+            "output_price_per_million": 15.0
+        });
         let created = models
-            .create("gpt-4o", "openai", profile.id, "gpt-4o", "chat")
+            .create("gpt-4o", "openai", profile.id, "gpt-4o", "chat", pricing)
             .await
             .expect("create model");
 

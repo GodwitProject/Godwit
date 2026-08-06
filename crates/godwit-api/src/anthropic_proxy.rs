@@ -12,13 +12,12 @@ use godwit_core::{
     Tool, ToolChoice, Usage,
 };
 use godwit_db::models::ApiKey;
-use godwit_providers::{sse_egress::AnthropicStreamTranslator, ProviderResponse};
+use godwit_providers::{compute_cost, sse_egress::AnthropicStreamTranslator, ProviderResponse};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 use crate::{
-    admin::spend::compute_cost,
     model_router::{DbModelRouter, ResolvedModel},
     proxy::RequestLogEntry,
     rate_limit,
@@ -315,7 +314,7 @@ async fn messages(
         };
 
         let cost_usd = compute_cost(
-            &resolved.model,
+            &resolved.model.pricing,
             godwit_core::Capability::Chat,
             &godwit_providers::adapter::UsageReport::default(),
         );
@@ -406,7 +405,7 @@ async fn messages(
     };
 
     let cost_usd = compute_cost(
-        &used_model,
+        &used_model.pricing,
         godwit_core::Capability::Chat,
         &godwit_providers::adapter::UsageReport {
             prompt_tokens: Some(anthropic_resp.usage.input_tokens),

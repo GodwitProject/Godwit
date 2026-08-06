@@ -48,6 +48,7 @@ pub struct CreateModelRequest {
     pub provider_profile_id: Uuid,
     pub provider_model_id: String,
     pub capabilities: String,
+    pub pricing: serde_json::Value,
 }
 
 async fn create_model(
@@ -64,6 +65,7 @@ async fn create_model(
             req.provider_profile_id,
             &req.provider_model_id,
             &req.capabilities,
+            req.pricing,
         )
         .await
         .map_err(ApiError::Core)?;
@@ -113,7 +115,11 @@ mod tests {
             "provider": "openai",
             "provider_profile_id": Uuid::nil(),
             "provider_model_id": "gpt-4o",
-            "capabilities": "chat,embedding"
+            "capabilities": "chat,embedding",
+            "pricing": {
+                "input_price_per_million": 5.0,
+                "output_price_per_million": 15.0
+            }
         });
         let req: CreateModelRequest = serde_json::from_value(json).expect("deserialize");
         assert_eq!(req.public_id, "gpt-4o");

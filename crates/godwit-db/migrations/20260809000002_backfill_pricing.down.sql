@@ -1,0 +1,1 @@
+-- No down migration needed for default value change

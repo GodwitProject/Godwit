@@ -20,3 +20,7 @@ pub use web_search::{
     strip_native_web_search_tools, NATIVE_WEB_SEARCH_TOOLS,
 };
 pub use registry::AdapterRegistry;
+pub use usage::{
+    compute_cost, compute_chat_cost, compute_embedding_cost, compute_image_cost,
+    compute_audio_tts_cost, compute_audio_stt_cost, chat_usage_report,
+};

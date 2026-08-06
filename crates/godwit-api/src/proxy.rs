@@ -17,14 +17,13 @@ use godwit_db::models::ApiKey;
 use godwit_db::repositories::{
     models::ModelRepository, provider_profiles::ProviderProfileRepository,
 };
-use godwit_providers::{ProviderResponse, UsageReport};
+use godwit_providers::{compute_cost, ProviderResponse, UsageReport};
 use rust_decimal::Decimal;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 use crate::{
-    admin::spend::compute_cost,
     fallback::call_chat_with_fallback,
     model_info,
     model_router::{DbModelRouter, ResolvedModel},
@@ -583,7 +582,7 @@ async fn chat_completions(
     let streamed = req.stream == Some(true);
     let usage = Some(fallback_result.usage.clone());
 
-    let cost_usd = usage.and_then(|u| compute_cost(&primary_resolved.model, Capability::Chat, &u));
+    let cost_usd = usage.and_then(|u| compute_cost(&primary_resolved.model.pricing, Capability::Chat, &u));
     let log = RequestLogEntry {
         api_key_id: api_key.id,
         user_id: api_key.user_id,
@@ -679,7 +678,7 @@ async fn embeddings(
             fallback_result.ok_or_else(|| rate_limited_err.unwrap())?
         }
     };
-    let cost_usd = compute_cost(&used_model, Capability::Embedding, &usage);
+    let cost_usd = compute_cost(&used_model.pricing, Capability::Embedding, &usage);
 
     let log = RequestLogEntry {
         api_key_id: api_key.id,
@@ -792,7 +791,7 @@ async fn image_generations(
             fallback_result.ok_or_else(|| rate_limited_err.unwrap())?
         }
     };
-    let cost_usd = compute_cost(&used_model, Capability::ImageGeneration, &usage);
+    let cost_usd = compute_cost(&used_model.pricing, Capability::ImageGeneration, &usage);
 
     spawn_request_log(
         state.pool.clone(),
@@ -907,7 +906,7 @@ async fn audio_speech(
             fallback_result.ok_or_else(|| rate_limited_err.unwrap())?
         }
     };
-    let cost_usd = compute_cost(&used_model, Capability::AudioTts, &usage);
+    let cost_usd = compute_cost(&used_model.pricing, Capability::AudioTts, &usage);
 
     spawn_request_log(
         state.pool.clone(),
@@ -1070,7 +1069,7 @@ async fn audio_transcriptions(
             fallback_result.ok_or_else(|| rate_limited_err.unwrap())?
         }
     };
-    let cost_usd = compute_cost(&used_model, Capability::AudioStt, &usage);
+    let cost_usd = compute_cost(&used_model.pricing, Capability::AudioStt, &usage);
 
     spawn_request_log(
         state.pool.clone(),
@@ -1256,7 +1255,7 @@ async fn image_edits(
             fallback_result.ok_or_else(|| rate_limited_err.unwrap())?
         }
     };
-    let cost_usd = compute_cost(&used_model, Capability::ImageEdit, &usage);
+    let cost_usd = compute_cost(&used_model.pricing, Capability::ImageEdit, &usage);
 
     spawn_request_log(
         state.pool.clone(),

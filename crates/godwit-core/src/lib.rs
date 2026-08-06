@@ -216,6 +216,10 @@ pub struct AuthConfig {
     pub jwt_secret: String,
     pub access_token_ttl_minutes: i64,
     pub refresh_token_ttl_days: i64,
+    #[serde(default)]
+    pub cookie_secure: bool,
+    #[serde(default)]
+    pub allowed_cookie_origin: String,
     pub oidc_providers: Vec<OidcProviderConfig>,
     pub saml_providers: Vec<SamlProviderConfig>,
 }
@@ -908,6 +912,8 @@ auth:
   jwt_secret: supersecret
   access_token_ttl_minutes: 15
   refresh_token_ttl_days: 7
+  cookie_secure: false
+  allowed_cookie_origin: ""
   oidc_providers: []
   saml_providers: []
 "#;
@@ -1201,6 +1207,8 @@ auth:
   jwt_secret: supersecret
   access_token_ttl_minutes: 15
   refresh_token_ttl_days: 7
+  cookie_secure: false
+  allowed_cookie_origin: ""
   oidc_providers: []
   saml_providers: []
 "#;
@@ -1221,6 +1229,8 @@ auth:
   jwt_secret: supersecret
   access_token_ttl_minutes: 15
   refresh_token_ttl_days: 7
+  cookie_secure: false
+  allowed_cookie_origin: ""
   oidc_providers: []
   saml_providers: []
 agentic:
@@ -1311,6 +1321,8 @@ auth:
   jwt_secret: supersecret
   access_token_ttl_minutes: 15
   refresh_token_ttl_days: 7
+  cookie_secure: false
+  allowed_cookie_origin: ""
   oidc_providers: []
   saml_providers: []
 moderation:
@@ -1346,6 +1358,8 @@ auth:
   jwt_secret: supersecret
   access_token_ttl_minutes: 15
   refresh_token_ttl_days: 7
+  cookie_secure: false
+  allowed_cookie_origin: ""
   oidc_providers: []
   saml_providers: []
 "#;
@@ -1558,6 +1572,8 @@ auth:
   jwt_secret: supersecret
   access_token_ttl_minutes: 15
   refresh_token_ttl_days: 7
+  cookie_secure: false
+  allowed_cookie_origin: ""
   oidc_providers: []
   saml_providers: []
 "#;
@@ -1580,6 +1596,8 @@ auth:
   jwt_secret: supersecret
   access_token_ttl_minutes: 15
   refresh_token_ttl_days: 7
+  cookie_secure: false
+  allowed_cookie_origin: ""
   oidc_providers: []
   saml_providers: []
 cache:

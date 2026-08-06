@@ -59,6 +59,8 @@ fn test_config() -> AppConfig {
             jwt_secret: JWT_SECRET.to_string(),
             access_token_ttl_minutes: 15,
             refresh_token_ttl_days: 7,
+            cookie_secure: false,
+            allowed_cookie_origin: "".to_string(),
             oidc_providers: vec![],
             saml_providers: vec![],
         },

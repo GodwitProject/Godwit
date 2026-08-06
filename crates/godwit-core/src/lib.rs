@@ -44,6 +44,9 @@ pub struct AppConfig {
     /// Batch processing configuration.
     #[serde(default)]
     pub batch: BatchConfig,
+    /// Prompt cache configuration.
+    #[serde(default)]
+    pub cache: CacheConfig,
 }
 
 /// The agentic ecosystem section of [`AppConfig`]: a list of MCP servers to expose as
@@ -211,6 +214,41 @@ impl Default for BatchConfig {
             max_concurrent: default_batch_max_concurrent(),
             max_retries: default_batch_max_retries(),
             webhook_url: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CacheConfig {
+    /// Whether prompt caching is enabled (default: true)
+    #[serde(default = "default_cache_enabled")]
+    pub enabled: bool,
+    /// Time-to-live for cache entries in seconds (default: 3600)
+    #[serde(default = "default_cache_ttl_secs")]
+    pub ttl_secs: u64,
+    /// Maximum number of cache entries (default: 10000)
+    #[serde(default = "default_cache_max_size")]
+    pub max_size: usize,
+}
+
+fn default_cache_enabled() -> bool {
+    true
+}
+
+fn default_cache_ttl_secs() -> u64 {
+    3600
+}
+
+fn default_cache_max_size() -> usize {
+    10000
+}
+
+impl Default for CacheConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_cache_enabled(),
+            ttl_secs: default_cache_ttl_secs(),
+            max_size: default_cache_max_size(),
         }
     }
 }
@@ -1383,5 +1421,74 @@ auth:
         
         let parsed: ChatCompletionRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.repetition_penalty, Some(1.5));
+    }
+
+    #[test]
+    fn cache_config_defaults() {
+        let config = CacheConfig::default();
+        assert_eq!(config.enabled, true);
+        assert_eq!(config.ttl_secs, 3600);
+        assert_eq!(config.max_size, 10000);
+    }
+
+    #[test]
+    fn cache_config_parsing() {
+        let yaml = r#"
+enabled: false
+ttl_secs: 7200
+max_size: 5000
+"#;
+        let config: CacheConfig = serde_yaml::from_str(yaml).expect("parse yaml");
+        assert_eq!(config.enabled, false);
+        assert_eq!(config.ttl_secs, 7200);
+        assert_eq!(config.max_size, 5000);
+    }
+
+    #[test]
+    fn app_config_cache_defaults() {
+        let yaml = r#"
+server:
+  host: 127.0.0.1
+  port: 3000
+  request_timeout_seconds: 60
+database:
+  url: postgres://user:pass@localhost/pasteurllm
+auth:
+  jwt_secret: supersecret
+  access_token_ttl_minutes: 15
+  refresh_token_ttl_days: 7
+  oidc_providers: []
+  saml_providers: []
+"#;
+        let config: AppConfig = serde_yaml::from_str(yaml).expect("parse yaml");
+        assert_eq!(config.cache.enabled, true);
+        assert_eq!(config.cache.ttl_secs, 3600);
+        assert_eq!(config.cache.max_size, 10000);
+    }
+
+    #[test]
+    fn app_config_cache_override() {
+        let yaml = r#"
+server:
+  host: 127.0.0.1
+  port: 3000
+  request_timeout_seconds: 60
+database:
+  url: postgres://user:pass@localhost/pasteurllm
+auth:
+  jwt_secret: supersecret
+  access_token_ttl_minutes: 15
+  refresh_token_ttl_days: 7
+  oidc_providers: []
+  saml_providers: []
+cache:
+  enabled: false
+  ttl_secs: 1800
+  max_size: 5000
+"#;
+        let config: AppConfig = serde_yaml::from_str(yaml).expect("parse yaml");
+        assert_eq!(config.cache.enabled, false);
+        assert_eq!(config.cache.ttl_secs, 1800);
+        assert_eq!(config.cache.max_size, 5000);
     }
 }

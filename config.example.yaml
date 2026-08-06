@@ -45,3 +45,9 @@ batch:
   max_concurrent: 10
   max_retries: 2
   # webhook_url: https://example.com/webhooks/batch-complete
+
+# Prompt cache configuration
+cache:
+  enabled: true
+  ttl_secs: 3600
+  max_size: 10000

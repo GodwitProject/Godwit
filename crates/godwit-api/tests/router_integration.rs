@@ -2261,6 +2261,141 @@ async fn cookie_login_round_trip_authenticates_me_and_logout_clears_cookies(pool
     );
 }
 
+/// The refresh + logout endpoints must work from the httpOnly `godwit_refresh` cookie ALONE,
+/// with no JSON body. The admin UI cannot read the httpOnly cookie from JavaScript, so it
+/// relies on the server reading it back from the `Cookie` header. This is the regression
+/// guard for the 400 failure that occurred when the handlers only read the body.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn refresh_and_logout_work_from_refresh_cookie_alone_without_body(pool: PgPool) {
+    let app = build_app(pool.clone());
+    let (email, password) = seed_password_user(&pool).await;
+
+    // 1. Login, capturing the refresh cookie Set-Cookie value.
+    let login_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"email": email, "password": password}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(login_response.status(), StatusCode::OK);
+
+    let set_cookies: Vec<String> = login_response
+        .headers()
+        .get_all(SET_COOKIE)
+        .iter()
+        .map(|v| v.to_str().unwrap().to_string())
+        .collect();
+    let refresh_cookie = set_cookies
+        .iter()
+        .find(|c| c.starts_with("godwit_refresh="))
+        .expect("godwit_refresh Set-Cookie present");
+    let refresh_value = refresh_cookie.split(';').next().unwrap().to_string();
+
+    // 2. Refresh using ONLY the refresh cookie (no body) -> 200 with a fresh access cookie.
+    let refresh_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/refresh")
+                .header(COOKIE, &refresh_value)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        refresh_response.status(),
+        StatusCode::OK,
+        "refresh must work from the refresh cookie alone with no body"
+    );
+    let rotated_cookies: Vec<String> = refresh_response
+        .headers()
+        .get_all(SET_COOKIE)
+        .iter()
+        .map(|v| v.to_str().unwrap().to_string())
+        .collect();
+    assert!(
+        rotated_cookies
+            .iter()
+            .any(|c| c.starts_with("godwit_access=")),
+        "refresh must issue a new access cookie: {rotated_cookies:?}"
+    );
+
+    // The refresh cookie is rotated, so the new one must differ from the used one.
+    let rotated_refresh = rotated_cookies
+        .iter()
+        .find(|c| c.starts_with("godwit_refresh="))
+        .expect("rotated godwit_refresh Set-Cookie present");
+    let rotated_refresh_value = rotated_refresh.split(';').next().unwrap().to_string();
+    assert_ne!(
+        rotated_refresh_value, refresh_value,
+        "refresh must rotate to a new refresh cookie"
+    );
+
+    // 3. Logout using ONLY the refresh cookie (no body) -> OK + clear-cookie headers.
+    let logout_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/logout")
+                .header(COOKIE, &rotated_refresh_value)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        logout_response.status(),
+        StatusCode::OK,
+        "logout must succeed from the refresh cookie alone with no body"
+    );
+    let clear_cookies: Vec<String> = logout_response
+        .headers()
+        .get_all(SET_COOKIE)
+        .iter()
+        .map(|v| v.to_str().unwrap().to_string())
+        .collect();
+    assert!(
+        clear_cookies
+            .iter()
+            .any(|c| c.starts_with("godwit_access=;") && c.contains("Max-Age=0")),
+        "access cookie must be cleared on cookie-only logout: {clear_cookies:?}"
+    );
+    assert!(
+        clear_cookies
+            .iter()
+            .any(|c| c.starts_with("godwit_refresh=;") && c.contains("Max-Age=0")),
+        "refresh cookie must be cleared on cookie-only logout: {clear_cookies:?}"
+    );
+
+    // 4. No cookie and no body on logout -> 401 (not 400).
+    let no_token_logout = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/logout")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        no_token_logout.status(),
+        StatusCode::UNAUTHORIZED,
+        "logout with no cookie and no body must return 401"
+    );
+}
+
 /// A `super_admin` creates an organization, then a team inside it, then adds and removes a
 /// member of that team — the full org/team/membership lifecycle through the real router.
 #[sqlx::test(migrations = "../godwit-db/migrations")]

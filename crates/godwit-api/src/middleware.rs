@@ -17,7 +17,7 @@ pub fn extract_token(header: &str) -> Option<&str> {
     header.strip_prefix("Bearer ")
 }
 
-fn cookie_value<'a>(header: Option<&HeaderValue>, name: &str) -> Option<String> {
+pub fn cookie_value<'a>(header: Option<&HeaderValue>, name: &str) -> Option<String> {
     header.and_then(|h| h.to_str().ok()).and_then(|cookies| {
         cookies.split(';').find_map(|part| {
             let mut kv = part.trim().splitn(2, '=');

@@ -28,14 +28,16 @@ pub struct OidcCallback {
     state: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct RefreshRequest {
-    refresh_token: String,
+    #[serde(default)]
+    refresh_token: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct LogoutRequest {
-    refresh_token: String,
+    #[serde(default)]
+    refresh_token: Option<String>,
 }
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -66,6 +68,13 @@ fn refresh_cookie(state: &AppState, token: &str) -> String {
     format!(
         "godwit_refresh={}; HttpOnly; Path=/api/v1/auth; SameSite=Strict; Max-Age={}{}",
         token, max_age, secure
+    )
+}
+
+fn refresh_token_from_cookie(headers: &HeaderMap) -> Option<String> {
+    crate::middleware::cookie_value(
+        headers.get(axum::http::header::COOKIE),
+        "godwit_refresh",
     )
 }
 
@@ -127,10 +136,13 @@ async fn login(
 }
 
 async fn refresh(
+    headers: HeaderMap,
     State(state): State<Arc<AppState>>,
-    Json(req): Json<RefreshRequest>,
+    body: Option<Json<RefreshRequest>>,
 ) -> Result<impl IntoResponse, crate::error::ApiError> {
-    let hash = hash_refresh_token(&req.refresh_token);
+    let body_token = body.and_then(|b| b.refresh_token.clone());
+    let token = refresh_token_from_cookie(&headers).or_else(|| body_token);
+    let hash = hash_refresh_token(token.as_deref().ok_or(crate::error::ApiError::Unauthorized)?);
     let stored = state
         .refresh_token_repo
         .get_by_hash(&hash)
@@ -156,15 +168,12 @@ async fn refresh(
 }
 
 async fn logout(
+    headers: HeaderMap,
     State(state): State<Arc<AppState>>,
-    Json(req): Json<LogoutRequest>,
+    body: Option<Json<LogoutRequest>>,
 ) -> Result<impl IntoResponse, crate::error::ApiError> {
-    let hash = hash_refresh_token(&req.refresh_token);
-    state
-        .refresh_token_repo
-        .delete_by_hash(&hash)
-        .await
-        .map_err(crate::error::ApiError::Core)?;
+    let body_token = body.and_then(|b| b.refresh_token.clone());
+    let token = refresh_token_from_cookie(&headers).or_else(|| body_token);
     let mut headers = HeaderMap::new();
     headers.append(
         SET_COOKIE,
@@ -176,6 +185,13 @@ async fn logout(
         HeaderValue::from_str("godwit_refresh=; HttpOnly; Path=/api/v1/auth; Max-Age=0")
             .map_err(|_| crate::error::ApiError::Internal)?,
     );
+    let refresh_token = token.ok_or(crate::error::ApiError::Unauthorized)?;
+    let hash = hash_refresh_token(&refresh_token);
+    state
+        .refresh_token_repo
+        .delete_by_hash(&hash)
+        .await
+        .map_err(crate::error::ApiError::Core)?;
     Ok((headers, Json(serde_json::json!({ "logged_out": true }))))
 }
 
@@ -183,9 +199,12 @@ pub async fn me(
     State(state): State<Arc<AppState>>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<serde_json::Value>, crate::error::ApiError> {
+    let user_id = uuid::Uuid::parse_str(&claims.sub)
+        .ok()
+        .ok_or(crate::error::ApiError::Unauthorized)?;
     let user = state
         .user_repo
-        .get_by_id(uuid::Uuid::parse_str(&claims.sub).unwrap())
+        .get_by_id(user_id)
         .await
         .map_err(|_| crate::error::ApiError::Unauthorized)?;
     Ok(Json(serde_json::json!({ "user": {
@@ -416,14 +435,26 @@ mod tests {
     fn refresh_request_deserializes() {
         let json = r#"{"refresh_token":"abc123"}"#;
         let req: RefreshRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(req.refresh_token, "abc123");
+        assert_eq!(req.refresh_token.as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn refresh_request_deserializes_without_body_field() {
+        let req: RefreshRequest = serde_json::from_str(r#"{}"#).unwrap();
+        assert_eq!(req.refresh_token, None);
     }
 
     #[test]
     fn logout_request_deserializes() {
         let json = r#"{"refresh_token":"abc123"}"#;
         let req: LogoutRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(req.refresh_token, "abc123");
+        assert_eq!(req.refresh_token.as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn logout_request_deserializes_without_body_field() {
+        let req: LogoutRequest = serde_json::from_str(r#"{}"#).unwrap();
+        assert_eq!(req.refresh_token, None);
     }
 
     #[tokio::test]
@@ -437,9 +468,9 @@ mod tests {
         use axum::response::IntoResponse;
         use axum::Json as AxumJson;
         let req = LogoutRequest {
-            refresh_token: "any-token".to_string(),
+            refresh_token: Some("any-token".to_string()),
         };
-        let res = logout(State(state), AxumJson(req))
+        let res = logout(HeaderMap::new(), State(state), Some(AxumJson(req)))
             .await
             .expect("logout succeeds")
             .into_response();

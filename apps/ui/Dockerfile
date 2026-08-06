@@ -7,12 +7,11 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY apps/ui/ .
-# NEXT_PUBLIC_* vars are inlined into the client bundle at build time by the
-# `env` block in next.config.js, so they must be supplied as ARGs here (runtime
+# next.config.js reads process.env.NEXT_PUBLIC_API_ORIGIN to build the rewrite
+# destination, so it must be supplied as an ARG at build time here (the runtime
 # environment is ignored for the standalone server). Defaults mirror the
-# next.config.js fallbacks. NEXT_PUBLIC_API_ORIGIN is the rewrite destination:
-# same-origin auth means it should be an *internal* backend address in docker,
-# never a browser-reachable host.
+# next.config.js fallback. Same-origin auth means this should be an *internal*
+# backend address in docker, never a browser-reachable host.
 ARG NEXT_PUBLIC_API_ORIGIN=http://localhost:3000
 ARG NEXT_PUBLIC_WS_URL=ws://localhost:3000/api/v1/ws
 ENV NEXT_PUBLIC_API_ORIGIN=$NEXT_PUBLIC_API_ORIGIN

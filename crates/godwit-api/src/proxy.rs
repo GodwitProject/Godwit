@@ -11,6 +11,8 @@ use godwit_core::{
     Capability, ChatCompletionRequest, ChatCompletionResponse, ChatContent, ChatMessage,
     ImageGenerationRequest, Tool, ToolCall,
 };
+#[cfg(test)]
+use godwit_core::{AppConfig, AuthConfig, CompatConfig, DatabaseConfig, ServerConfig};
 use godwit_db::models::ApiKey;
 use godwit_db::repositories::{
     models::ModelRepository, provider_profiles::ProviderProfileRepository,
@@ -1477,5 +1479,90 @@ mod tests {
         };
         let tokens = rate_limit::estimate_request_tokens(&req);
         assert!(tokens >= 10);
+    }
+
+    #[test]
+    fn openai_wire_flag_changes_sse_format() {
+        use godwit_core::CompatConfig;
+
+        let config_with_wire = AppConfig {
+            server: ServerConfig {
+                host: "127.0.0.1".to_string(),
+                port: 3000,
+                request_timeout_seconds: 60,
+            },
+            database: DatabaseConfig {
+                url: "postgres://test@test/test".to_string(),
+            },
+            auth: AuthConfig {
+                jwt_secret: "test".to_string(),
+                access_token_ttl_minutes: 15,
+                refresh_token_ttl_days: 7,
+                oidc_providers: vec![],
+                saml_providers: vec![],
+            },
+            agentic: Default::default(),
+            compat: Some(CompatConfig {
+                openai_wire_streaming: true,
+            }),
+        };
+
+        let config_without_wire = AppConfig {
+            server: ServerConfig {
+                host: "127.0.0.1".to_string(),
+                port: 3000,
+                request_timeout_seconds: 60,
+            },
+            database: DatabaseConfig {
+                url: "postgres://test@test/test".to_string(),
+            },
+            auth: AuthConfig {
+                jwt_secret: "test".to_string(),
+                access_token_ttl_minutes: 15,
+                refresh_token_ttl_days: 7,
+                oidc_providers: vec![],
+                saml_providers: vec![],
+            },
+            agentic: Default::default(),
+            compat: Some(CompatConfig {
+                openai_wire_streaming: false,
+            }),
+        };
+
+        let config_default = AppConfig {
+            server: ServerConfig {
+                host: "127.0.0.1".to_string(),
+                port: 3000,
+                request_timeout_seconds: 60,
+            },
+            database: DatabaseConfig {
+                url: "postgres://test@test/test".to_string(),
+            },
+            auth: AuthConfig {
+                jwt_secret: "test".to_string(),
+                access_token_ttl_minutes: 15,
+                refresh_token_ttl_days: 7,
+                oidc_providers: vec![],
+                saml_providers: vec![],
+            },
+            agentic: Default::default(),
+            compat: None,
+        };
+
+        assert!(config_with_wire
+            .compat
+            .as_ref()
+            .map(|c| c.openai_wire_streaming)
+            .unwrap_or(false));
+        assert!(!config_without_wire
+            .compat
+            .as_ref()
+            .map(|c| c.openai_wire_streaming)
+            .unwrap_or(false));
+        assert!(!config_default
+            .compat
+            .as_ref()
+            .map(|c| c.openai_wire_streaming)
+            .unwrap_or(false));
     }
 }

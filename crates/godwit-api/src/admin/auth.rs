@@ -165,7 +165,18 @@ async fn logout(
         .delete_by_hash(&hash)
         .await
         .map_err(crate::error::ApiError::Core)?;
-    Ok(Json(serde_json::json!({ "logged_out": true })))
+    let mut headers = HeaderMap::new();
+    headers.append(
+        SET_COOKIE,
+        HeaderValue::from_str("godwit_access=; HttpOnly; Path=/; Max-Age=0")
+            .map_err(|_| crate::error::ApiError::Internal)?,
+    );
+    headers.append(
+        SET_COOKIE,
+        HeaderValue::from_str("godwit_refresh=; HttpOnly; Path=/api/v1/auth; Max-Age=0")
+            .map_err(|_| crate::error::ApiError::Internal)?,
+    );
+    Ok((headers, Json(serde_json::json!({ "logged_out": true }))))
 }
 
 async fn oidc_start(
@@ -395,5 +406,40 @@ mod tests {
         let json = r#"{"refresh_token":"abc123"}"#;
         let req: LogoutRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.refresh_token, "abc123");
+    }
+
+    #[tokio::test]
+    async fn logout_response_clears_both_cookies() {
+        let pool = PgPool::connect(&std::env::var("DATABASE_URL").expect("DATABASE_URL set"))
+            .await
+            .expect("connect to test db");
+        godwit_db::MIGRATOR.run(&pool).await.expect("run migrations");
+        let state = test_state(pool).await;
+
+        use axum::response::IntoResponse;
+        use axum::Json as AxumJson;
+        let req = LogoutRequest {
+            refresh_token: "any-token".to_string(),
+        };
+        let res = logout(State(state), AxumJson(req))
+            .await
+            .expect("logout succeeds")
+            .into_response();
+
+        let cookie_strs: Vec<String> = res
+            .headers()
+            .get_all(SET_COOKIE)
+            .iter()
+            .map(|v| v.to_str().unwrap().to_string())
+            .collect();
+
+        assert!(
+            cookie_strs.iter().any(|c| c == "godwit_access=; HttpOnly; Path=/; Max-Age=0"),
+            "access clear cookie missing: {cookie_strs:?}"
+        );
+        assert!(
+            cookie_strs.iter().any(|c| c == "godwit_refresh=; HttpOnly; Path=/api/v1/auth; Max-Age=0"),
+            "refresh clear cookie missing: {cookie_strs:?}"
+        );
     }
 }

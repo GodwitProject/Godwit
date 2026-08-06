@@ -27,6 +27,7 @@ use uuid::Uuid;
 
 use crate::{
     fallback::call_chat_with_fallback,
+    metrics::MetricsCollector,
     model_info,
     model_router::{DbModelRouter, ResolvedModel},
     proxy_streaming::process_streaming_tool_calls,
@@ -509,17 +510,22 @@ async fn chat_completions(
     let body_bytes = axum::body::to_bytes(req_body, usize::MAX).await.unwrap();
     let mut req: ChatCompletionRequest = serde_json::from_slice(&body_bytes).unwrap();
 
+    let model = req.model.clone();
     let estimated_tokens = rate_limit::estimate_request_tokens(&req);
     let primary_resolved = state
         .model_router
         .resolve(&req.model, Capability::Chat)
         .await?;
+    let provider = primary_resolved.model.provider.clone();
+    
     check_rate_limit(&state, &api_key, &primary_resolved.model, estimated_tokens).await?;
     check_user_budget(&state, &api_key).await?;
     check_team_budget(&state, &api_key).await?;
 
     let has_tools = req.tools.as_ref().map(|t| !t.is_empty()).unwrap_or(false);
     let streamed = req.stream == Some(true);
+
+    MetricsCollector::increment_active(&model, &provider);
 
     let (response, usage, model_used, model_pricing, attempts_made, fallback_triggered, tool_calls_count, agentic_iteration) = if has_tools && !streamed {
         merge_agentic_tools(&state, &mut req).await;
@@ -532,13 +538,37 @@ async fn chat_completions(
                 let cost_usd = compute_cost(&primary_resolved.model.pricing, Capability::Chat, &total_usage);
                 (response, Some(total_usage), primary_resolved.model.provider_model_id.clone(), primary_resolved.model.pricing.clone(), 1, false, Some(tool_count), Some(state.agentic_loop.max_iterations))
             }
-            Err(e) => return Err(e),
+            Err(e) => {
+                MetricsCollector::decrement_active(&model, &provider);
+                let duration = start.elapsed().as_secs_f64();
+                MetricsCollector::record_request(&model, &provider, "error", duration);
+                return Err(e);
+            }
         }
     } else {
         let fallback_result = call_chat_with_fallback(&state, &req.model, req.clone()).await
-            .map_err(map_provider_error)?;
+            .map_err(|e| {
+                MetricsCollector::decrement_active(&model, &provider);
+                let duration = start.elapsed().as_secs_f64();
+                MetricsCollector::record_request(&model, &provider, "error", duration);
+                map_provider_error(e)
+            })?;
         (fallback_result.response, Some(fallback_result.usage.clone()), fallback_result.model_used.clone(), fallback_result.model_pricing, fallback_result.attempts_made, fallback_result.fallback_triggered, None, None)
     };
+
+    MetricsCollector::decrement_active(&model, &provider);
+    
+    let duration = start.elapsed().as_secs_f64();
+    MetricsCollector::record_request(&model_used, &provider, "success", duration);
+
+    if let Some(ref u) = usage {
+        if let Some(tokens) = u.prompt_tokens {
+            MetricsCollector::record_tokens("input", &model_used, tokens as u32);
+        }
+        if let Some(tokens) = u.completion_tokens {
+            MetricsCollector::record_tokens("output", &model_used, tokens as u32);
+        }
+    }
 
     let cost_usd = usage.as_ref().and_then(|u| compute_cost(&model_pricing, Capability::Chat, u));
     let log = RequestLogEntry {

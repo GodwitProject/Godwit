@@ -3,6 +3,7 @@ pub mod admin;
 pub mod agentic_loop;
 pub mod anthropic_proxy;
 pub mod batch;
+pub mod batch_parser;
 pub mod circuit_breaker;
 pub mod error;
 pub mod fallback;

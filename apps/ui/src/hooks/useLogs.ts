@@ -1,18 +1,17 @@
-import { useQuery } from '@tanstack/react-query';
-import { fetchLogs, fetchLog, type LogFilters, type LogsQuery } from '@/lib/logs';
+import { useInfiniteQuery } from '@tanstack/react-query';
+import { fetchLogs, type LogFilters, type LogsPage } from '@/lib/logs';
 
-export function useLogs(filters: LogFilters, page: number, pageSize: number) {
-  const query: LogsQuery = { page, pageSize, filters };
-  return useQuery({
-    queryKey: ['logs', query],
-    queryFn: () => fetchLogs(query),
-  });
-}
+export const LOGS_PAGE_SIZE = 50;
 
-export function useLog(id?: string) {
-  return useQuery({
-    queryKey: ['logs', id],
-    queryFn: () => fetchLog(id!),
-    enabled: !!id,
+export function useLogs(filters: LogFilters) {
+  return useInfiniteQuery<LogsPage>({
+    queryKey: ['logs', filters],
+    queryFn: ({ pageParam }) =>
+      fetchLogs({ offset: pageParam as number, limit: LOGS_PAGE_SIZE, filters }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => {
+      if (lastPage.items.length < LOGS_PAGE_SIZE) return undefined;
+      return allPages.length * LOGS_PAGE_SIZE;
+    },
   });
 }

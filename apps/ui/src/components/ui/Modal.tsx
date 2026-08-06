@@ -39,7 +39,7 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg', c
       />
       <div
         className={clsx(
-          'relative bg-white rounded-xl shadow-lg max-h-[90vh] overflow-y-auto w-full p-6',
+          'relative bg-surface-container-lowest rounded-xl shadow-lg max-h-[90vh] overflow-y-auto w-full p-6',
           maxWidth,
           className
         )}

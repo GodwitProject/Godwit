@@ -2,41 +2,27 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
-import { MetricsSocket, type MetricsUpdate, type MetricsSocketStatus } from '@/lib/websocket';
-import { fetchMetrics } from '@/lib/api';
+import { MetricsSocket, type MetricsUpdate } from '@/lib/websocket';
+import { fetchPrometheusMetrics } from '@/lib/api';
 
 export type RealtimeStatus = 'connecting' | 'live' | 'polling' | 'error';
 
-interface RealtimeMetricsState {
-  requestsTotal: number | null;
-  latencyP95Ms: number | null;
-  tokensTotal: number | null;
-  errorRate: number | null;
-  timestamp: string | null;
-}
-
-const useRealtimeMetricsStore = create<RealtimeMetricsState>(() => ({
-  requestsTotal: null,
-  latencyP95Ms: null,
-  tokensTotal: null,
-  errorRate: null,
-  timestamp: null,
+const useRealtimeMetricsStore = create<MetricsUpdate>(() => ({
+  requestsTotal: 0,
+  tokensTotal: 0,
+  costUsdTotal: 0,
+  activeRequests: 0,
+  timestamp: '',
 }));
 
-interface PollingMetrics {
-  totalRequests?: number;
-  errorRate?: number;
-  [key: string]: unknown;
-}
-
 interface RealTimeMetricsResult {
-  data: RealtimeMetricsState;
+  data: MetricsUpdate;
   status: RealtimeStatus;
 }
 
 export function useRealtimeMetrics(): RealTimeMetricsResult {
   const [status, setStatus] = useState<RealtimeStatus>('connecting');
-  const [data, setData] = useState<RealtimeMetricsState>(() => useRealtimeMetricsStore.getState());
+  const [data, setData] = useState<MetricsUpdate>(() => useRealtimeMetricsStore.getState());
   const socketRef = useRef<MetricsSocket | null>(null);
   const fallbackTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -54,7 +40,7 @@ export function useRealtimeMetrics(): RealTimeMetricsResult {
     socket.subscribe((update: MetricsUpdate) => {
       if (!active) return;
       useRealtimeMetricsStore.setState(update);
-      setData(useRealtimeMetricsStore.getState());
+      setData(update);
       setStatus('live');
     });
 
@@ -62,17 +48,10 @@ export function useRealtimeMetrics(): RealTimeMetricsResult {
       if (!active || fallbackTimer.current) return;
       fallbackTimer.current = setInterval(async () => {
         try {
-          const metrics = (await fetchMetrics()) as PollingMetrics;
+          const metrics = await fetchPrometheusMetrics();
           if (!active) return;
-          const mapped: RealtimeMetricsState = {
-            requestsTotal: typeof metrics.totalRequests === 'number' ? metrics.totalRequests : null,
-            latencyP95Ms: typeof metrics.p95LatencyMs === 'number' ? metrics.p95LatencyMs : null,
-            tokensTotal: typeof metrics.totalTokens === 'number' ? metrics.totalTokens : null,
-            errorRate: typeof metrics.errorRate === 'number' ? metrics.errorRate : null,
-            timestamp: new Date().toISOString(),
-          };
-          useRealtimeMetricsStore.setState(mapped);
-          setData(mapped);
+          useRealtimeMetricsStore.setState(metrics);
+          setData(metrics);
         } catch {
           if (active) setStatus('error');
         }

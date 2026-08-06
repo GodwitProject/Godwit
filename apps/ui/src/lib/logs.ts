@@ -1,63 +1,85 @@
 export interface RequestLog {
   id: string;
-  timestamp: string;
-  requestId: string;
+  api_key_id: string | null;
   model: string;
   provider: string;
-  status: number;
-  tokensIn: number;
-  tokensOut: number;
-  cost: number;
-  latencyMs: number;
-  apiKeyPrefix: string;
-  requestBody: unknown;
-  responseBody: unknown;
-  finishReason: string | null;
-  piiDetected: boolean;
-  moderationStatus: 'not_checked' | 'allowed' | 'blocked';
-  fallbackUsed: boolean;
-  timeline: Array<{ time: string; event: string }>;
+  capability: string;
+  duration_ms: number | null;
+  streamed: boolean;
+  cost_usd: number;
+  created_at: string;
 }
 
 export interface LogFilters {
-  search?: string;
   model?: string;
-  status?: number | string;
-  dateFrom?: string;
-  dateTo?: string;
+  api_key_id?: string;
+  from?: string;
+  to?: string;
 }
 
 export interface LogsQuery {
-  page?: number;
-  pageSize?: number;
+  limit?: number;
+  offset?: number;
   filters?: LogFilters;
+}
+
+export interface LogsPage {
+  items: RequestLog[];
+  offset: number;
+  limit: number;
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1';
 
 function buildQuery(query: LogsQuery): string {
   const params = new URLSearchParams();
-  if (query.page != null) params.set('page', String(query.page));
-  if (query.pageSize != null) params.set('pageSize', String(query.pageSize));
+  if (query.limit != null) params.set('limit', String(query.limit));
+  if (query.offset != null) params.set('offset', String(query.offset));
   const f = query.filters;
-  if (f?.search) params.set('search', f.search);
   if (f?.model) params.set('model', f.model);
-  if (f?.status != null && f.status !== '') params.set('status', String(f.status));
-  if (f?.dateFrom) params.set('dateFrom', f.dateFrom);
-  if (f?.dateTo) params.set('dateTo', f.dateTo);
+  if (f?.api_key_id) params.set('api_key_id', f.api_key_id);
+  if (f?.from) params.set('from', f.from);
+  if (f?.to) params.set('to', f.to);
   const qs = params.toString();
   return qs ? `?${qs}` : '';
 }
 
-export async function fetchLogs(query: LogsQuery = {}): Promise<RequestLog[]> {
-  const res = await fetch(`${API_BASE}/logs${buildQuery(query)}`);
-  if (!res.ok) throw new Error('Failed to fetch logs');
-  const data = await res.json();
-  return Array.isArray(data) ? data : data.logs ?? [];
+interface RawSpendLog {
+  id: string;
+  api_key_id?: string | null;
+  model?: string;
+  provider?: string;
+  capability?: string;
+  duration_ms?: number | string | null;
+  streamed?: boolean;
+  cost_usd?: string | number | null;
+  created_at?: string;
 }
 
-export async function fetchLog(id: string): Promise<RequestLog> {
-  const res = await fetch(`${API_BASE}/logs/${id}`);
-  if (!res.ok) throw new Error(`Failed to fetch log ${id}`);
-  return res.json();
+function parseLog(raw: RawSpendLog): RequestLog {
+  const duration = typeof raw.duration_ms === 'string' ? Number(raw.duration_ms) : raw.duration_ms;
+  const cost = typeof raw.cost_usd === 'string' ? parseFloat(raw.cost_usd) : raw.cost_usd;
+  return {
+    id: raw.id,
+    api_key_id: raw.api_key_id ?? null,
+    model: raw.model ?? '',
+    provider: raw.provider ?? '',
+    capability: raw.capability ?? '',
+    duration_ms: duration != null && Number.isFinite(duration) ? duration : null,
+    streamed: !!raw.streamed,
+    cost_usd: cost != null && Number.isFinite(cost) ? cost : 0,
+    created_at: raw.created_at ?? '',
+  };
+}
+
+export async function fetchLogs(query: LogsQuery = {}): Promise<LogsPage> {
+  const res = await fetch(`${API_BASE}/spend/logs${buildQuery(query)}`);
+  if (!res.ok) throw new Error('Failed to fetch logs');
+  const data = await res.json();
+  const rawItems: RawSpendLog[] = Array.isArray(data?.data) ? data.data : [];
+  return {
+    items: rawItems.map(parseLog),
+    offset: typeof data?.offset === 'number' ? data.offset : query.offset ?? 0,
+    limit: typeof data?.limit === 'number' ? data.limit : query.limit ?? 0,
+  };
 }

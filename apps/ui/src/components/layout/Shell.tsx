@@ -7,7 +7,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen pb-20 md:pb-0">
       <Header />
       <Sidebar />
-      <main className="pt-20 px-margin-mobile md:px-margin-desktop md:ml-[256px] max-w-7xl mx-auto flex flex-col gap-8 pb-12">
+      <main className="pt-20 px-margin-mobile md:px-margin-desktop md:ml-sidebar-width max-w-7xl mx-auto flex flex-col gap-8 pb-12">
         {children}
       </main>
       <MobileNav />

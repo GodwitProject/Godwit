@@ -1,61 +1,82 @@
 export interface ApiKey {
   id: string;
+  user_id: string | null;
+  team_id: string | null;
+  organization_id: string | null;
   name: string;
-  prefix: string;
-  owner: string;
+  key_prefix: string;
   scopes: string[];
-  allowedModels: string[];
-  budget: number | null;
-  rateLimitRpm: number | null;
-  rateLimitTpm: number | null;
-  expiresAt: string | null;
-  spend30d: number;
-  requests24h: number;
-  lastUsedAt: string | null;
-  status: 'active' | 'revoked';
-  createdAt: string;
+  allowed_models: string[];
+  budget_limit_usd: number | null;
+  budget_spent_usd: number | null;
+  rate_limit_requests_per_minute: number | null;
+  rate_limit_tokens_per_minute: number | null;
+  expires_at: string | null;
+  disabled: boolean;
+  created_at: string;
 }
 
 export interface CreateKeyRequest {
   name: string;
-  owner: string;
   scopes: string[];
-  allowedModels: string[];
-  budget?: number | null;
-  rateLimitRpm?: number | null;
-  rateLimitTpm?: number | null;
-  expiresAt?: string | null;
+  allowed_models: string[];
+  rate_limit_requests_per_minute?: number | null;
+  rate_limit_tokens_per_minute?: number | null;
 }
-
-export type UpdateKeyRequest = Partial<CreateKeyRequest>;
 
 export interface CreatedKey {
-  key: ApiKey;
-  fullKey: string;
-}
-
-export interface KeyUsagePoint {
-  day: string;
-  spend: number;
-}
-
-export interface KeyUsage {
-  totalSpend: number;
-  totalRequests: number;
-  timeseries: KeyUsagePoint[];
-}
-
-export interface KeyLog {
   id: string;
-  timestamp: string;
-  model: string;
-  status: number;
-  tokensIn: number;
-  tokensOut: number;
-  cost: number;
+  key: string;
+  name: string;
+}
+
+export interface ApiKeyActionResponse {
+  data: ApiKey;
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1';
+
+function toNullableNumber(value: string | number | null | undefined): number | null {
+  if (value == null || value === '') return null;
+  const n = typeof value === 'string' ? parseFloat(value) : value;
+  return Number.isFinite(n) ? n : null;
+}
+
+function parseApiKey(raw: {
+  id: string;
+  user_id?: string | null;
+  team_id?: string | null;
+  organization_id?: string | null;
+  name: string;
+  key_prefix?: string;
+  scopes?: string[];
+  allowed_models?: string[];
+  budget_limit_usd?: string | number | null;
+  budget_spent_usd?: string | number | null;
+  rate_limit_requests_per_minute?: string | number | null;
+  rate_limit_tokens_per_minute?: string | number | null;
+  expires_at?: string | null;
+  disabled?: boolean;
+  created_at?: string;
+}): ApiKey {
+  return {
+    id: raw.id,
+    user_id: raw.user_id ?? null,
+    team_id: raw.team_id ?? null,
+    organization_id: raw.organization_id ?? null,
+    name: raw.name,
+    key_prefix: raw.key_prefix ?? '',
+    scopes: raw.scopes ?? [],
+    allowed_models: raw.allowed_models ?? [],
+    budget_limit_usd: toNullableNumber(raw.budget_limit_usd),
+    budget_spent_usd: toNullableNumber(raw.budget_spent_usd),
+    rate_limit_requests_per_minute: toNullableNumber(raw.rate_limit_requests_per_minute),
+    rate_limit_tokens_per_minute: toNullableNumber(raw.rate_limit_tokens_per_minute),
+    expires_at: raw.expires_at ?? null,
+    disabled: !!raw.disabled,
+    created_at: raw.created_at ?? '',
+  };
+}
 
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`);
@@ -63,41 +84,38 @@ async function getJson<T>(path: string): Promise<T> {
   return res.json();
 }
 
-async function sendJson<T>(path: string, method: string, body: unknown): Promise<T> {
+async function sendJson<T>(path: string, method: string, body?: unknown): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: body == null ? undefined : JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`Failed to ${method} ${path}`);
   return res.json();
 }
 
 export async function fetchKeys(): Promise<ApiKey[]> {
-  return getJson<ApiKey[]>('/keys');
+  const data = await getJson<{ data: RawApiKey[] }>('/api-keys');
+  return (data.data || []).map(parseApiKey);
 }
 
 export async function createKey(req: CreateKeyRequest): Promise<CreatedKey> {
-  return sendJson<CreatedKey>('/keys', 'POST', req);
+  return sendJson<CreatedKey>('/api-keys', 'POST', req);
 }
 
-export async function updateKey(id: string, req: UpdateKeyRequest): Promise<ApiKey> {
-  return sendJson<ApiKey>(`/keys/${id}`, 'PATCH', req);
+export async function blockKey(id: string): Promise<ApiKey> {
+  const data = await sendJson<ApiKeyActionResponse>(`/api-keys/${id}/block`, 'POST');
+  return parseApiKey(data.data);
+}
+
+export async function unblockKey(id: string): Promise<ApiKey> {
+  const data = await sendJson<ApiKeyActionResponse>(`/api-keys/${id}/unblock`, 'POST');
+  return parseApiKey(data.data);
 }
 
 export async function deleteKey(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/keys/${id}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error(`Failed to DELETE /keys/${id}`);
+  const res = await fetch(`${API_BASE}/api-keys/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to DELETE /api-keys/${id}`);
 }
 
-export async function revokeKey(id: string): Promise<ApiKey> {
-  return sendJson<ApiKey>(`/keys/${id}/revoke`, 'POST', {});
-}
-
-export async function fetchKeyUsage(id: string): Promise<KeyUsage> {
-  return getJson<KeyUsage>(`/keys/${id}/usage`);
-}
-
-export async function fetchKeyLogs(id: string): Promise<KeyLog[]> {
-  return getJson<KeyLog[]>(`/keys/${id}/logs`);
-}
+type RawApiKey = Parameters<typeof parseApiKey>[0];

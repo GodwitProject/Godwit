@@ -8,8 +8,7 @@ import type { ApiKey } from '../../lib/keys';
 export interface KeyListProps {
   keys: ApiKey[];
   onSelect: (key: ApiKey) => void;
-  onEdit: (key: ApiKey) => void;
-  onRevoke: (key: ApiKey) => void;
+  onToggleActive: (key: ApiKey) => void;
   onDelete: (key: ApiKey) => void;
 }
 
@@ -24,11 +23,14 @@ function scopeVariant(scope: string) {
 }
 
 function prefixLabel(key: ApiKey) {
-  if (key.prefix) return key.prefix;
-  return 'sk_live_****';
+  return key.key_prefix || 'sk_live_****';
 }
 
-function formatDate(iso: string | null) {
+function formatRateLimit(value: number | null): string {
+  return value != null ? String(value) : '—';
+}
+
+function formatExpiry(iso: string | null): string {
   if (!iso) return 'Never';
   try {
     return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
@@ -37,7 +39,7 @@ function formatDate(iso: string | null) {
   }
 }
 
-export function KeyList({ keys, onSelect, onEdit, onRevoke, onDelete }: KeyListProps) {
+export function KeyList({ keys, onSelect, onToggleActive, onDelete }: KeyListProps) {
   const [menuFor, setMenuFor] = useState<string | null>(null);
 
   if (keys.length === 0) {
@@ -61,107 +63,86 @@ export function KeyList({ keys, onSelect, onEdit, onRevoke, onDelete }: KeyListP
           <TableRow>
             <TableHeadCell>Name</TableHeadCell>
             <TableHeadCell>Prefix</TableHeadCell>
-            <TableHeadCell>Owner</TableHeadCell>
             <TableHeadCell>Scopes</TableHeadCell>
-            <TableHeadCell>Spend (30d)</TableHeadCell>
-            <TableHeadCell>Requests (24h)</TableHeadCell>
-            <TableHeadCell>Last Used</TableHeadCell>
+            <TableHeadCell>Spent</TableHeadCell>
+            <TableHeadCell>Rate Limit</TableHeadCell>
+            <TableHeadCell>Expires</TableHeadCell>
             <TableHeadCell>Status</TableHeadCell>
             <TableHeadCell />
           </TableRow>
         </TableHead>
         <TableBody>
-          {keys.map((key) => (
-            <TableRow
-              key={key.id}
-              className="cursor-pointer"
-              onClick={() => {
-                setMenuFor(null);
-                onSelect(key);
-              }}
-            >
-              <TableCell>
-                <div className="flex items-center gap-3">
-                  <span className="material-symbols-outlined text-on-surface-variant">vpn_key</span>
-                  <span className="font-medium">{key.name}</span>
-                </div>
-              </TableCell>
-              <TableCell className="font-mono text-code-sm">{prefixLabel(key)}</TableCell>
-              <TableCell>{key.owner}</TableCell>
-              <TableCell>
-                <div className="flex flex-wrap gap-1.5">
-                  {key.scopes.map((scope) => (
-                    <Badge key={scope} variant={scopeVariant(scope)}>{scope}</Badge>
-                  ))}
-                </div>
-              </TableCell>
-              <TableCell className="font-mono text-code-sm">
-                ${(key.spend30d || 0).toFixed(2)}
-              </TableCell>
-              <TableCell className="font-mono text-code-sm">{key.requests24h || 0}</TableCell>
-              <TableCell className="text-on-surface-variant">{formatDate(key.lastUsedAt)}</TableCell>
-              <TableCell>
-                <Toggle
-                  checked={key.status === 'active'}
-                  onChange={(e) => {
-                    e.stopPropagation();
-                    if (e.target.checked) {
-                      onEdit(key);
-                    } else {
-                      onRevoke(key);
-                    }
-                  }}
-                  label={key.status === 'active' ? 'Active' : 'Revoked'}
-                />
-              </TableCell>
-              <TableCell>
-                <div className="relative" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    type="button"
-                    className="material-symbols-outlined p-1 rounded-full hover:bg-surface-container-high text-on-surface-variant"
-                    onClick={() => setMenuFor(menuFor === key.id ? null : key.id)}
-                    aria-label={`Actions for ${key.name}`}
-                  >
-                    more_vert
-                  </button>
-                  {menuFor === key.id && (
-                    <div className="absolute right-0 mt-1 z-20 bg-white rounded-xl shadow-lg hairline-border p-1 w-40">
-                      <button
-                        type="button"
-                        className="w-full text-left px-3 py-2 rounded-lg text-body-base hover:bg-surface-container-low"
-                        onClick={() => {
-                          setMenuFor(null);
-                          onEdit(key);
-                        }}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="w-full text-left px-3 py-2 rounded-lg text-body-base hover:bg-surface-container-low"
-                        onClick={() => {
-                          setMenuFor(null);
-                          onRevoke(key);
-                        }}
-                      >
-                        Revoke
-                      </button>
-                      <button
-                        type="button"
-                        className="w-full text-left px-3 py-2 rounded-lg text-body-base text-error hover:bg-error/10"
-                        onClick={() => {
-                          setMenuFor(null);
-                          onDelete(key);
-                        }}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
+          {keys.map((key) => {
+            const active = !key.disabled;
+            return (
+              <TableRow
+                key={key.id}
+                className="cursor-pointer"
+                onClick={() => {
+                  setMenuFor(null);
+                  onSelect(key);
+                }}
+              >
+                <TableCell>
+                  <div className="flex items-center gap-3">
+                    <span className="material-symbols-outlined text-on-surface-variant">vpn_key</span>
+                    <span className="font-medium">{key.name}</span>
+                  </div>
+                </TableCell>
+                <TableCell className="font-mono text-code-sm">{prefixLabel(key)}</TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap gap-1.5">
+                    {key.scopes.map((scope) => (
+                      <Badge key={scope} variant={scopeVariant(scope)}>{scope}</Badge>
+                    ))}
+                  </div>
+                </TableCell>
+                <TableCell className="font-mono text-code-sm">
+                  {key.budget_spent_usd != null ? `$${key.budget_spent_usd.toFixed(2)}` : '—'}
+                </TableCell>
+                <TableCell className="font-mono text-code-sm">
+                  {formatRateLimit(key.rate_limit_requests_per_minute)} RPM
+                </TableCell>
+                <TableCell className="text-on-surface-variant">{formatExpiry(key.expires_at)}</TableCell>
+                <TableCell>
+                  <Toggle
+                    checked={active}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      onToggleActive(key);
+                    }}
+                    label={active ? 'Active' : 'Revoked'}
+                  />
+                </TableCell>
+                <TableCell>
+                  <div className="relative" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      className="material-symbols-outlined p-1 rounded-full hover:bg-surface-container-high text-on-surface-variant"
+                      onClick={() => setMenuFor(menuFor === key.id ? null : key.id)}
+                      aria-label={`Actions for ${key.name}`}
+                    >
+                      more_vert
+                    </button>
+                    {menuFor === key.id && (
+                      <div className="absolute right-0 mt-1 z-20 bg-surface-container-lowest rounded-xl shadow-lg hairline-border p-1 w-40">
+                        <button
+                          type="button"
+                          className="w-full text-left px-3 py-2 rounded-lg text-body-base text-error hover:bg-error/10"
+                          onClick={() => {
+                            setMenuFor(null);
+                            onDelete(key);
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
     </Card>

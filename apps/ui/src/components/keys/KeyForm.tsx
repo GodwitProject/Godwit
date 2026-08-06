@@ -1,16 +1,13 @@
 import { useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { Input } from '../ui/Input';
-import { Select } from '../ui/Select';
 import { Checkbox } from '../ui/Checkbox';
 import { Button } from '../ui/Button';
-import type { ApiKey, CreateKeyRequest, CreatedKey } from '../../lib/keys';
+import type { CreateKeyRequest, CreatedKey } from '../../lib/keys';
 
 export interface KeyFormProps {
   open: boolean;
-  owners: string[];
   availableModels: string[];
-  initial?: ApiKey;
   submitting?: boolean;
   onClose: () => void;
   onSubmit: (req: CreateKeyRequest) => Promise<CreatedKey | void> | CreatedKey | void;
@@ -25,41 +22,21 @@ function toNumber(value: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-export function KeyForm({
-  open,
-  owners,
-  availableModels,
-  initial,
-  submitting,
-  onClose,
-  onSubmit,
-}: KeyFormProps) {
-  const [name, setName] = useState(initial?.name || '');
-  const [owner, setOwner] = useState(initial?.owner || owners[0] || '');
-  const [scopes, setScopes] = useState<string[]>(initial?.scopes || []);
-  const [selectedModels, setSelectedModels] = useState<string[]>(initial?.allowedModels || []);
-  const [budget, setBudget] = useState(initial?.budget != null ? String(initial.budget) : '');
-  const [rateLimitRpm, setRateLimitRpm] = useState(
-    initial?.rateLimitRpm != null ? String(initial.rateLimitRpm) : ''
-  );
-  const [rateLimitTpm, setRateLimitTpm] = useState(
-    initial?.rateLimitTpm != null ? String(initial.rateLimitTpm) : ''
-  );
-  const [expiry, setExpiry] = useState(
-    initial?.expiresAt ? initial.expiresAt.slice(0, 10) : ''
-  );
+export function KeyForm({ open, availableModels, submitting, onClose, onSubmit }: KeyFormProps) {
+  const [name, setName] = useState('');
+  const [scopes, setScopes] = useState<string[]>([]);
+  const [selectedModels, setSelectedModels] = useState<string[]>([]);
+  const [rateLimitRpm, setRateLimitRpm] = useState('');
+  const [rateLimitTpm, setRateLimitTpm] = useState('');
   const [created, setCreated] = useState<CreatedKey | null>(null);
   const [copied, setCopied] = useState(false);
 
   function reset() {
     setName('');
-    setOwner(owners[0] || '');
     setScopes([]);
     setSelectedModels([]);
-    setBudget('');
     setRateLimitRpm('');
     setRateLimitTpm('');
-    setExpiry('');
     setCreated(null);
     setCopied(false);
   }
@@ -80,16 +57,13 @@ export function KeyForm({
     e.preventDefault();
     const req: CreateKeyRequest = {
       name,
-      owner,
       scopes,
-      allowedModels: selectedModels,
-      budget: toNumber(budget),
-      rateLimitRpm: toNumber(rateLimitRpm),
-      rateLimitTpm: toNumber(rateLimitTpm),
-      expiresAt: expiry ? new Date(expiry).toISOString() : null,
+      allowed_models: selectedModels,
+      rate_limit_requests_per_minute: toNumber(rateLimitRpm),
+      rate_limit_tokens_per_minute: toNumber(rateLimitTpm),
     };
     const result = await onSubmit(req);
-    if (result && result.fullKey) {
+    if (result && result.key) {
       setCreated(result);
     }
   }
@@ -103,7 +77,7 @@ export function KeyForm({
     <Modal
       open={open}
       onClose={handleClose}
-      title={initial ? `Edit Key: ${initial.name}` : 'Create API Key'}
+      title="Create API Key"
       maxWidth="max-w-2xl"
     >
       {created ? (
@@ -114,12 +88,12 @@ export function KeyForm({
             Copy this key now. You won&apos;t see it again.
           </div>
           <div className="w-full bg-surface-container-low rounded-lg p-3 font-mono text-code-sm break-all select-all">
-            {created.fullKey}
+            {created.key}
           </div>
           <Button
             variant="secondary"
             onClick={() => {
-              navigator.clipboard?.writeText(created.fullKey);
+              navigator.clipboard?.writeText(created.key);
               setCopied(true);
             }}
           >
@@ -136,11 +110,6 @@ export function KeyForm({
             placeholder="e.g. Production gateway"
             required
           />
-          <Select label="Owner" value={owner} onChange={(e) => setOwner(e.target.value)}>
-            {owners.map((o) => (
-              <option key={o} value={o}>{o}</option>
-            ))}
-          </Select>
 
           <div className="flex flex-col gap-2">
             <span className="text-label-sm font-medium text-on-surface-variant">Scopes</span>
@@ -176,21 +145,6 @@ export function KeyForm({
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Input
-              label="Budget (USD, optional)"
-              type="number"
-              min="0"
-              step="0.01"
-              value={budget}
-              onChange={(e) => setBudget(e.target.value)}
-              placeholder="e.g. 100"
-            />
-            <Input
-              label="Expiry (optional)"
-              type="date"
-              value={expiry}
-              onChange={(e) => setExpiry(e.target.value)}
-            />
-            <Input
               label="Rate Limit RPM (optional)"
               type="number"
               min="0"
@@ -213,7 +167,7 @@ export function KeyForm({
               Cancel
             </Button>
             <Button type="submit" disabled={submitting}>
-              {submitting ? 'Creating...' : initial ? 'Save Changes' : 'Create Key'}
+              {submitting ? 'Creating...' : 'Create Key'}
             </Button>
           </div>
         </form>

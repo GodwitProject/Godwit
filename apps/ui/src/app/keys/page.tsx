@@ -8,45 +8,34 @@ import { KeyDetails } from '@/components/keys/KeyDetails';
 import {
   useKeys,
   useCreateKey,
-  useUpdateKey,
   useDeleteKey,
-  useRevokeKey,
-  useKeyUsage,
-  useKeyLogs,
+  useBlockKey,
+  useUnblockKey,
 } from '@/hooks/useKeys';
 import type { ApiKey, CreateKeyRequest } from '@/lib/keys';
 
-const MOCK_OWNERS = ['Platform Team', 'Growth', 'Data Science'];
 const MOCK_MODELS = ['gpt-4', 'gpt-4-turbo', 'gpt-3.5-turbo', 'claude-3-opus', 'claude-3-sonnet'];
 
 export default function KeysPage() {
   const { data: keys, isLoading } = useKeys();
   const [createOpen, setCreateOpen] = useState(false);
   const [selected, setSelected] = useState<ApiKey | null>(null);
-  const [editing, setEditing] = useState(false);
 
   const createMutation = useCreateKey();
-  const updateMutation = useUpdateKey();
   const deleteMutation = useDeleteKey();
-  const revokeMutation = useRevokeKey();
-
-  const { data: usage } = useKeyUsage(selected?.id);
-  const { data: logs } = useKeyLogs(selected?.id);
+  const blockMutation = useBlockKey();
+  const unblockMutation = useUnblockKey();
 
   function handleCreateSuccess() {
     setCreateOpen(false);
   }
 
-  function handleSave(req: CreateKeyRequest) {
-    if (!selected) return;
-    updateMutation.mutate(
-      { id: selected.id, req },
-      { onSuccess: () => setEditing(false) }
-    );
-  }
-
-  function handleRevoke(key: ApiKey) {
-    revokeMutation.mutate(key.id);
+  function handleToggleActive(key: ApiKey) {
+    if (key.disabled) {
+      unblockMutation.mutate(key.id);
+    } else {
+      blockMutation.mutate(key.id);
+    }
   }
 
   function handleDelete(key: ApiKey) {
@@ -82,11 +71,7 @@ export default function KeysPage() {
           <KeyList
             keys={keys || []}
             onSelect={setSelected}
-            onEdit={(key) => {
-              setSelected(key);
-              setEditing(true);
-            }}
-            onRevoke={handleRevoke}
+            onToggleActive={handleToggleActive}
             onDelete={handleDelete}
           />
         )}
@@ -94,11 +79,10 @@ export default function KeysPage() {
 
       <KeyForm
         open={createOpen}
-        owners={MOCK_OWNERS}
         availableModels={MOCK_MODELS}
         submitting={createMutation.isPending}
         onClose={() => setCreateOpen(false)}
-        onSubmit={async (req) => {
+        onSubmit={async (req: CreateKeyRequest) => {
           const result = await createMutation.mutateAsync(req);
           handleCreateSuccess();
           return result;
@@ -108,17 +92,9 @@ export default function KeysPage() {
       {selected && (
         <KeyDetails
           apiKey={selected}
-          usage={usage}
-          logs={logs}
-          owners={MOCK_OWNERS}
-          availableModels={MOCK_MODELS}
-          editing={editing}
-          onStartEdit={() => setEditing(true)}
-          onClose={() => {
-            setSelected(null);
-            setEditing(false);
-          }}
-          onSave={handleSave}
+          onToggleActive={() => handleToggleActive(selected)}
+          onDelete={() => handleDelete(selected)}
+          onClose={() => setSelected(null)}
         />
       )}
     </>

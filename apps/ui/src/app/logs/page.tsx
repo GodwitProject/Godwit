@@ -6,35 +6,39 @@ import { Toggle } from '@/components/ui/Toggle';
 import { LogFilters } from '@/components/logs/LogFilters';
 import { LogsTable } from '@/components/logs/LogsTable';
 import { LogDetail } from '@/components/logs/LogDetail';
-import { useLogs, useLog } from '@/hooks/useLogs';
+import { useLogs } from '@/hooks/useLogs';
 import type { LogFilters as LogFiltersType } from '@/lib/logs';
 
 const MODELS = ['gpt-4', 'gpt-4-turbo', 'gpt-3.5-turbo', 'claude-3-opus', 'claude-3-sonnet'];
 
-const EMPTY_FILTERS: LogFiltersType = {};
+function freshFilters(): LogFiltersType {
+  return {};
+}
 
 export default function LogsPage() {
-  const [filters, setFilters] = useState<LogFiltersType>(EMPTY_FILTERS);
-  const [draftFilters, setDraftFilters] = useState<LogFiltersType>(EMPTY_FILTERS);
-  const [page, setPage] = useState(1);
-  const [pageSize] = useState(50);
+  const [filters, setFilters] = useState<LogFiltersType>(freshFilters);
+  const [draftFilters, setDraftFilters] = useState<LogFiltersType>(freshFilters);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [liveTail, setLiveTail] = useState(false);
 
-  const { data: logs, isLoading } = useLogs(filters, page, pageSize);
-  const { data: selected } = useLog(selectedId || undefined);
+  const {
+    data,
+    isLoading,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+  } = useLogs(filters);
 
-  const total = useMemo(() => logs?.length ?? 0, [logs]);
+  const logs = useMemo(() => data?.pages.flatMap((page) => page.items) ?? [], [data]);
+  const selected = useMemo(() => logs.find((log) => log.id === selectedId) ?? null, [logs, selectedId]);
 
   function handleApply() {
-    setFilters(draftFilters);
-    setPage(1);
+    setFilters(Object.assign({}, draftFilters));
   }
 
   function handleClear() {
-    setDraftFilters(EMPTY_FILTERS);
-    setFilters(EMPTY_FILTERS);
-    setPage(1);
+    setDraftFilters(freshFilters());
+    setFilters(freshFilters());
   }
 
   return (
@@ -43,7 +47,7 @@ export default function LogsPage() {
         <div>
           <h1 className="text-display-lg">Request Logs</h1>
           <p className="text-body-base mt-1 text-on-surface-variant">
-            Inspect proxy request history, bodies and guardrail checks.
+            Inspect proxy request history.
           </p>
         </div>
         <div className="flex items-center gap-4">
@@ -74,11 +78,10 @@ export default function LogsPage() {
           </div>
         ) : (
           <LogsTable
-            logs={logs || []}
-            total={total}
-            page={page}
-            pageSize={pageSize}
-            onPageChange={setPage}
+            logs={logs}
+            hasMore={!!hasNextPage}
+            onLoadMore={() => fetchNextPage()}
+            loadingMore={isFetchingNextPage}
             onSelect={(log) => setSelectedId(log.id)}
           />
         )}
@@ -86,7 +89,7 @@ export default function LogsPage() {
 
       <LogDetail
         open={!!selectedId}
-        log={selected}
+        log={selected || undefined}
         onClose={() => setSelectedId(null)}
       />
     </>

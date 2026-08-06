@@ -5,37 +5,37 @@ import type { ApiKey } from '../../lib/keys';
 const fixtures: ApiKey[] = [
   {
     id: 'key-1',
+    user_id: null,
+    team_id: null,
+    organization_id: 'org-1',
     name: 'Production Gateway',
-    prefix: 'sk_live_a1b2',
-    owner: 'Platform Team',
+    key_prefix: 'sk_live_a1b2',
     scopes: ['read', 'write'],
-    allowedModels: ['gpt-4'],
-    budget: 100,
-    rateLimitRpm: 1000,
-    rateLimitTpm: null,
-    expiresAt: null,
-    spend30d: 42.5,
-    requests24h: 1200,
-    lastUsedAt: '2026-08-05T10:00:00Z',
-    status: 'active',
-    createdAt: '2026-01-01T00:00:00Z',
+    allowed_models: ['gpt-4'],
+    budget_limit_usd: 100,
+    budget_spent_usd: 42.5,
+    rate_limit_requests_per_minute: 1000,
+    rate_limit_tokens_per_minute: null,
+    expires_at: null,
+    disabled: false,
+    created_at: '2026-01-01T00:00:00Z',
   },
   {
     id: 'key-2',
+    user_id: 'user-2',
+    team_id: null,
+    organization_id: null,
     name: 'Legacy Key',
-    prefix: 'sk_live_c3d4',
-    owner: 'Growth',
+    key_prefix: 'sk_live_c3d4',
     scopes: ['read'],
-    allowedModels: ['claude-3-opus'],
-    budget: null,
-    rateLimitRpm: null,
-    rateLimitTpm: null,
-    expiresAt: '2026-09-01T00:00:00Z',
-    spend30d: 5.25,
-    requests24h: 8,
-    lastUsedAt: null,
-    status: 'revoked',
-    createdAt: '2026-02-01T00:00:00Z',
+    allowed_models: ['claude-3-opus'],
+    budget_limit_usd: null,
+    budget_spent_usd: 5.25,
+    rate_limit_requests_per_minute: null,
+    rate_limit_tokens_per_minute: null,
+    expires_at: '2026-09-01T00:00:00Z',
+    disabled: true,
+    created_at: '2026-02-01T00:00:00Z',
   },
 ];
 
@@ -44,8 +44,7 @@ const noop = () => {};
 const baseProps: KeyListProps = {
   keys: fixtures,
   onSelect: noop,
-  onEdit: noop,
-  onRevoke: noop,
+  onToggleActive: noop,
   onDelete: noop,
 };
 
@@ -55,7 +54,6 @@ describe('KeyList', () => {
 
     expect(screen.getByText('Production Gateway')).toBeInTheDocument();
     expect(screen.getByText('Legacy Key')).toBeInTheDocument();
-    expect(screen.getByText('Platform Team')).toBeInTheDocument();
 
     const readBadges = screen.getAllByText('read');
     expect(readBadges.length).toBeGreaterThan(0);
@@ -68,17 +66,24 @@ describe('KeyList', () => {
     expect(prefix).toHaveClass('font-mono');
   });
 
-  it('shows spend and requests', () => {
+  it('shows spent amount', () => {
     render(<KeyList {...baseProps} />);
     expect(screen.getByText('$42.50')).toBeInTheDocument();
-    expect(screen.getByText('1200')).toBeInTheDocument();
   });
 
-  it('renders status toggle checked for active and unchecked for revoked', () => {
+  it('renders status toggle checked for active and unchecked for disabled', () => {
     render(<KeyList {...baseProps} />);
     const toggles = screen.getAllByRole('checkbox');
     expect(toggles[0]).toBeChecked();
     expect(toggles[1]).not.toBeChecked();
+  });
+
+  it('calls onToggleActive when a toggle is clicked', () => {
+    const onToggleActive = vi.fn();
+    render(<KeyList {...baseProps} onToggleActive={onToggleActive} />);
+    const toggles = screen.getAllByRole('checkbox');
+    fireEvent.click(toggles[0]);
+    expect(onToggleActive).toHaveBeenCalledWith(fixtures[0]);
   });
 
   it('calls onSelect when a row is clicked', () => {
@@ -88,14 +93,14 @@ describe('KeyList', () => {
     expect(onSelect).toHaveBeenCalledWith(fixtures[0]);
   });
 
-  it('opens actions menu and triggers revoke', () => {
-    const onRevoke = vi.fn();
-    render(<KeyList {...baseProps} onRevoke={onRevoke} />);
+  it('opens actions menu and triggers delete', () => {
+    const onDelete = vi.fn();
+    render(<KeyList {...baseProps} onDelete={onDelete} />);
 
     fireEvent.click(screen.getByLabelText('Actions for Production Gateway'));
-    fireEvent.click(screen.getByText('Revoke'));
+    fireEvent.click(screen.getByText('Delete'));
 
-    expect(onRevoke).toHaveBeenCalledWith(fixtures[0]);
+    expect(onDelete).toHaveBeenCalledWith(fixtures[0]);
   });
 
   it('renders empty state when there are no keys', () => {

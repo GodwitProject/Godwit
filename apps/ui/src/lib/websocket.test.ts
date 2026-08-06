@@ -82,15 +82,15 @@ describe('MetricsSocket', () => {
     ws.receiveMessage(
       JSON.stringify({
         type: 'metrics:update',
-        data: { requestsTotal: 10, latencyP95Ms: 120, tokensTotal: 500, errorRate: 0.02, timestamp: 't' },
+        data: { requestsTotal: 10, tokensTotal: 500, costUsdTotal: 1.25, activeRequests: 3, timestamp: 't' },
       })
     );
 
     expect(listener).toHaveBeenCalledWith({
       requestsTotal: 10,
-      latencyP95Ms: 120,
       tokensTotal: 500,
-      errorRate: 0.02,
+      costUsdTotal: 1.25,
+      activeRequests: 3,
       timestamp: 't',
     });
   });

@@ -15,48 +15,34 @@ export function LogFilters({ filters, models, onChange, onApply, onClear }: LogF
   return (
     <div className="bg-surface-container-lowest hairline-border rounded-xl p-container-padding space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Input
-          label="Search"
-          placeholder="Request ID or model"
-          value={filters.search || ''}
-          onChange={(e) => onChange({ ...filters, search: e.target.value })}
-        />
         <Select
           label="Model"
           value={filters.model || ''}
-          onChange={(e) => onChange({ ...filters, model: e.target.value })}
+          onChange={(e) => onChange({ ...filters, model: e.target.value || undefined })}
         >
           <option value="">All models</option>
           {models.map((m) => (
             <option key={m} value={m}>{m}</option>
           ))}
         </Select>
-        <Select
-          label="Status"
-          value={filters.status != null ? String(filters.status) : ''}
-          onChange={(e) =>
-            onChange({ ...filters, status: e.target.value === '' ? undefined : e.target.value })
-          }
-        >
-          <option value="">All statuses</option>
-          <option value="200">200 Success</option>
-          <option value="429">429 Ratelimit</option>
-          <option value="500">500 Error</option>
-        </Select>
-        <div className="grid grid-cols-2 gap-3">
-          <Input
-            label="From"
-            type="date"
-            value={filters.dateFrom || ''}
-            onChange={(e) => onChange({ ...filters, dateFrom: e.target.value || undefined })}
-          />
-          <Input
-            label="To"
-            type="date"
-            value={filters.dateTo || ''}
-            onChange={(e) => onChange({ ...filters, dateTo: e.target.value || undefined })}
-          />
-        </div>
+        <Input
+          label="API Key ID"
+          value={filters.api_key_id || ''}
+          onChange={(e) => onChange({ ...filters, api_key_id: e.target.value || undefined })}
+          placeholder="Filter by API key"
+        />
+        <Input
+          label="From"
+          type="date"
+          value={filters.from || ''}
+          onChange={(e) => onChange({ ...filters, from: e.target.value || undefined })}
+        />
+        <Input
+          label="To"
+          type="date"
+          value={filters.to || ''}
+          onChange={(e) => onChange({ ...filters, to: e.target.value || undefined })}
+        />
       </div>
       <div className="flex items-center gap-3">
         <Button size="sm" onClick={onApply}>Apply</Button>

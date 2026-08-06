@@ -1,14 +1,12 @@
 export interface MetricsUpdate {
   requestsTotal: number;
-  latencyP95Ms: number;
   tokensTotal: number;
-  errorRate: number;
+  costUsdTotal: number;
+  activeRequests: number;
   timestamp: string;
 }
 
-export type IncomingMessage =
-  | { type: 'metrics:update'; data: MetricsUpdate }
-  | { type: string; data?: unknown };
+export type IncomingMessage = { type: 'metrics:update'; data: MetricsUpdate };
 
 export interface SubscribeMessage {
   type: 'subscribe';
@@ -63,7 +61,7 @@ export class MetricsSocket {
       try {
         const msg = JSON.parse(event.data as string) as IncomingMessage;
         if (msg.type === 'metrics:update' && msg.data) {
-          this.dispatch(msg.data as MetricsUpdate);
+          this.dispatch(msg.data);
         }
       } catch {
         // ignore malformed messages

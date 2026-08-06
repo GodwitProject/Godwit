@@ -1,37 +1,25 @@
 import { useState } from 'react';
 import { Card } from '../ui/Card';
 import { Table, TableHead, TableBody, TableRow, TableHeadCell, TableCell } from '../ui/Table';
-import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import type { RequestLog } from '../../lib/logs';
 
 export interface LogsTableProps {
   logs: RequestLog[];
   onSelect: (log: RequestLog) => void;
-  total: number;
-  page: number;
-  pageSize: number;
-  onPageChange: (page: number) => void;
+  hasMore: boolean;
+  onLoadMore: () => void;
+  loadingMore?: boolean;
 }
 
-type SortKey = 'timestamp' | 'latencyMs' | 'cost';
-
-function statusVariant(status: number): 'success' | 'warning' | 'error' | 'info' {
-  if (status >= 200 && status < 300) return 'success';
-  if (status === 429) return 'warning';
-  if (status >= 500) return 'error';
-  return 'warning';
-}
-
-function statusLabel(status: number): string {
-  if (status >= 200 && status < 300) return 'OK';
-  if (status === 429) return 'Ratelimit';
-  if (status >= 500) return 'Error';
-  return 'Client';
-}
+type SortKey = 'created_at' | 'cost_usd' | 'duration_ms';
 
 function formatCost(cost: number): string {
   return `$${cost.toFixed(4)}`;
+}
+
+function formatLatency(durationMs: number | null): string {
+  return durationMs != null ? `${durationMs}ms` : '—';
 }
 
 function formatDate(iso: string): string {
@@ -49,13 +37,9 @@ function formatDate(iso: string): string {
   }
 }
 
-const PAGE_SIZES = [10, 25, 50];
-
-export function LogsTable({ logs, onSelect, total, page, pageSize, onPageChange }: LogsTableProps) {
-  const [sortKey, setSortKey] = useState<SortKey>('timestamp');
+export function LogsTable({ logs, onSelect, hasMore, onLoadMore, loadingMore }: LogsTableProps) {
+  const [sortKey, setSortKey] = useState<SortKey>('created_at');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   function handleSort(key: SortKey) {
     if (key === sortKey) {
@@ -66,19 +50,22 @@ export function LogsTable({ logs, onSelect, total, page, pageSize, onPageChange 
     }
   }
 
+  // NOTE: `logs` is the accumulated "load more" set from the parent, so sorting
+  // here applies to the full currently-loaded list (client-side only).
   const sorted = [...logs].sort((a, b) => {
     const av = a[sortKey];
     const bv = b[sortKey];
-    let cmp = 0;
     if (typeof av === 'string' && typeof bv === 'string') {
-      cmp = av.localeCompare(bv);
-    } else {
-      cmp = (av as number) - (bv as number);
+      const cmp = av.localeCompare(bv);
+      return sortDir === 'asc' ? cmp : -cmp;
     }
+    const an = av == null ? Number.NEGATIVE_INFINITY : (av as number);
+    const bn = bv == null ? Number.NEGATIVE_INFINITY : (bv as number);
+    const cmp = an - bn;
     return sortDir === 'asc' ? cmp : -cmp;
   });
 
-  const sortArrow = (key: SortKey) => sortKey === key ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '';
+  const sortArrow = (key: SortKey) => (sortKey === key ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '');
 
   return (
     <Card className="overflow-hidden">
@@ -92,19 +79,17 @@ export function LogsTable({ logs, onSelect, total, page, pageSize, onPageChange 
           <Table>
             <TableHead>
               <TableRow>
-                <TableHeadCell className="cursor-pointer select-none" onClick={() => handleSort('timestamp')}>
-                  Timestamp{sortArrow('timestamp')}
+                <TableHeadCell className="cursor-pointer select-none" onClick={() => handleSort('created_at')}>
+                  Timestamp{sortArrow('created_at')}
                 </TableHeadCell>
-                <TableHeadCell>Request ID</TableHeadCell>
+                <TableHeadCell>Log ID</TableHeadCell>
                 <TableHeadCell>Model</TableHeadCell>
                 <TableHeadCell>Provider</TableHeadCell>
-                <TableHeadCell>Status</TableHeadCell>
-                <TableHeadCell>Tokens</TableHeadCell>
-                <TableHeadCell className="cursor-pointer select-none" onClick={() => handleSort('cost')}>
-                  Cost{sortArrow('cost')}
+                <TableHeadCell className="cursor-pointer select-none" onClick={() => handleSort('cost_usd')}>
+                  Cost{sortArrow('cost_usd')}
                 </TableHeadCell>
-                <TableHeadCell className="text-right cursor-pointer select-none" onClick={() => handleSort('latencyMs')}>
-                  Latency{sortArrow('latencyMs')}
+                <TableHeadCell className="text-right cursor-pointer select-none" onClick={() => handleSort('duration_ms')}>
+                  Latency{sortArrow('duration_ms')}
                 </TableHeadCell>
                 <TableHeadCell />
               </TableRow>
@@ -112,32 +97,24 @@ export function LogsTable({ logs, onSelect, total, page, pageSize, onPageChange 
             <TableBody>
               {sorted.map((log) => (
                 <TableRow key={log.id}>
-                  <TableCell className="text-on-surface-variant whitespace-nowrap">{formatDate(log.timestamp)}</TableCell>
+                  <TableCell className="text-on-surface-variant whitespace-nowrap">{formatDate(log.created_at)}</TableCell>
                   <TableCell>
                     <button
                       type="button"
                       className="font-mono text-code-sm text-primary hover:underline cursor-pointer"
                       onClick={() => onSelect(log)}
                     >
-                      {log.requestId}
+                      {log.id}
                     </button>
                   </TableCell>
                   <TableCell className="font-mono text-code-sm">{log.model}</TableCell>
                   <TableCell className="text-on-surface-variant">{log.provider}</TableCell>
-                  <TableCell>
-                    <Badge variant={statusVariant(log.status)}>
-                      {log.status} {statusLabel(log.status)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="font-mono text-code-sm">
-                    {log.tokensIn}/{log.tokensOut}
-                  </TableCell>
-                  <TableCell className="font-mono text-code-sm">{formatCost(log.cost)}</TableCell>
-                  <TableCell className="text-right font-mono text-code-sm">{log.latencyMs}ms</TableCell>
+                  <TableCell className="font-mono text-code-sm">{formatCost(log.cost_usd)}</TableCell>
+                  <TableCell className="text-right font-mono text-code-sm">{formatLatency(log.duration_ms)}</TableCell>
                   <TableCell>
                     <button
                       type="button"
-                      aria-label={`Open details for ${log.requestId}`}
+                      aria-label={`Open details for ${log.id}`}
                       className="material-symbols-outlined p-1 rounded-full hover:bg-surface-container-high text-on-surface-variant"
                       onClick={() => onSelect(log)}
                     >
@@ -149,20 +126,12 @@ export function LogsTable({ logs, onSelect, total, page, pageSize, onPageChange 
             </TableBody>
           </Table>
           <div className="flex flex-col md:flex-row items-center justify-between gap-3 p-container-padding border-t hairline-border">
-            <span className="text-body-base text-on-surface-variant">
-              Showing {sorted.length} of {total} logs
-            </span>
-            <div className="flex items-center gap-2">
-              <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
-                Previous
+            <span className="text-body-base text-on-surface-variant">Showing {sorted.length} logs</span>
+            {hasMore && (
+              <Button variant="secondary" size="sm" disabled={loadingMore} onClick={onLoadMore}>
+                {loadingMore ? 'Loading...' : 'Load more'}
               </Button>
-              <span className="text-body-base text-on-surface-variant px-2">
-                {page} / {totalPages}
-              </span>
-              <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}>
-                Next
-              </Button>
-            </div>
+            )}
           </div>
         </>
       )}

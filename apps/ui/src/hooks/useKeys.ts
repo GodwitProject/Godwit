@@ -2,13 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   fetchKeys,
   createKey,
-  updateKey,
   deleteKey,
-  revokeKey,
-  fetchKeyUsage,
-  fetchKeyLogs,
+  blockKey,
+  unblockKey,
   type CreateKeyRequest,
-  type UpdateKeyRequest,
 } from '@/lib/keys';
 
 export function useKeys() {
@@ -28,16 +25,6 @@ export function useCreateKey() {
   });
 }
 
-export function useUpdateKey() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, req }: { id: string; req: UpdateKeyRequest }) => updateKey(id, req),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['keys'] });
-    },
-  });
-}
-
 export function useDeleteKey() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -48,28 +35,22 @@ export function useDeleteKey() {
   });
 }
 
-export function useRevokeKey() {
+export function useBlockKey() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => revokeKey(id),
+    mutationFn: (id: string) => blockKey(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['keys'] });
     },
   });
 }
 
-export function useKeyUsage(id?: string) {
-  return useQuery({
-    queryKey: ['keys', id, 'usage'],
-    queryFn: () => fetchKeyUsage(id!),
-    enabled: !!id,
-  });
-}
-
-export function useKeyLogs(id?: string) {
-  return useQuery({
-    queryKey: ['keys', id, 'logs'],
-    queryFn: () => fetchKeyLogs(id!),
-    enabled: !!id,
+export function useUnblockKey() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => unblockKey(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['keys'] });
+    },
   });
 }

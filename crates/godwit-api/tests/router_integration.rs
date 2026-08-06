@@ -14,7 +14,10 @@
 
 use axum::{
     body::Body,
-    http::{Request, StatusCode},
+    http::{
+        header::{COOKIE, SET_COOKIE},
+        Request, StatusCode,
+    },
     middleware, Router,
 };
 use godwit_api::{admin, anthropic_proxy, model_router::DbModelRouter, proxy, rate_limit::RateLimiter, state::AppState};
@@ -2134,6 +2137,128 @@ async fn login_refresh_logout_flow(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(post_logout_response.status(), StatusCode::UNAUTHORIZED);
+}
+
+/// Full httpOnly-cookie round-trip through the real router: `POST /auth/login` sets
+/// `godwit_access` + `godwit_refresh` cookies (HttpOnly, SameSite=Strict), the access cookie
+/// alone authenticates `GET /auth/me` (no Bearer header), and `POST /auth/logout` clears both
+/// cookies via `Max-Age=0`.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn cookie_login_round_trip_authenticates_me_and_logout_clears_cookies(pool: PgPool) {
+    let app = build_app(pool.clone());
+    let (email, password) = seed_password_user(&pool).await;
+
+    // 1. Login: capture the Set-Cookie headers and assert their security attributes.
+    let login_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"email": email, "password": password}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(login_response.status(), StatusCode::OK);
+
+    let set_cookies: Vec<String> = login_response
+        .headers()
+        .get_all(SET_COOKIE)
+        .iter()
+        .map(|v| v.to_str().unwrap().to_string())
+        .collect();
+
+    let access_cookie = set_cookies
+        .iter()
+        .find(|c| c.starts_with("godwit_access="))
+        .expect("godwit_access Set-Cookie present");
+    let refresh_cookie = set_cookies
+        .iter()
+        .find(|c| c.starts_with("godwit_refresh="))
+        .expect("godwit_refresh Set-Cookie present");
+    for cookie in [access_cookie, refresh_cookie] {
+        assert!(
+            cookie.contains("HttpOnly"),
+            "expected HttpOnly on {cookie}"
+        );
+        assert!(
+            cookie.contains("SameSite=Strict"),
+            "expected SameSite=Strict on {cookie}"
+        );
+    }
+    assert!(
+        access_cookie.contains("Max-Age="),
+        "expected Max-Age on access cookie: {access_cookie}"
+    );
+    assert!(
+        refresh_cookie.contains("Max-Age="),
+        "expected Max-Age on refresh cookie: {refresh_cookie}"
+    );
+
+    // 2. The access cookie alone (no Bearer) authenticates a protected route.
+    let access_value = access_cookie.split(';').next().unwrap().to_string();
+    let me_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/auth/me")
+                .header(COOKIE, &access_value)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        me_response.status(),
+        StatusCode::OK,
+        "access cookie alone must authenticate /auth/me"
+    );
+    let me_body = body_json(me_response).await;
+    let user_json = me_body.get("user").expect("user key present");
+    assert_eq!(user_json["email"], serde_json::json!(email));
+
+    // 3. The refresh cookie (rotated after login) clears both cookies on logout.
+    let refresh_value = refresh_cookie.split(';').next().unwrap().to_string();
+    let logout_response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/logout")
+                .header(COOKIE, &refresh_value)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"refresh_token": refresh_value.split('=').nth(1).unwrap()})
+                        .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(logout_response.status(), StatusCode::OK);
+
+    let clear_cookies: Vec<String> = logout_response
+        .headers()
+        .get_all(SET_COOKIE)
+        .iter()
+        .map(|v| v.to_str().unwrap().to_string())
+        .collect();
+    assert!(
+        clear_cookies
+            .iter()
+            .any(|c| c.starts_with("godwit_access=;") && c.contains("Max-Age=0")),
+        "access cookie must be cleared on logout, got: {clear_cookies:?}"
+    );
+    assert!(
+        clear_cookies
+            .iter()
+            .any(|c| c.starts_with("godwit_refresh=;") && c.contains("Max-Age=0")),
+        "refresh cookie must be cleared on logout, got: {clear_cookies:?}"
+    );
 }
 
 /// A `super_admin` creates an organization, then a team inside it, then adds and removes a

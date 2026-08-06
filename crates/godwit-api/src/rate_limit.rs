@@ -1,5 +1,6 @@
 use dashmap::DashMap;
 use godwit_core::PasteurError;
+use sqlx::PgPool;
 use std::sync::Mutex;
 use std::time::Instant;
 use uuid::Uuid;
@@ -175,10 +176,55 @@ pub fn estimate_request_tokens(req: &godwit_core::ChatCompletionRequest) -> u32 
     total.max(1) as u32
 }
 
+pub async fn check_end_user_budget(
+    pool: &PgPool,
+    user_id: Uuid,
+    org_id: Uuid,
+) -> Result<(), crate::error::ApiError> {
+    use crate::error::ApiError;
+    
+    let end_user = sqlx::query_as::<_, godwit_db::models::EndUser>(
+        "SELECT * FROM end_users WHERE user_id = $1 AND organization_id = $2",
+    )
+    .bind(user_id)
+    .bind(org_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| ApiError::Core(PasteurError::Database(e.to_string())))?;
+    
+    let end_user = match end_user {
+        Some(eu) => eu,
+        None => return Ok(()),
+    };
+    
+    let max_budget = match end_user.max_budget_usd {
+        Some(budget) => budget,
+        None => return Ok(()),
+    };
+    
+    let spent: Option<rust_decimal::Decimal> = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(cost_usd), 0) FROM request_logs WHERE user_id = $1 AND organization_id = $2",
+    )
+    .bind(user_id)
+    .bind(org_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| ApiError::Core(PasteurError::Database(e.to_string())))?;
+    
+    let spent = spent.unwrap_or(rust_decimal::Decimal::ZERO);
+    
+    if spent >= max_budget {
+        return Err(ApiError::BudgetExceeded);
+    }
+    
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use godwit_core::{ChatCompletionRequest, ChatContent, ChatMessage};
+    use std::str::FromStr;
     use std::time::Duration;
 
     #[test]
@@ -314,5 +360,129 @@ mod tests {
         };
         let estimated = estimate_request_tokens(&req);
         assert!(estimated > 10);
+    }
+
+    #[sqlx::test]
+    async fn budget_check_blocks_when_exceeded(pool: PgPool) {
+        use godwit_db::models::UserRole;
+        use godwit_db::repositories::organizations::OrganizationRepository;
+        use godwit_db::repositories::users::UserRepository;
+        use godwit_db::repositories::end_users::EndUsersRepository;
+        use crate::error::ApiError;
+
+        let orgs = OrganizationRepository::new(pool.clone());
+        let org = orgs.create("test-org", None).await.expect("create org");
+        
+        let users = UserRepository::new(pool.clone());
+        let user = users.create("test@example.com", None, UserRole::User, Some(org.id))
+            .await.expect("create user");
+        
+        let end_users = EndUsersRepository::new(pool.clone());
+        let max_budget = rust_decimal::Decimal::from_str("100.00").unwrap();
+        end_users.create(org.id, user.id, None, Some(max_budget))
+            .await.expect("create end user budget");
+        
+        sqlx::query(
+            "INSERT INTO request_logs (api_key_id, user_id, organization_id, model, provider, provider_model_id, capability, duration_ms, streamed, status, cost_usd)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
+        )
+        .bind(Uuid::new_v4())
+        .bind(user.id)
+        .bind(org.id)
+        .bind("gpt-4o")
+        .bind("openai")
+        .bind("gpt-4o")
+        .bind("chat")
+        .bind(100)
+        .bind(false)
+        .bind("success")
+        .bind(rust_decimal::Decimal::from_str("150.00").unwrap())
+        .execute(&pool)
+        .await
+        .expect("insert request log");
+        
+        let result = check_end_user_budget(&pool, user.id, org.id).await;
+        assert!(matches!(result, Err(ApiError::BudgetExceeded)));
+    }
+
+    #[sqlx::test]
+    async fn budget_check_allows_when_under_budget(pool: PgPool) {
+        use godwit_db::models::UserRole;
+        use godwit_db::repositories::organizations::OrganizationRepository;
+        use godwit_db::repositories::users::UserRepository;
+        use godwit_db::repositories::end_users::EndUsersRepository;
+
+        let orgs = OrganizationRepository::new(pool.clone());
+        let org = orgs.create("test-org", None).await.expect("create org");
+        
+        let users = UserRepository::new(pool.clone());
+        let user = users.create("test2@example.com", None, UserRole::User, Some(org.id))
+            .await.expect("create user");
+        
+        let end_users = EndUsersRepository::new(pool.clone());
+        let max_budget = rust_decimal::Decimal::from_str("100.00").unwrap();
+        end_users.create(org.id, user.id, None, Some(max_budget))
+            .await.expect("create end user budget");
+        
+        sqlx::query(
+            "INSERT INTO request_logs (api_key_id, user_id, organization_id, model, provider, provider_model_id, capability, duration_ms, streamed, status, cost_usd)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
+        )
+        .bind(Uuid::new_v4())
+        .bind(user.id)
+        .bind(org.id)
+        .bind("gpt-4o")
+        .bind("openai")
+        .bind("gpt-4o")
+        .bind("chat")
+        .bind(100)
+        .bind(false)
+        .bind("success")
+        .bind(rust_decimal::Decimal::from_str("50.00").unwrap())
+        .execute(&pool)
+        .await
+        .expect("insert request log");
+        
+        let result = check_end_user_budget(&pool, user.id, org.id).await;
+        assert!(result.is_ok());
+    }
+
+    #[sqlx::test]
+    async fn budget_check_allows_when_no_budget_set(pool: PgPool) {
+        use godwit_db::models::UserRole;
+        use godwit_db::repositories::organizations::OrganizationRepository;
+        use godwit_db::repositories::users::UserRepository;
+        use godwit_db::repositories::end_users::EndUsersRepository;
+
+        let orgs = OrganizationRepository::new(pool.clone());
+        let org = orgs.create("test-org", None).await.expect("create org");
+        
+        let users = UserRepository::new(pool.clone());
+        let user = users.create("test3@example.com", None, UserRole::User, Some(org.id))
+            .await.expect("create user");
+        
+        let end_users = EndUsersRepository::new(pool.clone());
+        end_users.create(org.id, user.id, None, None)
+            .await.expect("create end user budget without max");
+        
+        let result = check_end_user_budget(&pool, user.id, org.id).await;
+        assert!(result.is_ok());
+    }
+
+    #[sqlx::test]
+    async fn budget_check_allows_when_no_end_user_record(pool: PgPool) {
+        use godwit_db::models::UserRole;
+        use godwit_db::repositories::organizations::OrganizationRepository;
+        use godwit_db::repositories::users::UserRepository;
+
+        let orgs = OrganizationRepository::new(pool.clone());
+        let org = orgs.create("test-org", None).await.expect("create org");
+        
+        let users = UserRepository::new(pool.clone());
+        let user = users.create("test4@example.com", None, UserRole::User, Some(org.id))
+            .await.expect("create user");
+        
+        let result = check_end_user_budget(&pool, user.id, org.id).await;
+        assert!(result.is_ok());
     }
 }

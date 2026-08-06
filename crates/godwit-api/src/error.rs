@@ -12,6 +12,7 @@ pub enum ApiError {
     NotFound,
     BadRequest(String),
     RateLimited(Option<u64>),
+    BudgetExceeded,
     Internal,
     Core(PasteurError),
 }
@@ -60,6 +61,12 @@ impl IntoResponse for ApiError {
                 "Too Many Requests",
                 "Rate limit exceeded.",
                 *retry_after,
+            ),
+            ApiError::BudgetExceeded => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "Budget Exceeded",
+                "End-user budget has been exceeded.",
+                None,
             ),
             ApiError::Internal | ApiError::Core(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,

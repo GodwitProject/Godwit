@@ -184,6 +184,18 @@ async fn check_rate_limit(
     Ok(())
 }
 
+async fn check_user_budget(
+    state: &Arc<AppState>,
+    api_key: &ApiKey,
+) -> Result<(), crate::error::ApiError> {
+    rate_limit::check_end_user_budget(
+        &state.pool,
+        api_key.user_id,
+        api_key.organization_id,
+    )
+    .await
+}
+
 fn default_retry_policy() -> RetryPolicy {
     RetryPolicy::default()
 }
@@ -525,9 +537,10 @@ async fn chat_completions(
 
     let estimated_tokens = rate_limit::estimate_request_tokens(&req);
     check_rate_limit(&state, &api_key, &primary_resolved.model, estimated_tokens).await?;
+    check_user_budget(&state, &api_key).await?;
 
-    let mut last_err: Option<crate::error::ApiError> = None;
     let mut rate_limited_err: Option<crate::error::ApiError> = None;
+    let mut last_err: Option<crate::error::ApiError> = None;
     let (result, used_model) = match call_chat_agentic(&state, &primary_resolved, req.clone()).await
     {
         Ok((resp, usage)) => ((Ok(resp), usage), primary_resolved.model.clone()),
@@ -561,7 +574,6 @@ async fn chat_completions(
                                 break;
                             }
                             Err(e) => {
-                                last_err = Some(map_provider_error(e));
                                 continue;
                             }
                         }
@@ -631,9 +643,10 @@ async fn embeddings(
 
     let estimated_tokens = 1u32;
     check_rate_limit(&state, &api_key, &primary_resolved.model, estimated_tokens).await?;
+    check_user_budget(&state, &api_key).await?;
 
-    let mut last_err: Option<crate::error::ApiError> = None;
     let mut rate_limited_err: Option<crate::error::ApiError> = None;
+    let mut last_err: Option<crate::error::ApiError> = None;
     let (body, usage, used_model) = match call_embedding(&primary_resolved, req.clone()).await {
         Ok((resp, usage)) => (resp, usage, primary_resolved.model.clone()),
         Err(e) => {
@@ -665,7 +678,6 @@ async fn embeddings(
                                 break;
                             }
                             Err(e) => {
-                                last_err = Some(map_provider_error(e));
                                 continue;
                             }
                         }
@@ -742,9 +754,10 @@ async fn image_generations(
 
     let estimated_tokens = 1u32;
     check_rate_limit(&state, &api_key, &primary_resolved.model, estimated_tokens).await?;
+    check_user_budget(&state, &api_key).await?;
 
-    let mut last_err: Option<crate::error::ApiError> = None;
     let mut rate_limited_err: Option<crate::error::ApiError> = None;
+    let mut last_err: Option<crate::error::ApiError> = None;
     let (body, usage, used_model) = match call_image_generation( &primary_resolved, req.clone()).await {
         Ok((resp, usage)) => (resp, usage, primary_resolved.model.clone()),
         Err(e) => {
@@ -776,7 +789,6 @@ async fn image_generations(
                                 break;
                             }
                             Err(e) => {
-                                last_err = Some(map_provider_error(e));
                                 continue;
                             }
                         }
@@ -855,9 +867,10 @@ async fn audio_speech(
 
     let estimated_tokens = 1u32;
     check_rate_limit(&state, &api_key, &primary_resolved.model, estimated_tokens).await?;
+    check_user_budget(&state, &api_key).await?;
 
-    let mut last_err: Option<crate::error::ApiError> = None;
     let mut rate_limited_err: Option<crate::error::ApiError> = None;
+    let mut last_err: Option<crate::error::ApiError> = None;
     let ((bytes, content_type), usage, used_model) = match call_audio_speech( &primary_resolved, req.clone()).await {
         Ok(((bytes, content_type), usage)) => ((bytes, content_type), usage, primary_resolved.model.clone()),
         Err(e) => {
@@ -889,7 +902,6 @@ async fn audio_speech(
                                 break;
                             }
                             Err(e) => {
-                                last_err = Some(map_provider_error(e));
                                 continue;
                             }
                         }
@@ -1007,6 +1019,7 @@ async fn audio_transcriptions(
 
     let estimated_tokens = 1u32;
     check_rate_limit(&state, &api_key, &primary_resolved.model, estimated_tokens).await?;
+    check_user_budget(&state, &api_key).await?;
 
     let req = godwit_core::AudioSttRequest {
         model: model_name.clone(),
@@ -1017,8 +1030,8 @@ async fn audio_transcriptions(
     let filename_clone = filename.clone();
     let content_type_clone = content_type.clone();
 
-    let mut last_err: Option<crate::error::ApiError> = None;
     let mut rate_limited_err: Option<crate::error::ApiError> = None;
+    let mut last_err: Option<crate::error::ApiError> = None;
     let (body, usage, used_model) = match call_audio_transcription( &primary_resolved, req.clone(), file_bytes_clone.clone(), filename_clone.clone(), content_type_clone.clone()).await {
         Ok((resp, usage)) => (resp, usage, primary_resolved.model.clone()),
         Err(e) => {
@@ -1050,7 +1063,6 @@ async fn audio_transcriptions(
                                 break;
                             }
                             Err(e) => {
-                                last_err = Some(map_provider_error(e));
                                 continue;
                             }
                         }
@@ -1189,6 +1201,7 @@ async fn image_edits(
 
     let estimated_tokens = 1u32;
     check_rate_limit(&state, &api_key, &primary_resolved.model, estimated_tokens).await?;
+    check_user_budget(&state, &api_key).await?;
 
     let req = godwit_core::ImageEditRequest {
         model: model_name.clone(),
@@ -1201,8 +1214,8 @@ async fn image_edits(
     let image_filename_clone = image_filename.clone();
     let mask_bytes_clone = mask_bytes.clone();
 
-    let mut last_err: Option<crate::error::ApiError> = None;
     let mut rate_limited_err: Option<crate::error::ApiError> = None;
+    let mut last_err: Option<crate::error::ApiError> = None;
     let (body, usage, used_model) = match call_image_edit( &primary_resolved, req.clone(), image_bytes_clone.clone(), image_filename_clone.clone(), mask_bytes_clone.clone()).await {
         Ok((resp, usage)) => (resp, usage, primary_resolved.model.clone()),
         Err(e) => {
@@ -1234,7 +1247,6 @@ async fn image_edits(
                                 break;
                             }
                             Err(e) => {
-                                last_err = Some(map_provider_error(e));
                                 continue;
                             }
                         }

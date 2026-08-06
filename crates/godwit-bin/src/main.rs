@@ -1,6 +1,6 @@
 use axum::{middleware, routing::Router};
 use godwit_api::{
-    admin, anthropic_proxy, batch, health, moderation, model_router::DbModelRouter, proxy,
+    admin, anthropic_proxy, batch, circuit_breaker::CircuitBreakerRegistry, health, moderation, model_router::DbModelRouter, proxy,
     rate_limit::RateLimiter, rerank, state::AppState,
 };
 use godwit_cache::MemoryCache;
@@ -63,6 +63,13 @@ async fn main() -> anyhow::Result<()> {
     let mcp_registry = Arc::new(build_mcp_registry(&config));
     let (searxng, searxng_profile) = build_searxng(&config);
 
+    // Circuit breaker registry initialization
+    let cb_config = config.circuit_breaker.as_ref();
+    let threshold = cb_config.map(|c| c.failure_threshold).unwrap_or(5);
+    let timeout = std::time::Duration::from_secs(cb_config.map(|c| c.recovery_timeout_secs).unwrap_or(60));
+    let half_open_max = cb_config.map(|c| c.half_open_max_requests).unwrap_or(3);
+    let circuit_breaker_registry = Arc::new(CircuitBreakerRegistry::new(threshold, timeout, half_open_max));
+
     let state = Arc::new(AppState {
         config: config.clone(),
         pool: pool.clone(),
@@ -81,6 +88,7 @@ async fn main() -> anyhow::Result<()> {
         api_key_cache: MemoryCache::new(),
         credential_master_key: master_key,
         rate_limiter: RateLimiter::new(),
+        circuit_breaker_registry,
     });
 
     // `api_key_auth` is applied to the proxy router alone (via `route_layer` on its own

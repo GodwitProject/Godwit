@@ -531,6 +531,7 @@ mod tests {
     #[sqlx::test(migrations = "./migrations")]
     async fn alerting_service_check_budgets_integration(pool: PgPool) {
         use godwit_core::alerting::AlertingService;
+        use uuid::Uuid;
         
         let org_id: Uuid = sqlx::query_scalar(
             "INSERT INTO organizations (name) VALUES ('test-org') RETURNING id"

@@ -45,11 +45,14 @@ async fn tool_calling_mcp_tool_resolution() {
             top_k: None,
             frequency_penalty: None,
             presence_penalty: None,
+            repetition_penalty: None,
             stop: None,
             seed: None,
             n: None,
             logprobs: None,
             top_logprobs: None,
+            logit_bias: None,
+            user: None,
         })
         .send()
         .await
@@ -102,11 +105,14 @@ async fn tool_calling_web_search_searxng() {
             top_k: None,
             frequency_penalty: None,
             presence_penalty: None,
+            repetition_penalty: None,
             stop: None,
             seed: None,
             n: None,
             logprobs: None,
             top_logprobs: None,
+            logit_bias: None,
+            user: None,
         })
         .send()
         .await
@@ -159,11 +165,14 @@ async fn tool_calling_agentic_loop_max_iterations() {
             top_k: None,
             frequency_penalty: None,
             presence_penalty: None,
+            repetition_penalty: None,
             stop: None,
             seed: None,
             n: None,
             logprobs: None,
             top_logprobs: None,
+            logit_bias: None,
+            user: None,
         })
         .send()
         .await
@@ -232,11 +241,14 @@ async fn tool_calling_parallel_tool_calls() {
             top_k: None,
             frequency_penalty: None,
             presence_penalty: None,
+            repetition_penalty: None,
             stop: None,
             seed: None,
             n: None,
             logprobs: None,
             top_logprobs: None,
+            logit_bias: None,
+            user: None,
         })
         .send()
         .await

@@ -234,7 +234,7 @@ async fn test_health_endpoint_uptime_positive() {
     
     let body: serde_json::Value = response.json().await.unwrap();
     let uptime = body.get("uptime_secs").unwrap().as_u64().unwrap();
-    assert!(uptime.is_some());
+    assert!(uptime > 0);
 }
 
 #[tokio::test]

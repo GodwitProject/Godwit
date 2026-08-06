@@ -4,6 +4,83 @@ use thiserror::Error;
 pub mod pii_masking;
 pub use pii_masking::{PiiMasker, PiiPattern, default_patterns};
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PiiConfig {
+    #[serde(default = "default_pii_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_pii_mask_request")]
+    pub mask_request: bool,
+    #[serde(default = "default_pii_mask_response")]
+    pub mask_response: bool,
+    #[serde(default = "default_pii_patterns")]
+    pub patterns: Vec<PiiPatternConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PiiPatternConfig {
+    pub name: String,
+    pub pattern: String,
+    pub replacement: String,
+    #[serde(default = "default_pattern_enabled")]
+    pub enabled: bool,
+}
+
+fn default_pii_enabled() -> bool {
+    false
+}
+
+fn default_pii_mask_request() -> bool {
+    true
+}
+
+fn default_pii_mask_response() -> bool {
+    true
+}
+
+fn default_pattern_enabled() -> bool {
+    true
+}
+
+fn default_pii_patterns() -> Vec<PiiPatternConfig> {
+    vec![
+        PiiPatternConfig {
+            name: "email".to_string(),
+            pattern: r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}".to_string(),
+            replacement: "[EMAIL]".to_string(),
+            enabled: true,
+        },
+        PiiPatternConfig {
+            name: "phone".to_string(),
+            pattern: r"\+?[\d\s-()]{10,}".to_string(),
+            replacement: "[PHONE]".to_string(),
+            enabled: true,
+        },
+        PiiPatternConfig {
+            name: "credit_card".to_string(),
+            pattern: r"\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b".to_string(),
+            replacement: "[CARD]".to_string(),
+            enabled: true,
+        },
+        PiiPatternConfig {
+            name: "ssn".to_string(),
+            pattern: r"\b\d{3}-\d{2}-\d{4}\b".to_string(),
+            replacement: "[SSN]".to_string(),
+            enabled: true,
+        },
+    ]
+}
+
+impl Default for PiiConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_pii_enabled(),
+            mask_request: default_pii_mask_request(),
+            mask_response: default_pii_mask_response(),
+            patterns: default_pii_patterns(),
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum PasteurError {
     #[error("configuration error: {0}")]
@@ -50,6 +127,9 @@ pub struct AppConfig {
     /// Prompt cache configuration.
     #[serde(default)]
     pub cache: CacheConfig,
+    /// PII masking configuration.
+    #[serde(default)]
+    pub pii: PiiConfig,
 }
 
 /// The agentic ecosystem section of [`AppConfig`]: a list of MCP servers to expose as

@@ -51,3 +51,26 @@ cache:
   enabled: true
   ttl_secs: 3600
   max_size: 10000
+
+# PII masking configuration
+pii:
+  enabled: false  # Set to true to enable PII masking
+  mask_request: true
+  mask_response: true
+  patterns:
+    - name: email
+      pattern: "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
+      replacement: "[EMAIL]"
+      enabled: true
+    - name: phone
+      pattern: "\\+?[\\d\\s-()]{10,}"
+      replacement: "[PHONE]"
+      enabled: true
+    - name: credit_card
+      pattern: "\\b\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}\\b"
+      replacement: "[CARD]"
+      enabled: true
+    - name: ssn
+      pattern: "\\b\\d{3}-\\d{2}-\\d{4}\\b"
+      replacement: "[SSN]"
+      enabled: true

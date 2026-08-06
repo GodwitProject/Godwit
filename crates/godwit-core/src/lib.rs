@@ -4,6 +4,12 @@ use thiserror::Error;
 pub mod pii_masking;
 pub use pii_masking::{PiiMasker, PiiPattern, default_patterns};
 
+pub mod guardrails;
+pub use guardrails::{
+    GuardrailsConfig, GuardrailsOrchestrator, GuardrailsError,
+    PreCallResult, PostCallResult, ModerationResult,
+};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PiiConfig {
     #[serde(default = "default_pii_enabled")]

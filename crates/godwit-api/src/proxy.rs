@@ -28,6 +28,7 @@ use crate::{
     model_info,
     model_router::{DbModelRouter, ResolvedModel},
     proxy_streaming::process_streaming_tool_calls,
+    response_validation::validate_response,
     rate_limit,
     resilience::{with_retry, RetryPolicy},
     state::AppState,
@@ -323,6 +324,7 @@ pub(crate) async fn call_chat(
         });
         Ok((axum::response::Sse::new(sse_stream).into_response(), None))
     } else {
+        let response_format = req.response_format.clone();
         let adapter = Arc::clone(&resolved.adapter);
         let credentials = resolved.resolved_credentials.clone();
         let model = resolved.model.clone();
@@ -336,6 +338,15 @@ pub(crate) async fn call_chat(
         .await?;
         match resp {
             ProviderResponse::Chat(completion) => {
+                if let Some(godwit_core::ResponseFormat::JsonSchema { json_schema }) = &response_format {
+                    if let Some(content) = completion.choices.first().and_then(|c| c.message.content_as_text()) {
+                        validate_response(&content, json_schema).map_err(|e| {
+                            godwit_providers::adapter::ProviderError::Provider(
+                                format!("response validation failed: {}", e)
+                            )
+                        })?;
+                    }
+                }
                 Ok((Json(completion).into_response(), Some(report)))
             }
             _ => Err(godwit_providers::adapter::ProviderError::Provider(

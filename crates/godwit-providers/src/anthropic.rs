@@ -8,7 +8,7 @@ use futures::stream::{self, BoxStream, StreamExt};
 use godwit_core::{
     AudioSttRequest, AudioTtsRequest, Capability, ChatCompletionRequest, ChatCompletionResponse,
     ChatContent, ChatContentPart, ChatMessage, EmbeddingRequest, ImageGenerationRequest,
-    VideoGenerationRequest,
+    VideoGenerationRequest, ResponseFormat,
 };
 use godwit_db::models::Model;
 use reqwest::Client;
@@ -126,6 +126,21 @@ impl AnthropicMessage {
 }
 
 #[derive(Debug, Serialize)]
+struct AnthropicJsonSchema {
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    schema: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum AnthropicToolChoice {
+    Auto,
+    Any,
+    Tool { name: String },
+}
+
+#[derive(Debug, Serialize)]
 pub struct AnthropicChatRequest {
     model: String,
     max_tokens: i32,
@@ -135,12 +150,25 @@ pub struct AnthropicChatRequest {
     system: Option<String>,
     messages: Vec<AnthropicMessage>,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<AnthropicTool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<AnthropicToolChoice>,
+}
+
+#[derive(Debug, Serialize)]
+struct AnthropicTool {
+    name: String,
+    description: Option<String>,
+    input_schema: AnthropicJsonSchema,
 }
 
 impl AnthropicChatRequest {
     pub fn from_chat_request(request: ChatCompletionRequest, model_id: String) -> Self {
         let mut system_parts: Vec<String> = Vec::new();
         let mut messages: Vec<AnthropicMessage> = Vec::new();
+        let mut tools: Vec<AnthropicTool> = Vec::new();
+        let mut tool_choice: Option<AnthropicToolChoice> = None;
 
         for msg in request.messages {
             if msg.role == "system" {
@@ -158,6 +186,20 @@ impl AnthropicChatRequest {
             Some(system_parts.join("\n\n"))
         };
 
+        if let Some(ResponseFormat::JsonSchema { json_schema }) = &request.response_format {
+            tools.push(AnthropicTool {
+                name: json_schema.name.clone(),
+                description: Some(format!("Output must conform to this schema")),
+                input_schema: AnthropicJsonSchema {
+                    name: json_schema.name.clone(),
+                    schema: json_schema.schema.clone(),
+                },
+            });
+            tool_choice = Some(AnthropicToolChoice::Tool {
+                name: json_schema.name.clone(),
+            });
+        }
+
         Self {
             model: model_id,
             max_tokens: request.max_tokens.unwrap_or(4096),
@@ -165,6 +207,8 @@ impl AnthropicChatRequest {
             system,
             messages,
             stream: request.stream == Some(true),
+            tools: if tools.is_empty() { None } else { Some(tools) },
+            tool_choice,
         }
     }
 }

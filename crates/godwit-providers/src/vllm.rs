@@ -7,6 +7,7 @@ use futures::stream::{self, BoxStream, StreamExt};
 use godwit_core::{
     AudioSttRequest, AudioTtsRequest, Capability, ChatCompletionRequest, ChatCompletionResponse,
     EmbeddingRequest, EmbeddingResponse, ImageGenerationRequest, VideoGenerationRequest,
+    ResponseFormat,
 };
 use godwit_db::models::Model;
 use reqwest::Client;
@@ -51,7 +52,19 @@ impl Adapter for VllmProvider {
         request.model = model.provider_model_id.clone();
         crate::web_search::strip_native_web_search_from_request(&mut request);
         let url = format!("{}/chat/completions", profile.base_url);
-        let mut req = self.client.post(&url).json(&request);
+        
+        let mut request_body = serde_json::to_value(&request).map_err(|e| ProviderError::Serialization(e.to_string()))?;
+        
+        if let Some(ResponseFormat::JsonSchema { json_schema }) = &request.response_format {
+            if let Some(obj) = request_body.as_object_mut() {
+                obj.remove("response_format");
+                if let Some(schema) = &json_schema.schema {
+                    obj.insert("guided_json".to_string(), schema.clone());
+                }
+            }
+        }
+        
+        let mut req = self.client.post(&url).json(&request_body);
         if let Some(key) = &profile.api_key {
             req = req.header("Authorization", format!("Bearer {key}"));
         }
@@ -86,7 +99,19 @@ impl Adapter for VllmProvider {
         request.model = model.provider_model_id.clone();
         crate::web_search::strip_native_web_search_from_request(&mut request);
         let url = format!("{}/chat/completions", profile.base_url);
-        let mut req = self.client.post(&url).json(&request);
+        
+        let mut request_body = serde_json::to_value(&request).map_err(|e| ProviderError::Serialization(e.to_string()))?;
+        
+        if let Some(ResponseFormat::JsonSchema { json_schema }) = &request.response_format {
+            if let Some(obj) = request_body.as_object_mut() {
+                obj.remove("response_format");
+                if let Some(schema) = &json_schema.schema {
+                    obj.insert("guided_json".to_string(), schema.clone());
+                }
+            }
+        }
+        
+        let mut req = self.client.post(&url).json(&request_body);
         if let Some(key) = &profile.api_key {
             req = req.header("Authorization", format!("Bearer {key}"));
         }
@@ -429,5 +454,58 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, ProviderError::CapabilityNotSupported(_)));
+    }
+
+    #[tokio::test]
+    async fn chat_sends_guided_json_for_json_schema() {
+        use godwit_core::{JsonSchema, ResponseFormat};
+        use serde_json::json;
+        let server = MockServer::start().await;
+        let captured_body = std::sync::Arc::new(std::sync::Mutex::new(None::<serde_json::Value>));
+        let captured_clone = captured_body.clone();
+
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(move |req: &wiremock::Request| {
+                if let Ok(body) = serde_json::from_slice::<serde_json::Value>(&req.body) {
+                    *captured_clone.lock().unwrap() = Some(body);
+                }
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "id": "chatcmpl-1",
+                    "object": "chat.completion",
+                    "created": 1,
+                    "model": "meta-llama/Llama-3-70B-Instruct",
+                    "choices": [{"index":0,"message":{"role":"assistant","content":"{}"},"finish_reason":"stop"}],
+                    "usage": {"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
+                }))
+            })
+            .mount(&server)
+            .await;
+
+        let client = VllmAdapter::new();
+        let profile = dummy_profile(server.uri());
+        let req = ChatCompletionRequest {
+            model: "llama-3-70b".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: Some(vec![ChatContent::text("Return JSON")]),
+                name: None,
+                ..Default::default()
+            }],
+            response_format: Some(ResponseFormat::JsonSchema {
+                json_schema: JsonSchema {
+                    name: "test".to_string(),
+                    schema: Some(json!({"type": "object"})),
+                    strict: None,
+                },
+            }),
+            ..Default::default()
+        };
+        let _ = client.chat(&profile, &dummy_model(), req).await.unwrap();
+
+        let body = captured_body.lock().unwrap().take().expect("request body captured");
+        assert!(body["guided_json"].is_object());
+        assert_eq!(body["guided_json"]["type"], "object");
+        assert!(body["response_format"].is_null());
     }
 }

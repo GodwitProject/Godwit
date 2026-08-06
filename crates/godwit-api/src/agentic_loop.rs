@@ -1,4 +1,4 @@
-use godwit_core::{ChatCompletionRequest, ChatCompletionResponse, ToolCall};
+use godwit_core::{ChatCompletionRequest, ChatCompletionResponse, ToolCall, ResponseFormat};
 use godwit_providers::adapter::UsageReport;
 use std::sync::Arc;
 use std::time::Duration;
@@ -9,6 +9,7 @@ use crate::{
     state::AppState,
     model_router::ResolvedModel,
     error::ApiError,
+    response_validation::validate_response,
 };
 
 pub struct AgenticLoop {
@@ -51,6 +52,16 @@ impl AgenticLoop {
             })?;
 
             total_usage = accumulate_usage(total_usage, &round_usage);
+
+            if let Some(ResponseFormat::JsonSchema { json_schema }) = &req.response_format {
+                if let Some(content) = completion.choices.first().and_then(|c| c.message.content_as_text()) {
+                    validate_response(&content, json_schema).map_err(|e| {
+                        ApiError::Core(godwit_core::PasteurError::Provider(
+                            format!("response validation failed: {}", e)
+                        ))
+                    })?;
+                }
+            }
 
             let tool_calls: Vec<ToolCall> = completion
                 .choices

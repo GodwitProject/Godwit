@@ -27,6 +27,8 @@ tracing = { workspace = true }
 futures = "0.3"
 dashmap = "6"
 reqwest = { workspace = true }
+jsonschema = "0.17"
+thiserror = { workspace = true }
 
 [dev-dependencies]
 hyper = { version = "1", features = ["full"] }

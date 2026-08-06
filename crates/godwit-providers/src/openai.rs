@@ -7,7 +7,7 @@ use futures::stream::{self, BoxStream, StreamExt};
 use godwit_core::{
     AudioSttRequest, AudioSttResponse, AudioTtsRequest, Capability, ChatCompletionRequest,
     ChatCompletionResponse, ChatContent, ChatContentPart, EmbeddingRequest, EmbeddingResponse,
-    ImageGenerationRequest, ImageGenerationResponse,
+    ImageGenerationRequest, ImageGenerationResponse, ResponseFormat,
 };
 use godwit_db::models::Model;
 use reqwest::Client;
@@ -77,6 +77,23 @@ impl OpenAiMessage {
 }
 
 #[derive(Debug, Serialize)]
+struct OpenAiJsonSchema {
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    schema: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    strict: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum OpenAiResponseFormat {
+    Text,
+    JsonObject,
+    JsonSchema { json_schema: OpenAiJsonSchema },
+}
+
+#[derive(Debug, Serialize)]
 struct OpenAiChatRequest {
     model: String,
     messages: Vec<OpenAiMessage>,
@@ -90,6 +107,8 @@ struct OpenAiChatRequest {
     tools: Option<Vec<godwit_core::Tool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_choice: Option<godwit_core::ToolChoice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<OpenAiResponseFormat>,
 }
 
 pub struct OpenAiProvider {
@@ -141,6 +160,17 @@ impl Adapter for OpenAiProvider {
             .iter()
             .map(OpenAiMessage::from_chat_message)
             .collect();
+        let response_format = request.response_format.as_ref().map(|rf| match rf {
+            ResponseFormat::Text => OpenAiResponseFormat::Text,
+            ResponseFormat::JsonObject => OpenAiResponseFormat::JsonObject,
+            ResponseFormat::JsonSchema { json_schema } => OpenAiResponseFormat::JsonSchema {
+                json_schema: OpenAiJsonSchema {
+                    name: json_schema.name.clone(),
+                    schema: json_schema.schema.clone(),
+                    strict: Some(json_schema.strict.unwrap_or(true)),
+                },
+            },
+        });
         let openai_request = OpenAiChatRequest {
             model: request.model.clone(),
             messages: openai_messages,
@@ -149,6 +179,7 @@ impl Adapter for OpenAiProvider {
             max_tokens: request.max_tokens,
             tools: request.tools.clone(),
             tool_choice: request.tool_choice.clone(),
+            response_format,
         };
         let url = format!("{}/chat/completions", profile.base_url);
         let mut req = self.client.post(&url).json(&openai_request);
@@ -189,6 +220,17 @@ impl Adapter for OpenAiProvider {
             .iter()
             .map(OpenAiMessage::from_chat_message)
             .collect();
+        let response_format = request.response_format.as_ref().map(|rf| match rf {
+            ResponseFormat::Text => OpenAiResponseFormat::Text,
+            ResponseFormat::JsonObject => OpenAiResponseFormat::JsonObject,
+            ResponseFormat::JsonSchema { json_schema } => OpenAiResponseFormat::JsonSchema {
+                json_schema: OpenAiJsonSchema {
+                    name: json_schema.name.clone(),
+                    schema: json_schema.schema.clone(),
+                    strict: Some(json_schema.strict.unwrap_or(true)),
+                },
+            },
+        });
         let openai_request = OpenAiChatRequest {
             model: request.model.clone(),
             messages: openai_messages,
@@ -197,6 +239,7 @@ impl Adapter for OpenAiProvider {
             max_tokens: request.max_tokens,
             tools: request.tools.clone(),
             tool_choice: request.tool_choice.clone(),
+            response_format,
         };
         let url = format!("{}/chat/completions", profile.base_url);
         let mut req = self.client.post(&url).json(&openai_request);
@@ -1056,5 +1099,61 @@ mod tests {
         };
         
         assert_eq!(usage.tts_characters, Some(13));
+    }
+
+    #[tokio::test]
+    async fn chat_sends_json_schema_with_strict_true() {
+        use godwit_core::{JsonSchema, ResponseFormat};
+        use serde_json::json;
+        let server = MockServer::start().await;
+        let captured_body = std::sync::Arc::new(std::sync::Mutex::new(None::<serde_json::Value>));
+        let captured_clone = captured_body.clone();
+
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(move |req: &wiremock::Request| {
+                if let Ok(body) = serde_json::from_slice::<serde_json::Value>(&req.body) {
+                    *captured_clone.lock().unwrap() = Some(body);
+                }
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "id": "chatcmpl-1",
+                    "object": "chat.completion",
+                    "created": 1,
+                    "model": "gpt-4o",
+                    "choices": [{"index":0,"message":{"role":"assistant","content":"{}"},"finish_reason":"stop"}],
+                    "usage": {"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}
+                }))
+            })
+            .mount(&server)
+            .await;
+
+        let client = OpenAiAdapter::new();
+        let profile = ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
+        let req = ChatCompletionRequest {
+            model: "gpt-4o".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: Some(vec![ChatContent::text("Return JSON")]),
+                name: None,
+                ..Default::default()
+            }],
+            response_format: Some(ResponseFormat::JsonSchema {
+                json_schema: JsonSchema {
+                    name: "test_schema".to_string(),
+                    schema: Some(json!({"type": "object"})),
+                    strict: Some(true),
+                },
+            }),
+            ..Default::default()
+        };
+        let _ = client.chat(&profile, &dummy_model(), req).await.unwrap();
+
+        let body = captured_body.lock().unwrap().take().expect("request body captured");
+        assert_eq!(body["response_format"]["type"], "json_schema");
+        assert_eq!(body["response_format"]["json_schema"]["name"], "test_schema");
+        assert_eq!(body["response_format"]["json_schema"]["strict"], true);
     }
 }

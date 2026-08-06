@@ -7,9 +7,11 @@ use futures::stream::{self, BoxStream, StreamExt};
 use godwit_core::{
     AudioSttRequest, AudioTtsRequest, Capability, ChatCompletionRequest, ChatCompletionResponse,
     EmbeddingRequest, EmbeddingResponse, ImageGenerationRequest, VideoGenerationRequest,
+    ResponseFormat,
 };
 use godwit_db::models::Model;
 use reqwest::Client;
+use serde_json::Value;
 
 pub struct OllamaProvider {
     client: Client,
@@ -51,7 +53,17 @@ impl Adapter for OllamaProvider {
         request.model = model.provider_model_id.clone();
         crate::web_search::strip_native_web_search_from_request(&mut request);
         let url = format!("{}/chat/completions", profile.base_url);
-        let mut req = self.client.post(&url).json(&request);
+        
+        let mut request_body = serde_json::to_value(&request).map_err(|e| ProviderError::Serialization(e.to_string()))?;
+        
+        if let Some(ResponseFormat::JsonSchema { json_schema: _ }) = &request.response_format {
+            if let Some(obj) = request_body.as_object_mut() {
+                obj.remove("response_format");
+                obj.insert("format".to_string(), Value::String("json".to_string()));
+            }
+        }
+        
+        let mut req = self.client.post(&url).json(&request_body);
         if let Some(key) = &profile.api_key {
             req = req.header("Authorization", format!("Bearer {key}"));
         }
@@ -86,7 +98,17 @@ impl Adapter for OllamaProvider {
         request.model = model.provider_model_id.clone();
         crate::web_search::strip_native_web_search_from_request(&mut request);
         let url = format!("{}/chat/completions", profile.base_url);
-        let mut req = self.client.post(&url).json(&request);
+        
+        let mut request_body = serde_json::to_value(&request).map_err(|e| ProviderError::Serialization(e.to_string()))?;
+        
+        if let Some(ResponseFormat::JsonSchema { json_schema: _ }) = &request.response_format {
+            if let Some(obj) = request_body.as_object_mut() {
+                obj.remove("response_format");
+                obj.insert("format".to_string(), Value::String("json".to_string()));
+            }
+        }
+        
+        let mut req = self.client.post(&url).json(&request_body);
         if let Some(key) = &profile.api_key {
             req = req.header("Authorization", format!("Bearer {key}"));
         }

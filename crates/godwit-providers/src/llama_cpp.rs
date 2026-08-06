@@ -7,15 +7,53 @@ use futures::stream::{self, BoxStream, StreamExt};
 use godwit_core::{
     AudioSttRequest, AudioTtsRequest, Capability, ChatCompletionRequest, ChatCompletionResponse,
     EmbeddingRequest, EmbeddingResponse, ImageGenerationRequest, VideoGenerationRequest,
+    ResponseFormat,
 };
 use godwit_db::models::Model;
 use reqwest::Client;
+use serde_json::Value;
 
 pub struct LlamaCppProvider {
     client: Client,
 }
 
 pub type LlamaCppAdapter = LlamaCppProvider;
+
+fn json_schema_to_gbnf(schema: &Value) -> String {
+    let mut grammar = String::new();
+    grammar.push_str("root ::= object\n");
+    
+    if let Some(obj) = schema.as_object() {
+        if let Some(properties) = obj.get("properties").and_then(|p| p.as_object()) {
+            for (key, value) in properties {
+                if let Some(prop_schema) = value.as_object() {
+                    let prop_type = prop_schema.get("type").and_then(|t| t.as_str()).unwrap_or("string");
+                    grammar.push_str(&format!("{} ::= {}\n", key, match prop_type {
+                        "string" => "\"\\\"\" string \"\\\"\"",
+                        "number" => "number",
+                        "integer" => "integer",
+                        "boolean" => "boolean",
+                        "array" => "array",
+                        "object" => "object",
+                        _ => "string",
+                    }));
+                }
+            }
+        }
+    }
+    
+    grammar.push_str("object ::= \"{\" (ws string ws \":\" ws value (ws \",\" ws string ws \":\" ws value)*)? ws \"}\"\n");
+    grammar.push_str("array ::= \"[\" (ws value (ws \",\" ws value)*)? ws \"]\"\n");
+    grammar.push_str("value ::= string | number | integer | boolean | object | array | null\n");
+    grammar.push_str("string ::= \"\\\"\" ([^\"\\\\] | \"\\\\\" [\"\\\\/bfnrt] | \"\\\\\" u [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])* \"\\\"\"\n");
+    grammar.push_str("number ::= \"-\"? ([0-9] | [1-9] [0-9]*) (\".\" [0-9]+)? ([eE] [+-]? [0-9]+)?\n");
+    grammar.push_str("integer ::= \"-\"? ([0-9] | [1-9] [0-9]*)\n");
+    grammar.push_str("boolean ::= \"true\" | \"false\"\n");
+    grammar.push_str("null ::= \"null\"\n");
+    grammar.push_str("ws ::= ([ \\t\\n\\r])*\n");
+    
+    grammar
+}
 
 impl LlamaCppProvider {
     pub fn new() -> Self {
@@ -51,7 +89,20 @@ impl Adapter for LlamaCppProvider {
         request.model = model.provider_model_id.clone();
         crate::web_search::strip_native_web_search_from_request(&mut request);
         let url = format!("{}/chat/completions", profile.base_url);
-        let mut req = self.client.post(&url).json(&request);
+        
+        let mut request_body = serde_json::to_value(&request).map_err(|e| ProviderError::Serialization(e.to_string()))?;
+        
+        if let Some(ResponseFormat::JsonSchema { json_schema }) = &request.response_format {
+            if let Some(obj) = request_body.as_object_mut() {
+                obj.remove("response_format");
+                if let Some(schema) = &json_schema.schema {
+                    let grammar = json_schema_to_gbnf(schema);
+                    obj.insert("grammar".to_string(), Value::String(grammar));
+                }
+            }
+        }
+        
+        let mut req = self.client.post(&url).json(&request_body);
         if let Some(key) = &profile.api_key {
             req = req.header("Authorization", format!("Bearer {key}"));
         }
@@ -86,7 +137,20 @@ impl Adapter for LlamaCppProvider {
         request.model = model.provider_model_id.clone();
         crate::web_search::strip_native_web_search_from_request(&mut request);
         let url = format!("{}/chat/completions", profile.base_url);
-        let mut req = self.client.post(&url).json(&request);
+        
+        let mut request_body = serde_json::to_value(&request).map_err(|e| ProviderError::Serialization(e.to_string()))?;
+        
+        if let Some(ResponseFormat::JsonSchema { json_schema }) = &request.response_format {
+            if let Some(obj) = request_body.as_object_mut() {
+                obj.remove("response_format");
+                if let Some(schema) = &json_schema.schema {
+                    let grammar = json_schema_to_gbnf(schema);
+                    obj.insert("grammar".to_string(), Value::String(grammar));
+                }
+            }
+        }
+        
+        let mut req = self.client.post(&url).json(&request_body);
         if let Some(key) = &profile.api_key {
             req = req.header("Authorization", format!("Bearer {key}"));
         }

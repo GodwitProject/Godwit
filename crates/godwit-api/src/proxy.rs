@@ -1,14 +1,14 @@
 use axum::{
-    extract::{Extension, Json, State},
+    extract::{Extension, Json, Path, Query, State},
     http::StatusCode,
     middleware,
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{delete, get, post},
     Router,
 };
 use futures::StreamExt;
 use godwit_core::{
-    Capability, ChatCompletionRequest, ChatCompletionResponse, ChatContent, ChatMessage,
+    Capability, ChatCompletionRequest, ChatContent, ChatMessage,
     ImageGenerationRequest, Tool, ToolCall,
 };
 #[cfg(test)]
@@ -17,8 +17,10 @@ use godwit_db::models::ApiKey;
 use godwit_db::repositories::{
     models::ModelRepository, provider_profiles::ProviderProfileRepository,
 };
-use godwit_providers::{compute_cost, ProviderResponse, UsageReport};
+use godwit_providers::{compute_cost, ProviderResponse};
 use rust_decimal::Decimal;
+use serde::Deserialize;
+use serde_json::Value;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
@@ -39,9 +41,17 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/v1/chat/completions", post(chat_completions))
         .route_layer(middleware::from_fn(crate::middleware::model_scope));
 
+    let batch_router = Router::new()
+        .route("/v1/batches", post(create_batch).get(list_batches).delete(delete_batch))
+        .route("/v1/batches/:id", get(get_batch))
+        .route("/v1/batches/:id/cancel", post(cancel_batch))
+        .route("/v1/batches/:id/results", get(get_batch_results))
+        .route_layer(middleware::from_fn(crate::middleware::model_scope));
+
     Router::new()
         .merge(chat_router)
         .merge(model_info::router())
+        .merge(batch_router)
         .route("/v1/models", get(list_models))
         .route("/v1/embeddings", post(embeddings))
         .route("/v1/images/generations", post(image_generations))
@@ -1287,6 +1297,129 @@ fn extract_tags_from_header(header_value: Option<&str>) -> Vec<String> {
         .unwrap_or_default()
 }
 
+#[derive(Debug, Deserialize)]
+struct ModelQuery {
+    model: String,
+}
+
+fn extract_model_from_body(body: &Value) -> Result<String, crate::error::ApiError> {
+    body.get("model")
+        .and_then(|m| m.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| crate::error::ApiError::BadRequest("missing 'model' field".to_string()))
+}
+
+async fn create_batch(
+    State(state): State<Arc<AppState>>,
+    Extension(_api_key): Extension<ApiKey>,
+    Json(body): Json<Value>,
+) -> Result<Response, crate::error::ApiError> {
+    let model = extract_model_from_body(&body)?;
+    let (response, _) = forward_openai_passthrough(
+        &state,
+        reqwest::Method::POST,
+        "batches",
+        Some(body),
+        &model,
+        Capability::Chat,
+    )
+    .await?;
+    Ok((StatusCode::CREATED, Json(response)).into_response())
+}
+
+async fn list_batches(
+    State(state): State<Arc<AppState>>,
+    Extension(_api_key): Extension<ApiKey>,
+    Query(query): Query<ModelQuery>,
+) -> Result<Response, crate::error::ApiError> {
+    let (response, _) = forward_openai_passthrough(
+        &state,
+        reqwest::Method::GET,
+        "batches",
+        None,
+        &query.model,
+        Capability::Chat,
+    )
+    .await?;
+    Ok(Json(response).into_response())
+}
+
+async fn get_batch(
+    State(state): State<Arc<AppState>>,
+    Extension(_api_key): Extension<ApiKey>,
+    Path(batch_id): Path<String>,
+    Query(query): Query<ModelQuery>,
+) -> Result<Response, crate::error::ApiError> {
+    let path = format!("batches/{batch_id}");
+    let (response, _) = forward_openai_passthrough(
+        &state,
+        reqwest::Method::GET,
+        &path,
+        None,
+        &query.model,
+        Capability::Chat,
+    )
+    .await?;
+    Ok(Json(response).into_response())
+}
+
+async fn delete_batch(
+    State(state): State<Arc<AppState>>,
+    Extension(_api_key): Extension<ApiKey>,
+    Path(batch_id): Path<String>,
+    Query(query): Query<ModelQuery>,
+) -> Result<Response, crate::error::ApiError> {
+    let path = format!("batches/{batch_id}");
+    let (response, _) = forward_openai_passthrough(
+        &state,
+        reqwest::Method::DELETE,
+        &path,
+        None,
+        &query.model,
+        Capability::Chat,
+    )
+    .await?;
+    Ok(Json(response).into_response())
+}
+
+async fn cancel_batch(
+    State(state): State<Arc<AppState>>,
+    Extension(_api_key): Extension<ApiKey>,
+    Path(batch_id): Path<String>,
+    Query(query): Query<ModelQuery>,
+) -> Result<Response, crate::error::ApiError> {
+    let path = format!("batches/{batch_id}/cancel");
+    let (response, _) = forward_openai_passthrough(
+        &state,
+        reqwest::Method::POST,
+        &path,
+        None,
+        &query.model,
+        Capability::Chat,
+    )
+    .await?;
+    Ok(Json(response).into_response())
+}
+
+async fn get_batch_results(
+    State(state): State<Arc<AppState>>,
+    Extension(_api_key): Extension<ApiKey>,
+    Path(batch_id): Path<String>,
+    Query(query): Query<ModelQuery>,
+) -> Result<Response, crate::error::ApiError> {
+    let path = format!("batches/{batch_id}/results");
+    let (response, _) = forward_openai_passthrough(
+        &state,
+        reqwest::Method::GET,
+        &path,
+        None,
+        &query.model,
+        Capability::Chat,
+    )
+    .await?;
+    Ok(Json(response).into_response())
+}
+
 pub(crate) fn spawn_request_log(pool: sqlx::PgPool, log: RequestLogEntry) {
     tokio::spawn(async move {
         let _ = sqlx::query(
@@ -1621,6 +1754,52 @@ mod tests {
         
         assert_eq!(log.tool_calls_count, None);
         assert_eq!(log.agentic_iteration, None);
+    }
+
+    #[test]
+    fn extract_model_from_body_returns_model() {
+        let body = serde_json::json!({ "model": "gpt-4o" });
+        let result = extract_model_from_body(&body);
+        assert_eq!(result.unwrap(), "gpt-4o");
+    }
+
+    #[test]
+    fn extract_model_from_body_missing_returns_error() {
+        let body = serde_json::json!({ "messages": [] });
+        let result = extract_model_from_body(&body);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn model_query_struct() {
+        let params = ModelQuery {
+            model: "gpt-4o".to_string(),
+        };
+        assert_eq!(params.model, "gpt-4o");
+    }
+
+    #[test]
+    fn batch_routes_are_registered() {
+        let router = router();
+        let _: Router<Arc<AppState>> = router;
+    }
+
+    #[test]
+    fn extract_model_from_body_with_extra_fields() {
+        let body = serde_json::json!({
+            "model": "gpt-4o",
+            "messages": [],
+            "custom_id": "req-1"
+        });
+        let result = extract_model_from_body(&body);
+        assert_eq!(result.unwrap(), "gpt-4o");
+    }
+
+    #[test]
+    fn extract_model_from_body_model_not_string() {
+        let body = serde_json::json!({ "model": 123 });
+        let result = extract_model_from_body(&body);
+        assert!(result.is_err());
     }
 
 }

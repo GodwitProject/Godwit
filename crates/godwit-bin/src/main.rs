@@ -1,6 +1,6 @@
 use axum::{middleware, routing::Router};
 use godwit_api::{
-    admin, agentic_loop::AgenticLoop, anthropic_proxy, circuit_breaker::CircuitBreakerRegistry, health, moderation, model_router::DbModelRouter, proxy,
+    admin, agentic_loop::AgenticLoop, anthropic_proxy, circuit_breaker::CircuitBreakerRegistry, health, metrics_endpoint, moderation, model_router::DbModelRouter, proxy,
     rate_limit::RateLimiter, rerank, state::AppState,
 };
 use godwit_cache::MemoryCache;
@@ -112,6 +112,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .merge(health::router())
+        .merge(metrics_endpoint::router())
         .nest("/api/v1", admin::router(state.clone()))
         .merge(proxy_router)
         .with_state(state.clone());

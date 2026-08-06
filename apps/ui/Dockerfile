@@ -7,8 +7,12 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY apps/ui/ .
-ARG NEXT_PUBLIC_API_URL=http://localhost:8000
-ARG NEXT_PUBLIC_WS_URL=ws://localhost:8000
+# NEXT_PUBLIC_* vars are inlined into the client bundle at build time by the
+# `env` block in next.config.js, so they must be supplied as ARGs here (runtime
+# environment is ignored for the standalone server). Defaults mirror the
+# next.config.js fallbacks and include the /api/v1 route prefix.
+ARG NEXT_PUBLIC_API_URL=http://localhost:3000/api/v1
+ARG NEXT_PUBLIC_WS_URL=ws://localhost:3000/api/v1/ws
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
 RUN mkdir -p public

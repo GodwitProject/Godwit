@@ -1,5 +1,6 @@
 pub mod api_keys;
 pub mod auth;
+pub mod circuit_breakers;
 pub mod end_users;
 pub mod models;
 pub mod organizations;
@@ -46,6 +47,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .merge(spend_logs::router())
         .merge(spend_tags::router())
         .merge(stats::router())
+        .merge(circuit_breakers::router())
         .route_layer(middleware::from_fn_with_state(state, jwt_auth));
 
     Router::new().merge(auth::router()).merge(protected)

@@ -2,6 +2,7 @@ pub mod load_balancer;
 pub mod admin;
 pub mod anthropic_proxy;
 pub mod batch;
+pub mod circuit_breaker;
 pub mod error;
 pub mod health;
 pub mod middleware;

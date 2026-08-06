@@ -84,7 +84,7 @@ fn test_registry() -> Arc<AdapterRegistry> {
 /// real wiring (including the two auth middlewares and the `/api/v1` admin nesting) rather
 /// than a hand-rolled approximation.
 fn build_app(pool: PgPool) -> Router {
-    use crate::circuit_breaker::CircuitBreakerRegistry;
+    use godwit_api::circuit_breaker::CircuitBreakerRegistry;
     let registry = test_registry();
     let state = Arc::new(AppState {
         config: test_config(),
@@ -427,7 +427,7 @@ async fn anthropic_messages_translates_to_openai_upstream(pool: PgPool) {
         .await
         .expect("set auth");
     ModelRepository::new(pool.clone())
-        .create("claude-sonnet", "openai", profile.id, "gpt-4o-mini-2024-07-18", "chat")
+        .create("claude-sonnet", "openai", profile.id, "gpt-4o-mini-2024-07-18", "chat", serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}))
         .await
         .expect("create model");
 
@@ -457,7 +457,6 @@ async fn anthropic_messages_translates_to_openai_upstream(pool: PgPool) {
         )
         .await
         .expect("route response");
-
     let status = response.status();
     let body = body_json(response).await;
     assert_eq!(status, StatusCode::OK, "body={body}");
@@ -649,6 +648,7 @@ async fn admin_by_id_routes_are_reachable(pool: PgPool) {
             profile.id,
             "meta-llama/Llama-3-70B-Instruct",
             "chat",
+            serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}),
         )
         .await
         .expect("create model");
@@ -1029,7 +1029,7 @@ async fn image_edit_against_a_vllm_model_returns_400_not_500(pool: PgPool) {
     // The catalog row claims image_edit; the vllm adapter does not implement it, so the
     // rejection has to come from the adapter (not from the router's capability check).
     ModelRepository::new(pool.clone())
-        .create("llama-edit", "vllm", profile.id, "llama-3", "image_edit")
+        .create("claude-sonnet", "openai", profile.id, "gpt-4o-mini-2024-07-18", "chat", serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}))
         .await
         .expect("create model");
 
@@ -1087,7 +1087,7 @@ async fn disabled_profile_is_hidden_from_v1_models_and_rejected_by_chat(pool: Pg
         .await
         .expect("create live profile");
     models
-        .create("visible-model", "openai", live.id, "gpt-4o", "chat")
+        .create("visible-model", "openai", live.id, "gpt-4o", "chat", serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}))
         .await
         .expect("create visible model");
 
@@ -1101,7 +1101,7 @@ async fn disabled_profile_is_hidden_from_v1_models_and_rejected_by_chat(pool: Pg
         .await
         .expect("create retired profile");
     models
-        .create("hidden-model", "openai", retired.id, "gpt-4o", "chat")
+        .create("hidden-model", "openai", retired.id, "gpt-4o", "chat", serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}))
         .await
         .expect("create hidden model");
     profiles
@@ -1245,7 +1245,7 @@ async fn catalog_model_translates_public_id_to_provider_model_id(pool: PgPool) {
         .await
         .expect("set auth");
     ModelRepository::new(pool.clone())
-        .create("my-4o", "openai", profile.id, "gpt-4o-2024-08-06", "chat")
+        .create("my-4o", "openai", profile.id, "gpt-4o-2024-08-06", "chat", serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}))
         .await
         .expect("create model");
 
@@ -2783,7 +2783,7 @@ async fn non_empty_allowed_models_allows_allowed_chat_model(pool: PgPool) {
         .await
         .expect("set auth");
     ModelRepository::new(pool.clone())
-        .create("allowed-model", "openai", profile.id, "gpt-4o-mini-2024-07-18", "chat")
+        .create("allowed-model", "openai", profile.id, "gpt-4o-mini-2024-07-18", "chat", serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}))
         .await
         .expect("create model");
 
@@ -2846,7 +2846,7 @@ async fn anthropic_messages_route_respects_model_scope(pool: PgPool) {
         .await
         .expect("set auth");
     ModelRepository::new(pool.clone())
-        .create("claude-sonnet", "openai", profile.id, "gpt-4o-mini-2024-07-18", "chat")
+        .create("claude-sonnet", "openai", profile.id, "gpt-4o-mini-2024-07-18", "chat", serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}))
         .await
         .expect("create model");
 

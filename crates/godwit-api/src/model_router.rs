@@ -272,7 +272,7 @@ mod tests {
 
         let models = ModelRepository::new(pool.clone());
         let model = models
-            .create("gpt-4o", "openai", profile.id, "gpt-4o", "chat")
+            .create("gpt-4o", "openai", profile.id, "gpt-4o", "chat", serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}))
             .await
             .expect("create model");
 
@@ -299,11 +299,11 @@ mod tests {
 
         let models = ModelRepository::new(pool.clone());
         let model_a = models
-            .create("gpt-4o", "openai", profile_a.id, "gpt-4o", "chat")
+            .create("gpt-4o", "openai", profile_a.id, "gpt-4o", "chat", serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}))
             .await
             .expect("create model a");
         models
-            .create("gpt-4o", "openai", profile_b.id, "gpt-4o", "chat")
+            .create("gpt-4o", "openai", profile_b.id, "gpt-4o", "chat", serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}))
             .await
             .expect("create model b");
 
@@ -330,11 +330,11 @@ mod tests {
 
         let models = ModelRepository::new(pool.clone());
         let model_a = models
-            .create("gpt-4o", "openai", profile_a.id, "gpt-4o", "chat")
+            .create("gpt-4o", "openai", profile_a.id, "gpt-4o", "chat", serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}))
             .await
             .expect("create model a");
         let model_b = models
-            .create("gpt-4o", "openai", profile_b.id, "gpt-4o", "chat")
+            .create("gpt-4o", "openai", profile_b.id, "gpt-4o", "chat", serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}))
             .await
             .expect("create model b");
 
@@ -381,11 +381,11 @@ mod tests {
 
         let models = ModelRepository::new(pool.clone());
         let model_a = models
-            .create("gpt-4o", "openai", profile_a.id, "gpt-4o", "chat")
+            .create("gpt-4o", "openai", profile_a.id, "gpt-4o", "chat", serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}))
             .await
             .expect("create model a");
         let model_b = models
-            .create("gpt-4o", "openai", profile_b.id, "gpt-4o", "chat")
+            .create("gpt-4o", "openai", profile_b.id, "gpt-4o", "chat", serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}))
             .await
             .expect("create model b");
 
@@ -422,7 +422,7 @@ mod tests {
             .expect("create profile");
         let models = ModelRepository::new(pool.clone());
         let model = models
-            .create("gpt-4o", "openai", profile.id, "gpt-4o", "chat")
+            .create("gpt-4o", "openai", profile.id, "gpt-4o", "chat", serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}))
             .await
             .expect("create model");
 
@@ -460,11 +460,11 @@ mod tests {
 
         let models = ModelRepository::new(pool.clone());
         models
-            .create("gpt-4o", "openai", profile_a.id, "gpt-4o", "chat")
+            .create("gpt-4o", "openai", profile_a.id, "gpt-4o", "chat", serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}))
             .await
             .expect("create model a");
         let model_b = models
-            .create("gpt-4o", "openai", profile_b.id, "gpt-4o", "chat")
+            .create("gpt-4o", "openai", profile_b.id, "gpt-4o", "chat", serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}))
             .await
             .expect("create model b");
 
@@ -496,7 +496,7 @@ mod tests {
             .expect("create profile");
         let models = ModelRepository::new(pool.clone());
         models
-            .create("gpt-4o", "openai", profile.id, "gpt-4o", "chat")
+            .create("gpt-4o", "openai", profile.id, "gpt-4o", "chat", serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}))
             .await
             .expect("create model");
 
@@ -707,7 +707,7 @@ mod tests {
 
         let models = ModelRepository::new(pool.clone());
         models
-            .create("gpt-4o", "openai", profile.id, "gpt-4o", "chat")
+            .create("gpt-4o", "openai", profile.id, "gpt-4o", "chat", serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}))
             .await
             .expect("create model");
 
@@ -738,7 +738,7 @@ mod tests {
             .expect("create profile");
         let models = ModelRepository::new(pool.clone());
         models
-            .create("gpt-4o", "openai", profile.id, "gpt-4o", "chat")
+            .create("gpt-4o", "openai", profile.id, "gpt-4o", "chat", serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}))
             .await
             .expect("create model");
         profiles

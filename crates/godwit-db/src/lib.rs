@@ -288,6 +288,7 @@ mod tests {
                 profile.id,
                 "meta-llama/Llama-3-70B-Instruct",
                 "chat",
+                serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}),
             )
             .await
             .expect("a vllm-provider model row must be insertable");
@@ -310,6 +311,7 @@ mod tests {
                     profile.id,
                     &format!("upstream-{provider}"),
                     "chat",
+                    serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}),
                 )
                 .await
                 .unwrap_or_else(|e| panic!("provider '{provider}' should be accepted, got: {e:?}"));
@@ -326,7 +328,7 @@ mod tests {
 
         let models = ModelRepository::new(pool);
         let err = models
-            .create("bogus", "not_a_protocol", profile.id, "x", "chat")
+            .create("bogus", "not_a_protocol", profile.id, "x", "chat", serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}))
             .await
             .expect_err("an unknown provider must still violate the check constraint");
         let msg = format!("{err:?}");
@@ -352,6 +354,7 @@ mod tests {
                 profile.id,
                 "gpt-4",
                 "chat,image_generation",
+                serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}),
             )
             .await
             .expect("create model");

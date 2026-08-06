@@ -288,3 +288,33 @@ CREATE INDEX idx_request_logs_tags ON request_logs USING GIN(tags);
 ---
 
 **Prochaine release:** v1.1.0 (features P1/P2 - Prometheus metrics, caching, utility endpoints)
+
+---
+
+## [v1.1.0] - 2026-08-07
+
+### Added
+- Fallback/failover between providers with configurable chains
+- Usage tracking for all providers (Anthropic, Gemini, Azure, llama.cpp, Ollama, vLLM, SGLang)
+- Usage estimates for image generation and audio
+- Cost layer consolidation
+- `request_logs.attempt_number` and `fallback_triggered` columns
+- Integration tests for fallback and usage tracking
+- Documentation: fallback configuration and usage tracking guide
+
+### Changed
+- All providers now return accurate `UsageReport` (was `UsageReport::default()` for 7 providers)
+- Pricing validation on model creation (pricing now required)
+- Decimal type used for all cost calculations (no floats)
+
+### Fixed
+- Anthropic non-streaming usage not tracked
+- Gemini non-streaming usage not tracked
+- OpenAI-compatible providers usage not tracked
+- Fallback only triggers on 5xx/timeout/429 (never on 4xx client errors)
+- Fallback max 3 attempts to prevent infinite loops and cost explosions
+
+### Technical
+- Integration tests in `tests/fallback_integration.rs`
+- Integration tests in `tests/usage_tracking_integration.rs`
+- Documentation in `docs/fallback-usage-tracking.md`

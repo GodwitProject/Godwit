@@ -1,6 +1,7 @@
 import type { MetricsUpdate } from './websocket';
+import { apiFetch } from './http';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1';
+const API_BASE = ''; // same-origin via next rewrites
 
 export interface AdminStats {
   organizations: number;
@@ -15,7 +16,7 @@ export interface SpendPoint {
 }
 
 async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`);
+  const res = await apiFetch(`${API_BASE}${path}`);
   if (!res.ok) throw new Error(`Failed to fetch ${path}`);
   return res.json();
 }
@@ -56,7 +57,7 @@ export function parsePrometheusMetrics(text: string): MetricsUpdate {
 }
 
 export async function fetchPrometheusMetrics(): Promise<MetricsUpdate> {
-  const res = await fetch('/metrics');
+  const res = await apiFetch('/metrics');
   if (!res.ok) throw new Error('Failed to fetch metrics');
   return parsePrometheusMetrics(await res.text());
 }

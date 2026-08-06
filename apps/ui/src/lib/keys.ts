@@ -1,3 +1,5 @@
+import { apiFetch } from './http';
+
 export interface ApiKey {
   id: string;
   user_id: string | null;
@@ -34,7 +36,7 @@ export interface ApiKeyActionResponse {
   data: ApiKey;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1';
+const API_BASE = ''; // same-origin via next rewrites
 
 function toNullableNumber(value: string | number | null | undefined): number | null {
   if (value == null || value === '') return null;
@@ -79,13 +81,13 @@ function parseApiKey(raw: {
 }
 
 async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`);
+  const res = await apiFetch(`${API_BASE}${path}`);
   if (!res.ok) throw new Error(`Failed to fetch ${path}`);
   return res.json();
 }
 
 async function sendJson<T>(path: string, method: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await apiFetch(`${API_BASE}${path}`, {
     method,
     headers: { 'Content-Type': 'application/json' },
     body: body == null ? undefined : JSON.stringify(body),
@@ -114,7 +116,7 @@ export async function unblockKey(id: string): Promise<ApiKey> {
 }
 
 export async function deleteKey(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api-keys/${id}`, { method: 'DELETE' });
+  const res = await apiFetch(`${API_BASE}/api-keys/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`Failed to DELETE /api-keys/${id}`);
 }
 

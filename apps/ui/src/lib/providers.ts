@@ -1,3 +1,5 @@
+import { apiFetch } from './http';
+
 export interface Provider {
   id: string;
   name: string;
@@ -9,10 +11,10 @@ export interface Provider {
   created_at: string;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1';
+const API_BASE = ''; // same-origin via next rewrites
 
 async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`);
+  const res = await apiFetch(`${API_BASE}${path}`);
   if (!res.ok) throw new Error(`Failed to fetch ${path}`);
   return res.json();
 }

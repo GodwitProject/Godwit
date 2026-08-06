@@ -1,3 +1,5 @@
+import { apiFetch } from './http';
+
 export interface RequestLog {
   id: string;
   api_key_id: string | null;
@@ -29,7 +31,7 @@ export interface LogsPage {
   limit: number;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1';
+const API_BASE = ''; // same-origin via next rewrites
 
 function buildQuery(query: LogsQuery): string {
   const params = new URLSearchParams();
@@ -73,7 +75,7 @@ function parseLog(raw: RawSpendLog): RequestLog {
 }
 
 export async function fetchLogs(query: LogsQuery = {}): Promise<LogsPage> {
-  const res = await fetch(`${API_BASE}/spend/logs${buildQuery(query)}`);
+  const res = await apiFetch(`${API_BASE}/spend/logs${buildQuery(query)}`);
   if (!res.ok) throw new Error('Failed to fetch logs');
   const data = await res.json();
   const rawItems: RawSpendLog[] = Array.isArray(data?.data) ? data.data : [];

@@ -220,6 +220,47 @@ pub async fn check_end_user_budget(
     Ok(())
 }
 
+pub async fn check_team_budget(
+    pool: &PgPool,
+    team_id: Uuid,
+) -> Result<(), crate::error::ApiError> {
+    use crate::error::ApiError;
+    
+    let team = sqlx::query_as::<_, godwit_db::models::Team>(
+        "SELECT * FROM teams WHERE id = $1",
+    )
+    .bind(team_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| ApiError::Core(PasteurError::Database(e.to_string())))?;
+    
+    let team = match team {
+        Some(t) => t,
+        None => return Ok(()),
+    };
+    
+    let max_budget = match team.max_budget_usd {
+        Some(budget) => budget,
+        None => return Ok(()),
+    };
+    
+    let spent: Option<rust_decimal::Decimal> = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(cost_usd), 0) FROM request_logs WHERE team_id = $1",
+    )
+    .bind(team_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| ApiError::Core(PasteurError::Database(e.to_string())))?;
+    
+    let spent = spent.unwrap_or(rust_decimal::Decimal::ZERO);
+    
+    if spent >= max_budget {
+        return Err(ApiError::BudgetExceeded);
+    }
+    
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -483,6 +524,115 @@ mod tests {
             .await.expect("create user");
         
         let result = check_end_user_budget(&pool, user.id, org.id).await;
+        assert!(result.is_ok());
+    }
+
+    #[sqlx::test]
+    async fn budget_check_team_blocks_when_exceeded(pool: PgPool) {
+        use godwit_db::models::UserRole;
+        use godwit_db::repositories::organizations::OrganizationRepository;
+        use godwit_db::repositories::users::UserRepository;
+        use godwit_db::repositories::teams::TeamRepository;
+        use crate::error::ApiError;
+
+        let orgs = OrganizationRepository::new(pool.clone());
+        let org = orgs.create("test-org", None).await.expect("create org");
+        
+        let users = UserRepository::new(pool.clone());
+        let user = users.create("test@example.com", None, UserRole::User, Some(org.id))
+            .await.expect("create user");
+        
+        let teams = TeamRepository::new(pool.clone());
+        let max_budget = rust_decimal::Decimal::from_str("100.00").unwrap();
+        let team = teams.create(org.id, "test-team", None, Some(max_budget))
+            .await.expect("create team budget");
+        
+        sqlx::query(
+            "INSERT INTO request_logs (api_key_id, user_id, organization_id, team_id, model, provider, provider_model_id, capability, duration_ms, streamed, status, cost_usd)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
+        )
+        .bind(Uuid::new_v4())
+        .bind(user.id)
+        .bind(org.id)
+        .bind(team.id)
+        .bind("gpt-4o")
+        .bind("openai")
+        .bind("gpt-4o")
+        .bind("chat")
+        .bind(100)
+        .bind(false)
+        .bind("success")
+        .bind(rust_decimal::Decimal::from_str("150.00").unwrap())
+        .execute(&pool)
+        .await
+        .expect("insert request log");
+        
+        let result = check_team_budget(&pool, team.id).await;
+        assert!(matches!(result, Err(ApiError::BudgetExceeded)));
+    }
+
+    #[sqlx::test]
+    async fn budget_check_team_allows_when_under_budget(pool: PgPool) {
+        use godwit_db::models::UserRole;
+        use godwit_db::repositories::organizations::OrganizationRepository;
+        use godwit_db::repositories::users::UserRepository;
+        use godwit_db::repositories::teams::TeamRepository;
+
+        let orgs = OrganizationRepository::new(pool.clone());
+        let org = orgs.create("test-org", None).await.expect("create org");
+        
+        let users = UserRepository::new(pool.clone());
+        let user = users.create("test2@example.com", None, UserRole::User, Some(org.id))
+            .await.expect("create user");
+        
+        let teams = TeamRepository::new(pool.clone());
+        let max_budget = rust_decimal::Decimal::from_str("100.00").unwrap();
+        let team = teams.create(org.id, "test-team", None, Some(max_budget))
+            .await.expect("create team budget");
+        
+        sqlx::query(
+            "INSERT INTO request_logs (api_key_id, user_id, organization_id, team_id, model, provider, provider_model_id, capability, duration_ms, streamed, status, cost_usd)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
+        )
+        .bind(Uuid::new_v4())
+        .bind(user.id)
+        .bind(org.id)
+        .bind(team.id)
+        .bind("gpt-4o")
+        .bind("openai")
+        .bind("gpt-4o")
+        .bind("chat")
+        .bind(100)
+        .bind(false)
+        .bind("success")
+        .bind(rust_decimal::Decimal::from_str("50.00").unwrap())
+        .execute(&pool)
+        .await
+        .expect("insert request log");
+        
+        let result = check_team_budget(&pool, team.id).await;
+        assert!(result.is_ok());
+    }
+
+    #[sqlx::test]
+    async fn budget_check_team_allows_when_no_max_budget(pool: PgPool) {
+        use godwit_db::models::UserRole;
+        use godwit_db::repositories::organizations::OrganizationRepository;
+        use godwit_db::repositories::users::UserRepository;
+        use godwit_db::repositories::teams::TeamRepository;
+
+        let orgs = OrganizationRepository::new(pool.clone());
+        let org = orgs.create("test-org", None).await.expect("create org");
+        
+        let users = UserRepository::new(pool.clone());
+        let _user = users.create("test3@example.com", None, UserRole::User, Some(org.id))
+            .await.expect("create user");
+        
+        let teams = TeamRepository::new(pool.clone());
+        let team = teams.create(org.id, "test-team", None, None)
+            .await.expect("create team budget without max");
+        
+        let result = check_team_budget(&pool, team.id).await;
         assert!(result.is_ok());
     }
 }

@@ -27,6 +27,7 @@ use crate::{
     admin::spend::compute_cost,
     model_info,
     model_router::{DbModelRouter, ResolvedModel},
+    proxy_streaming::process_streaming_tool_calls,
     rate_limit,
     resilience::{with_retry, RetryPolicy},
     state::AppState,
@@ -222,7 +223,19 @@ async fn call_chat(
         let adapter = Arc::clone(&resolved.adapter);
         let credentials = resolved.resolved_credentials.clone();
         let model = resolved.model.clone();
-        let stream = with_retry(&default_retry_policy(), move || {
+        let has_tools = req
+            .tools
+            .as_ref()
+            .map(|tools| {
+                tools.iter().any(|t| {
+                    t.function.name.contains("__")
+                        || godwit_providers::NATIVE_WEB_SEARCH_TOOLS
+                            .contains(&t.function.name.as_str())
+                })
+            })
+            .unwrap_or(false);
+
+        let mut stream = with_retry(&default_retry_policy(), move || {
             let adapter = Arc::clone(&adapter);
             let credentials = credentials.clone();
             let model = model.clone();
@@ -230,6 +243,10 @@ async fn call_chat(
             async move { adapter.chat_stream(&credentials, &model, req).await }
         })
         .await?;
+
+        if has_tools {
+            stream = process_streaming_tool_calls(Arc::clone(state), stream);
+        }
         let created = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -614,6 +631,7 @@ async fn chat_completions(
         streamed,
         status: "success".to_string(),
         cost_usd,
+        tags: vec![],
     };
     spawn_request_log(state.pool.clone(), log);
 
@@ -716,6 +734,7 @@ async fn embeddings(
         streamed: false,
         status: "success".to_string(),
         cost_usd,
+        tags: vec![],
     };
     spawn_request_log(state.pool.clone(), log);
 
@@ -830,6 +849,7 @@ async fn image_generations(
             streamed: false,
             status: "success".to_string(),
             cost_usd,
+            tags: vec![],
         },
     );
 
@@ -944,6 +964,7 @@ async fn audio_speech(
             streamed: false,
             status: "success".to_string(),
             cost_usd,
+            tags: vec![],
         },
     );
 
@@ -1106,6 +1127,7 @@ async fn audio_transcriptions(
             streamed: false,
             status: "success".to_string(),
             cost_usd,
+            tags: vec![],
         },
     );
 
@@ -1291,6 +1313,7 @@ async fn image_edits(
             streamed: false,
             status: "success".to_string(),
             cost_usd,
+            tags: vec![],
         },
     );
 
@@ -1340,8 +1363,8 @@ async fn call_image_edit(
 pub(crate) fn spawn_request_log(pool: sqlx::PgPool, log: RequestLogEntry) {
     tokio::spawn(async move {
         let _ = sqlx::query(
-            "INSERT INTO request_logs (api_key_id, user_id, organization_id, team_id, model, provider, provider_model_id, capability, duration_ms, streamed, status, cost_usd)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"
+            "INSERT INTO request_logs (api_key_id, user_id, organization_id, team_id, model, provider, provider_model_id, capability, duration_ms, streamed, status, cost_usd, tags)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)"
         )
         .bind(log.api_key_id)
         .bind(log.user_id)
@@ -1355,6 +1378,7 @@ pub(crate) fn spawn_request_log(pool: sqlx::PgPool, log: RequestLogEntry) {
         .bind(log.streamed)
         .bind(log.status)
         .bind(log.cost_usd)
+        .bind(&log.tags)
         .execute(&pool)
         .await;
     });
@@ -1374,6 +1398,7 @@ pub(crate) struct RequestLogEntry {
     pub(crate) streamed: bool,
     pub(crate) status: String,
     pub(crate) cost_usd: Option<Decimal>,
+    pub(crate) tags: Vec<String>,
 }
 
 #[cfg(test)]

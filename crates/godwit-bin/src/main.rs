@@ -159,6 +159,11 @@ fn load_config() -> anyhow::Result<AppConfig> {
     let path = std::env::var("CONFIG_PATH").unwrap_or_else(|_| "config.yaml".to_string());
     let file = std::fs::File::open(&path)?;
     let config: AppConfig = serde_yaml::from_reader(file)?;
+    if config.auth.cookie_secure && config.auth.allowed_cookie_origin.is_empty() {
+        tracing::warn!(
+            "auth: cookie_secure=true but allowed_cookie_origin empty; relying on same-origin rewrites (informational)"
+        );
+    }
     Ok(config)
 }
 

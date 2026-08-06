@@ -10,8 +10,15 @@ auth:
   jwt_secret: change-me-in-production
   access_token_ttl_minutes: 15
   refresh_token_ttl_days: 7
+  # Mark Cookie attr Secure when served over HTTPS.
   cookie_secure: false
+  # Empty for same-origin (UI-rewrite) deployments. Set to the UI origin to
+  # require an Origin header match on cookie-authenticated POSTs.
   allowed_cookie_origin: ""
+  # Max failed login attempts per client IP per minute (per-IP bucket). 0 = disabled.
+  login_max_attempts_per_minute: 10
+  # Read X-Forwarded-For for the client IP when behind a trusted reverse proxy (e.g. docker).
+  trust_proxy: false
   oidc_providers: []
   saml_providers: []
 

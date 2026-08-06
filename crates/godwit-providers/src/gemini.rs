@@ -168,6 +168,8 @@ struct GeminiUsageMetadata {
     candidates_token_count: i32,
     #[serde(default)]
     total_token_count: i32,
+    #[serde(default)]
+    cached_content_token_count: Option<i32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -398,16 +400,18 @@ impl Adapter for GeminiProvider {
 
         debug!("gemini response body: {:?}", body);
 
-        let chat_response = gemini_response_to_chat_completion(body, &model.public_id)?;
-        let usage_report = if let Some(ref usage) = chat_response.usage {
+        let usage_report = if let Some(ref metadata) = body.usage_metadata {
             UsageReport {
-                prompt_tokens: Some(usage.prompt_tokens),
-                completion_tokens: Some(usage.completion_tokens),
+                prompt_tokens: Some(metadata.prompt_token_count),
+                completion_tokens: Some(metadata.candidates_token_count),
+                cache_read_tokens: metadata.cached_content_token_count,
                 ..Default::default()
             }
         } else {
             UsageReport::default()
         };
+
+        let chat_response = gemini_response_to_chat_completion(body, &model.public_id)?;
 
         Ok((ProviderResponse::Chat(chat_response), usage_report))
     }
@@ -1113,6 +1117,24 @@ mod tests {
         assert_eq!(finish["usage"]["prompt_tokens"], 10);
         assert_eq!(finish["usage"]["completion_tokens"], 5);
         assert_eq!(finish["usage"]["total_tokens"], 15);
+    }
+
+    #[test]
+    fn test_gemini_usage_parsed() {
+        let json = r#"{
+            "candidates": [{"content": {"role": "model", "parts": [{"text": "Hi"}]}}],
+            "usageMetadata": {
+                "promptTokenCount": 100,
+                "candidatesTokenCount": 50,
+                "cachedContentTokenCount": 20
+            }
+        }"#;
+        
+        let response: GeminiChatResponse = serde_json::from_str(json).unwrap();
+        let metadata = response.usage_metadata.unwrap();
+        assert_eq!(metadata.prompt_token_count, 100);
+        assert_eq!(metadata.candidates_token_count, 50);
+        assert_eq!(metadata.cached_content_token_count, Some(20));
     }
 
     #[tokio::test]

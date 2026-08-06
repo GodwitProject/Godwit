@@ -102,6 +102,10 @@ struct AnthropicContentBlock {
 struct AnthropicUsage {
     input_tokens: i32,
     output_tokens: i32,
+    #[serde(default)]
+    cache_read_input_tokens: Option<i32>,
+    #[serde(default)]
+    cache_creation_input_tokens: Option<i32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -278,16 +282,15 @@ impl Adapter for AnthropicProvider {
 
         debug!("anthropic response body: {:?}", body);
 
-        let chat_response = anthropic_response_to_chat_completion(body);
-        let usage_report = if let Some(ref usage) = chat_response.usage {
-            UsageReport {
-                prompt_tokens: Some(usage.prompt_tokens),
-                completion_tokens: Some(usage.completion_tokens),
-                ..Default::default()
-            }
-        } else {
-            UsageReport::default()
+        let usage_report = UsageReport {
+            prompt_tokens: Some(body.usage.input_tokens),
+            completion_tokens: Some(body.usage.output_tokens),
+            cache_read_tokens: body.usage.cache_read_input_tokens,
+            cache_write_tokens: body.usage.cache_creation_input_tokens,
+            ..Default::default()
         };
+
+        let chat_response = anthropic_response_to_chat_completion(body);
 
         Ok((ProviderResponse::Chat(chat_response), usage_report))
     }
@@ -697,6 +700,30 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, ProviderError::CapabilityNotSupported(_)));
+    }
+
+    #[test]
+    fn test_anthropic_usage_parsed() {
+        let json = r#"{
+            "id": "msg_01",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-3-5-sonnet-20241022",
+            "content": [{"type": "text", "text": "Hello"}],
+            "stop_reason": "end_turn",
+            "usage": {
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "cache_read_input_tokens": 20,
+                "cache_creation_input_tokens": 10
+            }
+        }"#;
+        
+        let response: AnthropicMessageResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.usage.input_tokens, 100);
+        assert_eq!(response.usage.output_tokens, 50);
+        assert_eq!(response.usage.cache_read_input_tokens, Some(20));
+        assert_eq!(response.usage.cache_creation_input_tokens, Some(10));
     }
 
     #[tokio::test]

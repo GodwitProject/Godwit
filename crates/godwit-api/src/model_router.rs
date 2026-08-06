@@ -360,7 +360,7 @@ mod tests {
         let router = DbModelRouter::new(pool, test_registry(), TEST_KEY);
 
         // Start one in-flight request for model_a.
-        let _guard = router.start_in_flight(model_a.id);
+        let _guard = router.load_balancer.increment_in_flight(model_a.id);
 
         let resolved = router
             .resolve("gpt-4o", Capability::Chat)

@@ -58,6 +58,15 @@ impl RefreshTokenRepository {
             .map_err(|e| PasteurError::Database(e.to_string()))?;
         Ok(())
     }
+
+    pub async fn delete_all_for_user(&self, user_id: Uuid) -> Result<u64, PasteurError> {
+        let res = sqlx::query("DELETE FROM refresh_tokens WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| PasteurError::Database(e.to_string()))?;
+        Ok(res.rows_affected())
+    }
 }
 
 #[cfg(test)]
@@ -111,6 +120,29 @@ mod tests {
         repo.delete_by_hash("hash-to-delete").await.expect("delete");
         let err = repo.get_by_hash("hash-to-delete").await.unwrap_err();
         assert!(matches!(err, godwit_core::PasteurError::NotFound));
+    }
+
+    #[sqlx::test]
+    async fn delete_all_for_user_removes_only_that_user(pool: PgPool) {
+        use crate::repositories::refresh_tokens::RefreshTokenRepository;
+        let users = UserRepository::new(pool.clone());
+        let user_a = users.create("aaa@example.com", None, UserRole::User, None)
+            .await.expect("create user a");
+        let user_b = users.create("bbb@example.com", None, UserRole::User, None)
+            .await.expect("create user b");
+
+        let repo = RefreshTokenRepository::new(pool.clone());
+        let exp = chrono::Utc::now() + chrono::Duration::days(7);
+        repo.create(user_a.id, "hash-a1", exp).await.expect("a1");
+        repo.create(user_a.id, "hash-a2", exp).await.expect("a2");
+        repo.create(user_b.id, "hash-b1", exp).await.expect("b1");
+
+        let n = repo.delete_all_for_user(user_a.id).await.expect("delete all a");
+        assert_eq!(n, 2);
+
+        assert!(repo.get_by_hash("hash-a1").await.is_err());
+        assert!(repo.get_by_hash("hash-a2").await.is_err());
+        assert!(repo.get_by_hash("hash-b1").await.is_ok());
     }
 
     #[sqlx::test]

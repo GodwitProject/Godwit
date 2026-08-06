@@ -3377,3 +3377,76 @@ async fn csrf_blocks_refresh_without_matching_origin(pool: PgPool) {
     let resp3 = app.clone().oneshot(req3).await.unwrap();
     assert_eq!(resp3.status(), StatusCode::OK);
 }
+
+// ---------------------------------------------------------------------------------------
+// Auth hardening Task 4: per-user session revocation (POST /auth/sessions/revoke-all).
+// ---------------------------------------------------------------------------------------
+
+/// A user logs in from two devices, calls revoke-all with a valid access token, and both
+/// refresh tokens become unusable (each subsequent `/auth/refresh` returns 401).
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn revoke_all_signs_out_all_devices(pool: PgPool) {
+    let app = build_app(pool.clone());
+    let (email, password) = seed_password_user(&pool).await;
+
+    // Login from two IPs -> two refresh tokens for the same user.
+    let r1 = oneshot_login(&app, "10.0.0.1", &email, &password).await;
+    let r2 = oneshot_login(&app, "10.0.0.2", &email, &password).await;
+    assert_eq!(r1.status(), StatusCode::OK);
+    assert_eq!(r2.status(), StatusCode::OK);
+
+    let cookie1 = r1
+        .headers()
+        .get_all(SET_COOKIE)
+        .iter()
+        .map(|v| v.to_str().unwrap().to_string())
+        .find(|c| c.starts_with("godwit_refresh="))
+        .expect("godwit_refresh Set-Cookie present")
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+
+    let body = body_json(r1).await;
+    let token = body["access_token"]
+        .as_str()
+        .expect("access_token present");
+
+    // Revoke-all, authenticated with the access token (Bearer header).
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/sessions/revoke-all")
+                .header(axum::http::header::AUTHORIZATION, format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    // Response clears both cookies.
+    assert!(
+        resp.headers().contains_key(SET_COOKIE),
+        "revoke-all must emit Set-Cookie clear-cookie headers"
+    );
+
+    // Refresh with the first session's refresh cookie must now fail.
+    let resp2 = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/refresh")
+                .header(COOKIE, cookie1)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp2.status(),
+        StatusCode::UNAUTHORIZED,
+        "refresh after revoke-all must be rejected"
+    );
+}

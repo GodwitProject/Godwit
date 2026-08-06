@@ -49,6 +49,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .merge(stats::router())
         .merge(circuit_breakers::router())
         .route("/auth/me", axum::routing::get(auth::me))
+        .route("/auth/sessions/revoke-all", axum::routing::post(auth::revoke_all_sessions))
         .route_layer(middleware::from_fn_with_state(state.clone(), jwt_auth));
 
     Router::new().merge(auth::router(state)).merge(protected)

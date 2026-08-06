@@ -253,6 +253,33 @@ pub async fn me(
     }})))
 }
 
+pub async fn revoke_all_sessions(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+) -> Result<impl IntoResponse, crate::error::ApiError> {
+    let user_id = uuid::Uuid::parse_str(&claims.sub)
+        .ok()
+        .ok_or(crate::error::ApiError::Unauthorized)?;
+    let revoked = state
+        .refresh_token_repo
+        .delete_all_for_user(user_id)
+        .await
+        .map_err(crate::error::ApiError::Core)?;
+
+    let mut headers = HeaderMap::new();
+    headers.append(
+        SET_COOKIE,
+        HeaderValue::from_str("godwit_access=; HttpOnly; Path=/; Max-Age=0")
+            .map_err(|_| crate::error::ApiError::Internal)?,
+    );
+    headers.append(
+        SET_COOKIE,
+        HeaderValue::from_str("godwit_refresh=; HttpOnly; Path=/api/v1/auth; Max-Age=0")
+            .map_err(|_| crate::error::ApiError::Internal)?,
+    );
+    Ok((headers, Json(serde_json::json!({ "revoked": revoked }))))
+}
+
 async fn oidc_start(
     State(state): State<Arc<AppState>>,
     Path(provider_id): Path<String>,

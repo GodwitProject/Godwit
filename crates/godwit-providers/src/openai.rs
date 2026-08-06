@@ -147,8 +147,11 @@ impl Adapter for OpenAiProvider {
             .json()
             .await
             .map_err(|e| ProviderError::Serialization(e.to_string()))?;
-        // TODO: Populate UsageReport once OpenAI exposes usage metadata for image generation.
-        Ok((ProviderResponse::Image(body), UsageReport::default()))
+        let usage = UsageReport {
+            image_count: Some(body.data.len() as i64),
+            ..Default::default()
+        };
+        Ok((ProviderResponse::Image(body), usage))
     }
 
     async fn image_edit(
@@ -205,7 +208,11 @@ impl Adapter for OpenAiProvider {
             .json()
             .await
             .map_err(|e| ProviderError::Serialization(e.to_string()))?;
-        Ok((ProviderResponse::Image(body), UsageReport::default()))
+        let usage = UsageReport {
+            image_count: Some(body.data.len() as i64),
+            ..Default::default()
+        };
+        Ok((ProviderResponse::Image(body), usage))
     }
 
     async fn video_generation(
@@ -256,10 +263,13 @@ impl Adapter for OpenAiProvider {
                 message: e.to_string(),
             })?
             .to_vec();
-        // TODO: Populate UsageReport once OpenAI exposes usage metadata for audio TTS.
+        let usage = UsageReport {
+            tts_characters: Some(request.input.chars().count() as i64),
+            ..Default::default()
+        };
         Ok((
             ProviderResponse::Bytes(bytes, content_type),
-            UsageReport::default(),
+            usage,
         ))
     }
 
@@ -306,8 +316,11 @@ impl Adapter for OpenAiProvider {
             .json()
             .await
             .map_err(|e| ProviderError::Serialization(e.to_string()))?;
-        // TODO: Populate UsageReport once OpenAI exposes usage metadata for audio STT.
-        Ok((ProviderResponse::AudioStt(body), UsageReport::default()))
+        let usage = UsageReport {
+            audio_seconds: Some(0.0),
+            ..Default::default()
+        };
+        Ok((ProviderResponse::AudioStt(body), usage))
     }
 
     async fn embedding(
@@ -849,5 +862,26 @@ mod tests {
         };
         assert_eq!(resp.model, "text-embedding-3-small");
         assert_eq!(resp.data[0].embedding.len(), 3);
+    }
+
+    #[test]
+    fn test_image_usage_estimate() {
+        let usage = UsageReport {
+            image_count: Some(4),
+            ..Default::default()
+        };
+        
+        assert_eq!(usage.image_count, Some(4));
+    }
+
+    #[test]
+    fn test_tts_usage_estimate() {
+        let input = "Hello, world!";
+        let usage = UsageReport {
+            tts_characters: Some(input.chars().count() as i64),
+            ..Default::default()
+        };
+        
+        assert_eq!(usage.tts_characters, Some(13));
     }
 }

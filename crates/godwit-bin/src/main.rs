@@ -105,7 +105,7 @@ async fn main() -> anyhow::Result<()> {
         api_key_cache: MemoryCache::new(),
         credential_master_key: master_key,
         rate_limiter: RateLimiter::new(),
-        login_limiter: LoginLimiter::new(10),
+        login_limiter: LoginLimiter::new(config.auth.login_max_attempts_per_minute.max(0) as u32),
         circuit_breaker_registry,
         agentic_loop,
         guardrails,
@@ -146,7 +146,12 @@ async fn main() -> anyhow::Result<()> {
         config.server.host,
         config.server.port
     );
-    axum::serve(listener, app).await?;
+    use std::net::SocketAddr;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 

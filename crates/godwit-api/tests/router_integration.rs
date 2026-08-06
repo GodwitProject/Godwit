@@ -139,6 +139,67 @@ fn build_app(pool: PgPool) -> Router {
         .with_state(state)
 }
 
+/// Clone of `build_app`, but with a caller-supplied `AuthConfig` injected (used to tune
+/// rate-limit / trust-proxy settings for auth integration tests).
+fn build_app_with_auth(pool: PgPool, auth: AuthConfig) -> Router {
+    use godwit_api::circuit_breaker::CircuitBreakerRegistry;
+    use godwit_api::agentic_loop::AgenticLoop;
+    let registry = test_registry();
+    let mut config = test_config();
+    let login_capacity = auth.login_max_attempts_per_minute.max(0) as u32;
+    config.auth = auth;
+    let state = Arc::new(AppState {
+        config: config.clone(),
+        pool: pool.clone(),
+        adapter_registry: registry.clone(),
+        model_router: DbModelRouter::new(pool.clone(), registry, MASTER_KEY),
+        mcp: Arc::new(McpRegistry::new()),
+        searxng: None,
+        searxng_profile: None,
+        user_repo: UserRepository::new(pool.clone()),
+        org_repo: OrganizationRepository::new(pool.clone()),
+        team_repo: TeamRepository::new(pool.clone()),
+        team_membership_repo: TeamMembershipRepository::new(pool.clone()),
+        api_key_repo: ApiKeyRepository::new(pool.clone()),
+        refresh_token_repo: RefreshTokenRepository::new(pool.clone()),
+        end_user_repo: EndUsersRepository::new(pool.clone()),
+        api_key_cache: MemoryCache::new(),
+        credential_master_key: MASTER_KEY,
+        rate_limiter: RateLimiter::new(),
+        login_limiter: godwit_api::login_rate_limit::LoginLimiter::new(login_capacity),
+        circuit_breaker_registry: Arc::new(CircuitBreakerRegistry::new(5, std::time::Duration::from_secs(60), 3)),
+        agentic_loop: Arc::new(AgenticLoop::new(4, 120)),
+        guardrails: Arc::new(tokio::sync::Mutex::new(
+            godwit_core::guardrails::GuardrailsOrchestrator::new(godwit_core::guardrails::GuardrailsConfig::default())
+        )),
+    });
+
+    Router::new()
+        .merge(proxy::router())
+        .merge(anthropic_proxy::router())
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            godwit_api::middleware::api_key_auth,
+        ))
+        .nest("/api/v1", admin::router(state.clone()))
+        .with_state(state)
+}
+
+/// Sends a `POST /api/v1/auth/login` request carrying the given `X-Forwarded-For` IP.
+async fn oneshot_login(app: &Router, ip: &str, email: &str, password: &str) -> axum::response::Response {
+    let body = Body::from(
+        serde_json::json!({ "email": email, "password": password }).to_string(),
+    );
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/auth/login")
+        .header("content-type", "application/json")
+        .header("x-forwarded-for", ip)
+        .body(body)
+        .unwrap();
+    app.clone().oneshot(req).await.unwrap()
+}
+
 /// Creates an organization, a user, and a usable proxy API key; returns the plaintext key.
 async fn seed_api_key(pool: &PgPool) -> String {
     seed_api_key_with_models(pool, &[]).await
@@ -1496,6 +1557,38 @@ async fn expired_refresh_token_is_rejected_and_cleaned_up(pool: PgPool) {
         .await
         .expect_err("an expired, rejected refresh token must have been deleted");
     assert!(matches!(err, godwit_core::PasteurError::NotFound));
+}
+
+// ---------------------------------------------------------------------------------------
+// Auth hardening Task 2: brute-force rate limiting on POST /auth/login.
+// ---------------------------------------------------------------------------------------
+
+/// After `login_max_attempts_per_minute` failed logins from one IP, subsequent attempts
+/// from that IP are blocked with 429, while other IPs remain unaffected.
+#[sqlx::test(migrations = "../godwit-db/migrations")]
+async fn login_rate_limits_after_repeated_failures(pool: PgPool) {
+    let auth = AuthConfig {
+        jwt_secret: JWT_SECRET.to_string(),
+        access_token_ttl_minutes: 15,
+        refresh_token_ttl_days: 7,
+        cookie_secure: false,
+        allowed_cookie_origin: "".to_string(),
+        login_max_attempts_per_minute: 2,
+        trust_proxy: true,
+        oidc_providers: vec![],
+        saml_providers: vec![],
+    };
+    let app = build_app_with_auth(pool.clone(), auth);
+    seed_password_user(&pool).await;
+
+    for _ in 0..2 {
+        let resp = oneshot_login(&app, "1.1.1.1", "wrong-email@example.com", "bad").await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+    let resp = oneshot_login(&app, "1.1.1.1", "wrong-email@example.com", "bad").await;
+    assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+    let resp = oneshot_login(&app, "2.2.2.2", "wrong-email@example.com", "bad").await;
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
 
 // ---------------------------------------------------------------------------------------

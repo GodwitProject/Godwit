@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Extension, Path, Query, State},
+    extract::{ConnectInfo, Extension, Path, Query, State},
     http::header::{HeaderMap, HeaderValue, SET_COOKIE},
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
@@ -78,6 +78,30 @@ fn refresh_token_from_cookie(headers: &HeaderMap) -> Option<String> {
     )
 }
 
+/// Resolve the client IP for login rate limiting. When `trust_proxy` is set, reads
+/// the first entry of `X-Forwarded-For`; otherwise the real peer address from
+/// `ConnectInfo`; falls back to a sentinel for environments without either.
+pub fn client_ip(
+    headers: &HeaderMap,
+    connect_info: Option<ConnectInfo<std::net::SocketAddr>>,
+    trust_proxy: bool,
+) -> String {
+    if trust_proxy {
+        if let Some(xff) = headers.get(axum::http::header::FORWARDED).or_else(|| {
+            headers.get("x-forwarded-for")
+        }) {
+            let v = xff.to_str().unwrap_or("").trim();
+            if let Some(first) = v.split(',').next() {
+                return first.trim().to_string();
+            }
+        }
+    }
+    if let Some(ConnectInfo(addr)) = connect_info {
+        return addr.ip().to_string();
+    }
+    "unknown".to_string()
+}
+
 async fn issue_token_pair(
     state: &AppState,
     user: &User,
@@ -117,22 +141,32 @@ async fn issue_token_pair(
 
 async fn login(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    connect_info: Option<ConnectInfo<std::net::SocketAddr>>,
     Json(req): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, crate::error::ApiError> {
-    let user = state
-        .user_repo
-        .get_by_email(&req.email)
-        .await
-        .map_err(|_| crate::error::ApiError::Unauthorized)?;
+    let ip = client_ip(&headers, connect_info, state.config.auth.trust_proxy);
+    let user = match state.user_repo.get_by_email(&req.email).await {
+        Ok(u) => u,
+        Err(_) => {
+            if let Some(retry_after) = state.login_limiter.attempt_allowed(&ip, true) {
+                return Err(crate::error::ApiError::RateLimited(Some(retry_after)));
+            }
+            return Err(crate::error::ApiError::Unauthorized);
+        }
+    };
     let password_hash = user
         .password_hash
         .as_deref()
         .ok_or(crate::error::ApiError::Unauthorized)?;
     if !verify_password(&req.password, password_hash) {
+        if let Some(retry_after) = state.login_limiter.attempt_allowed(&ip, true) {
+            return Err(crate::error::ApiError::RateLimited(Some(retry_after)));
+        }
         return Err(crate::error::ApiError::Unauthorized);
     }
-    let (headers, body) = issue_token_pair(&state, &user).await?;
-    Ok((headers, body))
+    let (set_cookie_headers, body) = issue_token_pair(&state, &user).await?;
+    Ok((set_cookie_headers, body))
 }
 
 async fn refresh(

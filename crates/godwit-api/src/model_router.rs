@@ -12,6 +12,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use uuid::Uuid;
 
+use crate::load_balancer::{LoadBalancer, LoadBalanceStrategy as LbStrategy, InFlightGuard};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LoadBalanceStrategy {
     RoundRobin,
@@ -30,15 +32,7 @@ impl LoadBalanceStrategy {
     }
 }
 
-pub struct InFlightGuard {
-    counter: Arc<AtomicUsize>,
-}
 
-impl Drop for InFlightGuard {
-    fn drop(&mut self) {
-        self.counter.fetch_sub(1, Ordering::SeqCst);
-    }
-}
 
 pub struct ResolvedModel {
     pub model: Model,
@@ -64,9 +58,7 @@ pub struct DbModelRouter {
     pool: PgPool,
     registry: Arc<AdapterRegistry>,
     master_key: [u8; 32],
-    round_robin_counter: AtomicUsize,
-    in_flight: DashMap<Uuid, Arc<AtomicUsize>>,
-    latency_ewma: DashMap<Uuid, std::sync::Mutex<f64>>,
+    load_balancer: LoadBalancer,
 }
 
 impl DbModelRouter {
@@ -75,9 +67,7 @@ impl DbModelRouter {
             pool,
             registry,
             master_key,
-            round_robin_counter: AtomicUsize::new(0),
-            in_flight: DashMap::new(),
-            latency_ewma: DashMap::new(),
+            load_balancer: LoadBalancer::new(),
         }
     }
 
@@ -126,57 +116,16 @@ impl DbModelRouter {
             .unwrap_or(LoadBalanceStrategy::RoundRobin)
     }
 
-    fn start_in_flight(&self, model_id: Uuid) -> InFlightGuard {
-        let counter = self
-            .in_flight
-            .entry(model_id)
-            .or_insert_with(|| Arc::new(AtomicUsize::new(0)))
-            .clone();
-        counter.fetch_add(1, Ordering::SeqCst);
-        InFlightGuard { counter }
-    }
-
     fn select_load_balanced(&self, candidates: &[Model], strategy: LoadBalanceStrategy) -> Model {
-        match strategy {
-            LoadBalanceStrategy::RoundRobin => {
-                let idx = self.round_robin_counter.fetch_add(1, Ordering::SeqCst)
-                    % candidates.len().max(1);
-                candidates[idx].clone()
-            }
-            LoadBalanceStrategy::LeastBusy => candidates
-                .iter()
-                .min_by_key(|m| {
-                    self.in_flight
-                        .get(&m.id)
-                        .map(|c| c.load(Ordering::SeqCst))
-                        .unwrap_or(0)
-                })
-                .cloned()
-                .unwrap_or_else(|| candidates[0].clone()),
-            LoadBalanceStrategy::Latency => candidates
-                .iter()
-                .min_by(|a, b| {
-                    let a_lat = self
-                        .latency_ewma
-                        .get(&a.id)
-                        .map(|entry| {
-                            let lat = *entry.lock().unwrap_or_else(|p| p.into_inner());
-                            lat
-                        })
-                        .unwrap_or(f64::INFINITY);
-                    let b_lat = self
-                        .latency_ewma
-                        .get(&b.id)
-                        .map(|entry| {
-                            let lat = *entry.lock().unwrap_or_else(|p| p.into_inner());
-                            lat
-                        })
-                        .unwrap_or(f64::INFINITY);
-                    a_lat.partial_cmp(&b_lat).unwrap_or(std::cmp::Ordering::Equal)
-                })
-                .cloned()
-                .unwrap_or_else(|| candidates[0].clone()),
-        }
+        let model_ids: Vec<Uuid> = candidates.iter().map(|m| m.id).collect();
+        let idx = self.load_balancer
+            .select_provider(match strategy {
+                LoadBalanceStrategy::RoundRobin => LbStrategy::RoundRobin,
+                LoadBalanceStrategy::LeastBusy => LbStrategy::LeastBusy,
+                LoadBalanceStrategy::Latency => LbStrategy::Latency,
+            }, &model_ids)
+            .unwrap_or(0);
+        candidates[idx].clone()
     }
 
     pub fn fallback_chain(model: &Model) -> Vec<String> {
@@ -193,14 +142,7 @@ impl DbModelRouter {
     }
 
     pub fn record_latency(&self, model_id: Uuid, duration_ms: i32) {
-        let alpha = 0.2;
-        let entry = self
-            .latency_ewma
-            .entry(model_id)
-            .or_insert_with(|| std::sync::Mutex::new(duration_ms as f64));
-        if let Ok(mut ewma) = entry.lock() {
-            *ewma = alpha * duration_ms as f64 + (1.0 - alpha) * *ewma;
-        };
+        self.load_balancer.record_latency(model_id, duration_ms as f64);
     }
 
     pub async fn resolve(
@@ -275,7 +217,7 @@ impl DbModelRouter {
         let in_flight = if model.id.is_nil() {
             None
         } else {
-            Some(self.start_in_flight(model.id))
+            Some(self.load_balancer.increment_in_flight(model.id))
         };
 
         let resolved_credentials = self.resolve_credentials(&profile)?;

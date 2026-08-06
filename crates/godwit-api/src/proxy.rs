@@ -187,6 +187,7 @@ fn default_retry_policy() -> RetryPolicy {
 }
 
 async fn call_chat(
+    state: &Arc<AppState>,
     resolved: &ResolvedModel,
     req: ChatCompletionRequest,
 ) -> Result<(Response, Option<godwit_providers::adapter::UsageReport>), godwit_providers::adapter::ProviderError>
@@ -214,37 +215,64 @@ async fn call_chat(
         } else {
             resolved.model.provider_model_id.clone()
         };
-        let translator = Mutex::new(
-            godwit_providers::sse_egress::OpenAiStreamTranslator::new(
-                stream_id,
-                stream_model,
-                created,
-            ),
-        );
+        let use_openai_wire = state
+            .config
+            .compat
+            .as_ref()
+            .map(|c| c.openai_wire_streaming)
+            .unwrap_or(false);
+        let translator = if use_openai_wire {
+            Some(Mutex::new(
+                godwit_providers::sse_egress::OpenAiStreamTranslator::new(
+                    stream_id,
+                    stream_model,
+                    created,
+                ),
+            ))
+        } else {
+            None
+        };
         let sse_stream = stream.flat_map(move |event| {
-            let events = event
-                .map(|e| {
-                    let mut translator = translator.lock().unwrap();
-                    let frames = translator.push(&e);
-                    frames
-                        .iter()
-                        .map(|f| {
-                            axum::response::sse::Event::default().data(f.render())
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_else(|_| {
-                    let error_payload = serde_json::json!({
-                        "error": {
-                            "message": "upstream provider stream error",
-                            "type": "server_error",
-                            "param": null,
-                            "code": null,
-                        }
-                    });
-                    vec![axum::response::sse::Event::default()
-                        .data(error_payload.to_string())]
-                });
+            let events = if use_openai_wire {
+                event
+                    .map(|e| {
+                        let mut translator = translator.as_ref().unwrap().lock().unwrap();
+                        let frames = translator.push(&e);
+                        frames
+                            .iter()
+                            .map(|f| {
+                                axum::response::sse::Event::default().data(f.render())
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_else(|_| {
+                        let error_payload = serde_json::json!({
+                            "error": {
+                                "message": "upstream provider stream error",
+                                "type": "server_error",
+                                "param": null,
+                                "code": null,
+                            }
+                        });
+                        vec![axum::response::sse::Event::default()
+                            .data(error_payload.to_string())]
+                    })
+            } else {
+                event
+                    .map(|e| {
+                        vec![axum::response::sse::Event::default().data(&e.data)]
+                    })
+                    .unwrap_or_else(|_| {
+                        let error_payload = serde_json::json!({
+                            "error": {
+                                "message": "upstream provider stream error",
+                                "type": "server_error",
+                            }
+                        });
+                        vec![axum::response::sse::Event::default()
+                            .data(error_payload.to_string())]
+                    })
+            };
             futures::stream::iter(
                 events
                     .into_iter()
@@ -472,7 +500,7 @@ async fn call_chat_agentic(
     mut req: ChatCompletionRequest,
 ) -> Result<(Response, Option<UsageReport>), godwit_providers::adapter::ProviderError> {
     if req.stream == Some(true) {
-        return call_chat(resolved, req).await;
+        return call_chat(state, resolved, req).await;
     }
 
     merge_agentic_tools(state, &mut req).await;

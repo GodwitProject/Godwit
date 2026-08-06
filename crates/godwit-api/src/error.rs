@@ -6,6 +6,7 @@ use axum::{
 use godwit_core::PasteurError;
 use serde_json::json;
 
+#[derive(Debug)]
 pub enum ApiError {
     Unauthorized,
     Forbidden,

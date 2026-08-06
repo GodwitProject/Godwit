@@ -11,6 +11,7 @@ pub mod middleware;
 pub mod model_info;
 pub mod model_router;
 pub mod moderation;
+pub mod moderation_fallback;
 pub mod proxy;
 pub mod proxy_streaming;
 pub mod rate_limit;

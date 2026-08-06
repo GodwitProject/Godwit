@@ -1,23 +1,21 @@
 use axum::{
     extract::{Extension, Json, State},
     middleware,
-    response::{IntoResponse, Response},
+    response::Response,
     routing::post,
     Router,
 };
-use godwit_core::Capability;
 use godwit_db::models::ApiKey;
 use serde_json::Value;
 use std::sync::Arc;
 
 use crate::state::AppState;
+use crate::moderation_fallback::{ModerationFallback, ModerationFallbackConfig};
 
-/// OpenAI-compatible `/v1/moderations` pass-through.
+/// OpenAI-compatible `/v1/moderations` with fallback chain (OpenAI → Azure → Self-hosted).
 ///
-/// Moderation is proxied to the same backend that serves the resolved model, using the
-/// profile's base URL and credentials. The client's model ref is substituted with the
-/// catalog row's upstream `provider_model_id` before forwarding, matching the chat
-/// adapters. The upstream response is returned verbatim.
+/// Moderation uses a configurable fallback chain. Each provider is tried with a timeout
+/// (default 10s). The first successful response is returned in OpenAI format.
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/v1/moderations", post(moderations))
@@ -26,20 +24,16 @@ pub fn router() -> Router<Arc<AppState>> {
 
 async fn moderations(
     State(state): State<Arc<AppState>>,
-    Extension(_api_key): Extension<ApiKey>,
+    Extension(api_key): Extension<ApiKey>,
     Json(body): Json<Value>,
 ) -> Result<Response, crate::error::ApiError> {
-    let model = extract_model(&body)?;
-    let (response, _) = crate::proxy::forward_openai_passthrough(
-        &state,
-        reqwest::Method::POST,
-        "moderations",
-        Some(body),
-        &model,
-        Capability::Chat,
-    )
-    .await?;
-    Ok(Json(response).into_response())
+    let _model = extract_model(&body)?;
+    
+    let fallback = ModerationFallback::new(
+        ModerationFallbackConfig::default()
+    );
+    
+    fallback.execute(&state, &api_key, body).await
 }
 
 fn extract_model(body: &Value) -> Result<String, crate::error::ApiError> {

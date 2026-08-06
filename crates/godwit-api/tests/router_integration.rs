@@ -85,6 +85,7 @@ fn test_registry() -> Arc<AdapterRegistry> {
 /// than a hand-rolled approximation.
 fn build_app(pool: PgPool) -> Router {
     use godwit_api::circuit_breaker::CircuitBreakerRegistry;
+    use godwit_api::agentic_loop::AgenticLoop;
     let registry = test_registry();
     let state = Arc::new(AppState {
         config: test_config(),
@@ -105,6 +106,7 @@ fn build_app(pool: PgPool) -> Router {
         credential_master_key: MASTER_KEY,
         rate_limiter: RateLimiter::new(),
         circuit_breaker_registry: Arc::new(CircuitBreakerRegistry::new(5, std::time::Duration::from_secs(60), 3)),
+        agentic_loop: Arc::new(AgenticLoop::new(4, 120)),
     });
 
     Router::new()

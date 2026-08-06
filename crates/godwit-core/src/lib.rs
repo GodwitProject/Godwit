@@ -40,7 +40,7 @@ pub struct AppConfig {
 /// The agentic ecosystem section of [`AppConfig`]: a list of MCP servers to expose as
 /// tools, and an optional self-hosted SearXNG instance used to back `web_search` style
 /// tool calls when the selected adapter has no native web search.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct AgenticConfig {
     #[serde(default)]
@@ -50,6 +50,16 @@ pub struct AgenticConfig {
     /// Maximum number of agentic loop iterations (default: 4)
     #[serde(default = "default_max_iterations")]
     pub max_iterations: usize,
+}
+
+impl Default for AgenticConfig {
+    fn default() -> Self {
+        Self {
+            mcp_servers: Vec::new(),
+            searxng: None,
+            max_iterations: default_max_iterations(),
+        }
+    }
 }
 
 fn default_max_iterations() -> usize {
@@ -902,5 +912,47 @@ auth:
         let msg: ChatMessage = serde_json::from_str(json).unwrap();
         assert_eq!(msg.role, "system");
         assert!(msg.content.is_none());
+    }
+
+    #[test]
+    fn agentic_config_default_max_iterations() {
+        let yaml = r#"
+server:
+  host: 127.0.0.1
+  port: 3000
+  request_timeout_seconds: 60
+database:
+  url: postgres://user:pass@localhost/pasteurllm
+auth:
+  jwt_secret: supersecret
+  access_token_ttl_minutes: 15
+  refresh_token_ttl_days: 7
+  oidc_providers: []
+  saml_providers: []
+"#;
+        let config: AppConfig = serde_yaml::from_str(yaml).expect("parse yaml");
+        assert_eq!(config.agentic.max_iterations, 4);
+    }
+
+    #[test]
+    fn agentic_config_override_max_iterations() {
+        let yaml = r#"
+server:
+  host: 127.0.0.1
+  port: 3000
+  request_timeout_seconds: 60
+database:
+  url: postgres://user:pass@localhost/pasteurllm
+auth:
+  jwt_secret: supersecret
+  access_token_ttl_minutes: 15
+  refresh_token_ttl_days: 7
+  oidc_providers: []
+  saml_providers: []
+agentic:
+  max_iterations: 8
+"#;
+        let config: AppConfig = serde_yaml::from_str(yaml).expect("parse yaml");
+        assert_eq!(config.agentic.max_iterations, 8);
     }
 }

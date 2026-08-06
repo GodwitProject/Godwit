@@ -275,6 +275,8 @@ mod auth_tests {
                     refresh_token_ttl_days: 7,
                     cookie_secure: false,
                     allowed_cookie_origin: "".to_string(),
+                    login_max_attempts_per_minute: 10,
+                    trust_proxy: false,
                     oidc_providers: vec![],
                     saml_providers: vec![],
                 },
@@ -306,6 +308,7 @@ mod auth_tests {
             api_key_cache: MemoryCache::new(),
             credential_master_key: [42u8; 32],
             rate_limiter: crate::rate_limit::RateLimiter::new(),
+            login_limiter: crate::login_rate_limit::LoginLimiter::new(10),
             circuit_breaker_registry: Arc::new(CircuitBreakerRegistry::new(
                 5,
                 std::time::Duration::from_secs(60),

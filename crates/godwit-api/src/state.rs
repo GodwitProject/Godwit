@@ -1,4 +1,4 @@
-use crate::{agentic_loop::AgenticLoop, circuit_breaker::CircuitBreakerRegistry, model_router::DbModelRouter, rate_limit::RateLimiter};
+use crate::{agentic_loop::AgenticLoop, circuit_breaker::CircuitBreakerRegistry, login_rate_limit::LoginLimiter, model_router::DbModelRouter, rate_limit::RateLimiter};
 use godwit_cache::MemoryCache;
 use godwit_core::AppConfig;
 use godwit_core::guardrails::GuardrailsOrchestrator;
@@ -35,6 +35,7 @@ pub struct AppState {
     pub api_key_cache: MemoryCache<String, ApiKey>,
     pub credential_master_key: [u8; 32],
     pub rate_limiter: RateLimiter,
+    pub login_limiter: LoginLimiter,
     pub circuit_breaker_registry: Arc<CircuitBreakerRegistry>,
     pub agentic_loop: Arc<AgenticLoop>,
     pub guardrails: Arc<tokio::sync::Mutex<GuardrailsOrchestrator>>,

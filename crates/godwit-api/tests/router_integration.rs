@@ -64,6 +64,8 @@ fn test_config() -> AppConfig {
             refresh_token_ttl_days: 7,
             cookie_secure: false,
             allowed_cookie_origin: "".to_string(),
+            login_max_attempts_per_minute: 10,
+            trust_proxy: false,
             oidc_providers: vec![],
             saml_providers: vec![],
         },
@@ -118,6 +120,7 @@ fn build_app(pool: PgPool) -> Router {
         api_key_cache: MemoryCache::new(),
         credential_master_key: MASTER_KEY,
         rate_limiter: RateLimiter::new(),
+        login_limiter: godwit_api::login_rate_limit::LoginLimiter::new(10),
         circuit_breaker_registry: Arc::new(CircuitBreakerRegistry::new(5, std::time::Duration::from_secs(60), 3)),
         agentic_loop: Arc::new(AgenticLoop::new(4, 120)),
         guardrails: Arc::new(tokio::sync::Mutex::new(

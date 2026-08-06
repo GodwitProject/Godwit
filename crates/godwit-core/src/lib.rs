@@ -220,8 +220,16 @@ pub struct AuthConfig {
     pub cookie_secure: bool,
     #[serde(default)]
     pub allowed_cookie_origin: String,
+    #[serde(default = "default_login_max_attempts")]
+    pub login_max_attempts_per_minute: i64,
+    #[serde(default)]
+    pub trust_proxy: bool,
     pub oidc_providers: Vec<OidcProviderConfig>,
     pub saml_providers: Vec<SamlProviderConfig>,
+}
+
+fn default_login_max_attempts() -> i64 {
+    10
 }
 
 #[derive(Debug, Clone, Deserialize)]

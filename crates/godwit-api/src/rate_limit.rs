@@ -13,6 +13,11 @@ pub struct TokenBucket {
 }
 
 impl TokenBucket {
+    /// Exposes the configured capacity (0 = unlimited/disabled).
+    pub fn capacity(&self) -> u32 {
+        self.capacity
+    }
+
     pub fn new(capacity: u32) -> Self {
         Self {
             capacity,

@@ -1,6 +1,6 @@
 use axum::{middleware, routing::Router};
 use godwit_api::{
-    admin, agentic_loop::AgenticLoop, anthropic_proxy, circuit_breaker::CircuitBreakerRegistry, health, metrics_endpoint, moderation, model_router::DbModelRouter, proxy,
+    admin, agentic_loop::AgenticLoop, anthropic_proxy, circuit_breaker::CircuitBreakerRegistry, health, login_rate_limit::LoginLimiter, metrics_endpoint, moderation, model_router::DbModelRouter, proxy,
     rate_limit::RateLimiter, rerank, scheduler::Scheduler, state::AppState, utils,
 };
 use godwit_core::alerting::AlertingService;
@@ -105,6 +105,7 @@ async fn main() -> anyhow::Result<()> {
         api_key_cache: MemoryCache::new(),
         credential_master_key: master_key,
         rate_limiter: RateLimiter::new(),
+        login_limiter: LoginLimiter::new(10),
         circuit_breaker_registry,
         agentic_loop,
         guardrails,

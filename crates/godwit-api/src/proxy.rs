@@ -212,7 +212,7 @@ fn default_retry_policy() -> RetryPolicy {
     RetryPolicy::default()
 }
 
-async fn call_chat(
+pub(crate) async fn call_chat(
     state: &Arc<AppState>,
     resolved: &ResolvedModel,
     req: ChatCompletionRequest,

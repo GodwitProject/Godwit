@@ -4,6 +4,7 @@ pub mod anthropic_proxy;
 pub mod batch;
 pub mod circuit_breaker;
 pub mod error;
+pub mod fallback;
 pub mod health;
 pub mod middleware;
 pub mod model_info;

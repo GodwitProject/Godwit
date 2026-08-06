@@ -16,14 +16,30 @@ use crate::{error::ApiError, state::AppState};
 /// True when a state-changing request carries an `Origin` matching `allowed_cookie_origin`,
 /// or when `allowed_cookie_origin` is empty (check disabled). No-op for non-state-changing methods.
 pub fn origin_allowed(state: &AppState, method: &Method, headers: &HeaderMap) -> bool {
-    let allowed_origin = state.config.auth.allowed_cookie_origin.as_str();
-    if allowed_origin.is_empty() || !is_state_changing(method) {
+    origin_allowed_from_config(
+        state.config.auth.allowed_cookie_origin.as_str(),
+        method,
+        headers,
+    )
+}
+
+/// The core CSRF origin predicate. This is the unit-testable helper, independent of
+/// `AppState`. It returns true when:
+/// - `allowed` is empty (check disabled), or
+/// - the method is NOT state-changing (GET/HEAD/OPTIONS), or
+/// - a state-changing request carries an `Origin` header exactly equal to `allowed`.
+pub fn origin_allowed_from_config(
+    allowed: &str,
+    method: &Method,
+    headers: &HeaderMap,
+) -> bool {
+    if allowed.is_empty() || !is_state_changing(method) {
         return true;
     }
     headers
         .get(axum::http::header::ORIGIN)
         .and_then(|h| h.to_str().ok())
-        .map(|origin| origin == allowed_origin)
+        .map(|origin| origin == allowed)
         .unwrap_or(false)
 }
 
@@ -217,6 +233,52 @@ mod tests {
             disabled: false,
             created_at: chrono::Utc::now(),
         }
+    }
+
+    fn headers_with_origin(origin: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(axum::http::header::ORIGIN, origin.parse().unwrap());
+        headers
+    }
+
+    #[test]
+    fn origin_allowed_from_config_empty_allowed_is_noop() {
+        let headers = headers_with_origin("https://evil.example.com");
+        assert!(origin_allowed_from_config("", &Method::POST, &headers));
+        assert!(origin_allowed_from_config("", &Method::GET, &headers));
+    }
+
+    #[test]
+    fn origin_allowed_from_config_non_state_changing_is_noop() {
+        let headers = headers_with_origin("https://evil.example.com");
+        assert!(origin_allowed_from_config(
+            "https://app.example.com",
+            &Method::GET,
+            &headers
+        ));
+        assert!(origin_allowed_from_config(
+            "https://app.example.com",
+            &Method::HEAD,
+            &headers
+        ));
+        assert!(origin_allowed_from_config(
+            "https://app.example.com",
+            &Method::OPTIONS,
+            &headers
+        ));
+    }
+
+    #[test]
+    fn origin_allowed_from_config_state_changing_requires_match() {
+        let allowed = "https://app.example.com";
+        let matching = headers_with_origin("https://app.example.com");
+        assert!(origin_allowed_from_config(allowed, &Method::POST, &matching));
+
+        let wrong = headers_with_origin("https://evil.example.com");
+        assert!(!origin_allowed_from_config(allowed, &Method::POST, &wrong));
+
+        let missing = HeaderMap::new();
+        assert!(!origin_allowed_from_config(allowed, &Method::POST, &missing));
     }
 
     #[test]

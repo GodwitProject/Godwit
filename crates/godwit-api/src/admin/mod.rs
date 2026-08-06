@@ -1,5 +1,6 @@
 pub mod api_keys;
 pub mod auth;
+pub mod end_users;
 pub mod models;
 pub mod organizations;
 pub mod provider_profiles;
@@ -34,6 +35,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         // "/users", "/spend", ...), so they are merged, not nested: nesting under
         // "/organizations" produced "/api/v1/organizations/organizations".
         .merge(api_keys::router())
+        .merge(end_users::router())
         .merge(models::router())
         .merge(provider_profiles::router())
         .merge(organizations::router())

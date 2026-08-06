@@ -3,9 +3,9 @@ use godwit_cache::MemoryCache;
 use godwit_core::AppConfig;
 use godwit_db::models::ApiKey;
 use godwit_db::repositories::{
-    api_keys::ApiKeyRepository, organizations::OrganizationRepository,
-    refresh_tokens::RefreshTokenRepository, team_memberships::TeamMembershipRepository,
-    teams::TeamRepository, users::UserRepository,
+    api_keys::ApiKeyRepository, end_users::EndUsersRepository,
+    organizations::OrganizationRepository, refresh_tokens::RefreshTokenRepository,
+    team_memberships::TeamMembershipRepository, teams::TeamRepository, users::UserRepository,
 };
 use godwit_mcp::McpRegistry;
 use godwit_providers::adapter::ResolvedProfile;
@@ -30,6 +30,7 @@ pub struct AppState {
     pub team_membership_repo: TeamMembershipRepository,
     pub api_key_repo: ApiKeyRepository,
     pub refresh_token_repo: RefreshTokenRepository,
+    pub end_user_repo: EndUsersRepository,
     pub api_key_cache: MemoryCache<String, ApiKey>,
     pub credential_master_key: [u8; 32],
     pub rate_limiter: RateLimiter,

@@ -39,11 +39,24 @@ impl Default for AnthropicProvider {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct AnthropicCacheControl {
+    r#type: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum AnthropicContentBlock {
-    Text { text: String },
-    Image { source: AnthropicImageSource },
+    Text {
+        text: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<AnthropicCacheControl>,
+    },
+    Image {
+        source: AnthropicImageSource,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cache_control: Option<AnthropicCacheControl>,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -62,6 +75,10 @@ struct AnthropicMessage {
 
 impl AnthropicMessage {
     fn from_chat_message(msg: &ChatMessage) -> Self {
+        let cache_control = msg.cache_control.as_ref().map(|cc| AnthropicCacheControl {
+            r#type: cc.r#type.clone(),
+        });
+
         let content = msg
             .content
             .as_ref()
@@ -70,13 +87,19 @@ impl AnthropicMessage {
                     .iter()
                     .flat_map(|c| match c {
                         ChatContent::Text(text) => {
-                            vec![AnthropicContentBlock::Text { text: text.clone() }]
+                            vec![AnthropicContentBlock::Text {
+                                text: text.clone(),
+                                cache_control: cache_control.clone(),
+                            }]
                         }
                         ChatContent::Parts(parts) => parts
                             .iter()
                             .map(|p| match p {
                                 ChatContentPart::Text { text } => {
-                                    AnthropicContentBlock::Text { text: text.clone() }
+                                    AnthropicContentBlock::Text {
+                                        text: text.clone(),
+                                        cache_control: cache_control.clone(),
+                                    }
                                 }
                                 ChatContentPart::ImageUrl { image_url } => {
                                     let (media_type, data) = Self::parse_image_url(&image_url.url);
@@ -86,6 +109,7 @@ impl AnthropicMessage {
                                             media_type,
                                             data,
                                         },
+                                        cache_control: cache_control.clone(),
                                     }
                                 }
                             })
@@ -997,5 +1021,127 @@ mod tests {
             resp.choices[0].message.content_as_text(),
             Some("Hello from keyless profile".to_string())
         );
+    }
+
+    #[tokio::test]
+    async fn chat_request_with_cache_control_sends_header() {
+        use godwit_core::CacheControl;
+        let server = MockServer::start().await;
+        let captured_body = std::sync::Arc::new(std::sync::Mutex::new(None::<serde_json::Value>));
+        let captured_clone = captured_body.clone();
+
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .respond_with(move |req: &wiremock::Request| {
+                if let Ok(body) = serde_json::from_slice::<serde_json::Value>(&req.body) {
+                    *captured_clone.lock().unwrap() = Some(body);
+                }
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "id": "msg_01",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "claude-3-5-sonnet-20241022",
+                    "content": [{"type": "text", "text": "Hi"}],
+                    "stop_reason": "end_turn",
+                    "usage": {
+                        "input_tokens": 10,
+                        "output_tokens": 5,
+                        "cache_read_input_tokens": 8,
+                        "cache_creation_input_tokens": 2
+                    }
+                }))
+            })
+            .mount(&server)
+            .await;
+
+        let client = AnthropicAdapter::new();
+        let profile = crate::adapter::ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
+        let req = ChatCompletionRequest {
+            model: "claude-3-5-sonnet".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: Some(vec![ChatContent::text("Hello with cache")]),
+                name: None,
+                cache_control: Some(CacheControl {
+                    r#type: "ephemeral".to_string(),
+                }),
+                ..Default::default()
+            }],
+            stream: Some(false),
+            temperature: None,
+            max_tokens: None,
+            ..Default::default()
+        };
+
+        let _ = client.chat(&profile, &dummy_model(), req).await.unwrap();
+
+        let body = captured_body
+            .lock()
+            .unwrap()
+            .take()
+            .expect("request body captured");
+        
+        let messages = body["messages"].as_array().expect("messages present");
+        assert_eq!(messages.len(), 1);
+        let content = messages[0]["content"].as_array().expect("content is array");
+        assert_eq!(content.len(), 1);
+        assert_eq!(content[0]["cache_control"]["type"], "ephemeral");
+    }
+
+    #[tokio::test]
+    async fn chat_response_reports_cache_tokens() {
+        use godwit_core::CacheControl;
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/v1/messages"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "id": "msg_01",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-3-5-sonnet-20241022",
+                "content": [{"type": "text", "text": "Hello"}],
+                "stop_reason": "end_turn",
+                "usage": {
+                    "input_tokens": 10,
+                    "output_tokens": 5,
+                    "cache_read_input_tokens": 8,
+                    "cache_creation_input_tokens": 2
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let client = AnthropicAdapter::new();
+        let profile = crate::adapter::ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
+        let req = ChatCompletionRequest {
+            model: "claude-3-5-sonnet".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: Some(vec![ChatContent::text("Hello")]),
+                name: None,
+                cache_control: Some(CacheControl {
+                    r#type: "ephemeral".to_string(),
+                }),
+                ..Default::default()
+            }],
+            stream: Some(false),
+            temperature: None,
+            max_tokens: None,
+            ..Default::default()
+        };
+
+        let (_, usage_report) = client.chat(&profile, &dummy_model(), req).await.unwrap();
+
+        assert_eq!(usage_report.prompt_tokens, Some(10));
+        assert_eq!(usage_report.completion_tokens, Some(5));
+        assert_eq!(usage_report.cache_read_tokens, Some(8));
+        assert_eq!(usage_report.cache_write_tokens, Some(2));
     }
 }

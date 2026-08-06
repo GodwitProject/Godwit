@@ -5,14 +5,14 @@ use axum::{
     routing::post,
     Router,
 };
-use godwit_core::Capability;
 use godwit_db::models::ApiKey;
 use serde_json::Value;
 use std::sync::Arc;
 
 use crate::state::AppState;
+use crate::rerank_fallback::{RerankFallback, RerankFallbackConfig};
 
-/// `/v1/rerank` pass-through.
+/// `/v1/rerank` pass-through with fallback chain.
 ///
 /// Re-ranking is forwarded to the resolved backend's `/rerank` endpoint, substituting the
 /// client's model ref with the catalog row's upstream `provider_model_id`. The upstream
@@ -25,20 +25,16 @@ pub fn router() -> Router<Arc<AppState>> {
 
 async fn rerank(
     State(state): State<Arc<AppState>>,
-    Extension(_api_key): Extension<ApiKey>,
+    Extension(api_key): Extension<ApiKey>,
     Json(body): Json<Value>,
 ) -> Result<Response, crate::error::ApiError> {
-    let model = extract_model(&body)?;
-    let (response, _) = crate::proxy::forward_openai_passthrough(
-        &state,
-        reqwest::Method::POST,
-        "rerank",
-        Some(body),
-        &model,
-        Capability::Chat,
-    )
-    .await?;
-    Ok(Json(response).into_response())
+    let _model = extract_model(&body)?;
+    
+    let fallback = RerankFallback::new(
+        RerankFallbackConfig::default()
+    );
+    
+    fallback.execute(&state, &api_key, body).await
 }
 
 fn extract_model(body: &Value) -> Result<String, crate::error::ApiError> {

@@ -16,6 +16,7 @@ pub mod proxy;
 pub mod proxy_streaming;
 pub mod rate_limit;
 pub mod rerank;
+pub mod rerank_fallback;
 pub mod resilience;
 pub mod response_validation;
 pub mod state;

@@ -5,9 +5,9 @@ use crate::streaming::{normalize_openai_sse_event, parse_sse_events};
 use async_trait::async_trait;
 use futures::stream::{self, BoxStream, StreamExt};
 use godwit_core::{
-    AudioSttRequest, AudioTtsRequest, Capability, ChatCompletionRequest, ChatCompletionResponse,
-    EmbeddingRequest, EmbeddingResponse, ImageGenerationRequest, VideoGenerationRequest,
-    ResponseFormat,
+    AudioSttRequest, AudioTtsRequest, Batch, BatchRequest, Capability, ChatCompletionRequest,
+    ChatCompletionResponse, EmbeddingRequest, EmbeddingResponse, ImageGenerationRequest,
+    VideoGenerationRequest, ResponseFormat,
 };
 use godwit_db::models::Model;
 use reqwest::Client;
@@ -273,6 +273,37 @@ impl Adapter for LlamaCppProvider {
                 embedding_tokens: Some(body.usage.total_tokens as i64),
                 ..Default::default()
             },
+        ))
+    }
+
+    async fn create_batch(
+        &self,
+        _profile: &ResolvedProfile,
+        _model: &Model,
+        _request: BatchRequest,
+    ) -> Result<Batch, ProviderError> {
+        Err(ProviderError::CapabilityNotSupported(
+            "batch is not supported for llama.cpp".to_string(),
+        ))
+    }
+
+    async fn retrieve_batch(
+        &self,
+        _profile: &ResolvedProfile,
+        _batch_id: String,
+    ) -> Result<Batch, ProviderError> {
+        Err(ProviderError::CapabilityNotSupported(
+            "batch is not supported for llama.cpp".to_string(),
+        ))
+    }
+
+    async fn cancel_batch(
+        &self,
+        _profile: &ResolvedProfile,
+        _batch_id: String,
+    ) -> Result<Batch, ProviderError> {
+        Err(ProviderError::CapabilityNotSupported(
+            "batch is not supported for llama.cpp".to_string(),
         ))
     }
 }

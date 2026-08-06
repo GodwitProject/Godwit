@@ -6,9 +6,10 @@ use async_trait::async_trait;
 use chrono::Utc;
 use futures::stream::{self, BoxStream, StreamExt};
 use godwit_core::{
-    AudioSttRequest, AudioTtsRequest, Capability, ChatCompletionChoice, ChatCompletionRequest,
-    ChatCompletionResponse, ChatContent, ChatContentPart, ChatMessage, EmbeddingData,
-    EmbeddingRequest, EmbeddingResponse, ImageGenerationRequest, VideoGenerationRequest,
+    AudioSttRequest, AudioTtsRequest, Batch, BatchRequest, Capability, ChatCompletionChoice,
+    ChatCompletionRequest, ChatCompletionResponse, ChatContent, ChatContentPart, ChatMessage,
+    EmbeddingData, EmbeddingRequest, EmbeddingResponse, ImageGenerationRequest,
+    VideoGenerationRequest,
 };
 use godwit_db::models::Model;
 use reqwest::Client;
@@ -703,6 +704,37 @@ impl Adapter for GeminiProvider {
                 embedding_tokens: Some(total),
                 ..Default::default()
             },
+        ))
+    }
+
+    async fn create_batch(
+        &self,
+        _profile: &ResolvedProfile,
+        _model: &Model,
+        _request: BatchRequest,
+    ) -> Result<Batch, ProviderError> {
+        Err(ProviderError::CapabilityNotSupported(
+            "batch is not supported for Gemini".to_string(),
+        ))
+    }
+
+    async fn retrieve_batch(
+        &self,
+        _profile: &ResolvedProfile,
+        _batch_id: String,
+    ) -> Result<Batch, ProviderError> {
+        Err(ProviderError::CapabilityNotSupported(
+            "batch is not supported for Gemini".to_string(),
+        ))
+    }
+
+    async fn cancel_batch(
+        &self,
+        _profile: &ResolvedProfile,
+        _batch_id: String,
+    ) -> Result<Batch, ProviderError> {
+        Err(ProviderError::CapabilityNotSupported(
+            "batch is not supported for Gemini".to_string(),
         ))
     }
 }

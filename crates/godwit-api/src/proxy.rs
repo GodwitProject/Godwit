@@ -1628,6 +1628,9 @@ mod tests {
                 openai_wire_streaming: true,
             }),
             circuit_breaker: None,
+            moderation: godwit_core::ModerationConfig::default(),
+            rerank: godwit_core::RerankConfig::default(),
+            batch: godwit_core::BatchConfig::default(),
         };
 
         let config_without_wire = AppConfig {
@@ -1651,6 +1654,9 @@ mod tests {
                 openai_wire_streaming: false,
             }),
             circuit_breaker: None,
+            moderation: godwit_core::ModerationConfig::default(),
+            rerank: godwit_core::RerankConfig::default(),
+            batch: godwit_core::BatchConfig::default(),
         };
 
         let config_default = AppConfig {
@@ -1672,6 +1678,9 @@ mod tests {
             agentic: Default::default(),
             compat: None,
             circuit_breaker: None,
+            moderation: godwit_core::ModerationConfig::default(),
+            rerank: godwit_core::RerankConfig::default(),
+            batch: godwit_core::BatchConfig::default(),
         };
 
         assert!(config_with_wire

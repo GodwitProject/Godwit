@@ -65,6 +65,9 @@ fn test_config() -> AppConfig {
         agentic: godwit_core::AgenticConfig::default(),
         compat: None,
         circuit_breaker: None,
+        moderation: godwit_core::ModerationConfig::default(),
+        rerank: godwit_core::RerankConfig::default(),
+        batch: godwit_core::BatchConfig::default(),
     }
 }
 

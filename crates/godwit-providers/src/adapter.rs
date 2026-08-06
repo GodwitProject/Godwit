@@ -1,9 +1,10 @@
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use godwit_core::{
-    AudioSttRequest, AudioSttResponse, AudioTtsRequest, Capability, ChatCompletionRequest,
-    ChatCompletionResponse, EmbeddingRequest, EmbeddingResponse, ImageGenerationRequest,
-    ImageGenerationResponse, VideoGenerationRequest, VideoGenerationResponse,
+    AudioSttRequest, AudioSttResponse, AudioTtsRequest, Batch, BatchRequest, Capability,
+    ChatCompletionRequest, ChatCompletionResponse, EmbeddingRequest, EmbeddingResponse,
+    ImageGenerationRequest, ImageGenerationResponse, VideoGenerationRequest,
+    VideoGenerationResponse,
 };
 use godwit_db::models::Model;
 use thiserror::Error;
@@ -133,4 +134,23 @@ pub trait Adapter: Send + Sync {
         model: &Model,
         request: EmbeddingRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError>;
+
+    async fn create_batch(
+        &self,
+        profile: &ResolvedProfile,
+        model: &Model,
+        request: BatchRequest,
+    ) -> Result<Batch, ProviderError>;
+
+    async fn retrieve_batch(
+        &self,
+        profile: &ResolvedProfile,
+        batch_id: String,
+    ) -> Result<Batch, ProviderError>;
+
+    async fn cancel_batch(
+        &self,
+        profile: &ResolvedProfile,
+        batch_id: String,
+    ) -> Result<Batch, ProviderError>;
 }

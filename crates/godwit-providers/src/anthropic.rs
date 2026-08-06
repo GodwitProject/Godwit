@@ -6,9 +6,9 @@ use async_trait::async_trait;
 use chrono::Utc;
 use futures::stream::{self, BoxStream, StreamExt};
 use godwit_core::{
-    AudioSttRequest, AudioTtsRequest, Capability, ChatCompletionRequest, ChatCompletionResponse,
-    ChatContent, ChatContentPart, ChatMessage, EmbeddingRequest, ImageGenerationRequest,
-    VideoGenerationRequest, ResponseFormat,
+    AudioSttRequest, AudioTtsRequest, Batch, BatchRequest, Capability, ChatCompletionRequest,
+    ChatCompletionResponse, ChatContent, ChatContentPart, ChatMessage, EmbeddingRequest,
+    ImageGenerationRequest, VideoGenerationRequest, ResponseFormat,
 };
 use godwit_db::models::Model;
 use reqwest::Client;
@@ -543,6 +543,37 @@ impl Adapter for AnthropicProvider {
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
         Err(ProviderError::CapabilityNotSupported(
             "embedding is not supported for Anthropic".to_string(),
+        ))
+    }
+
+    async fn create_batch(
+        &self,
+        _profile: &ResolvedProfile,
+        _model: &Model,
+        _request: BatchRequest,
+    ) -> Result<Batch, ProviderError> {
+        Err(ProviderError::CapabilityNotSupported(
+            "batch is not supported for Anthropic".to_string(),
+        ))
+    }
+
+    async fn retrieve_batch(
+        &self,
+        _profile: &ResolvedProfile,
+        _batch_id: String,
+    ) -> Result<Batch, ProviderError> {
+        Err(ProviderError::CapabilityNotSupported(
+            "batch is not supported for Anthropic".to_string(),
+        ))
+    }
+
+    async fn cancel_batch(
+        &self,
+        _profile: &ResolvedProfile,
+        _batch_id: String,
+    ) -> Result<Batch, ProviderError> {
+        Err(ProviderError::CapabilityNotSupported(
+            "batch is not supported for Anthropic".to_string(),
         ))
     }
 }

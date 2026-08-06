@@ -5,9 +5,10 @@ use crate::streaming::{normalize_openai_sse_event, parse_sse_events};
 use async_trait::async_trait;
 use futures::stream::{self, BoxStream, StreamExt};
 use godwit_core::{
-    AudioSttRequest, AudioSttResponse, AudioTtsRequest, Capability, ChatCompletionRequest,
-    ChatCompletionResponse, ChatContent, ChatContentPart, EmbeddingRequest, EmbeddingResponse,
-    ImageGenerationRequest, ImageGenerationResponse, ResponseFormat,
+    AudioSttRequest, AudioSttResponse, AudioTtsRequest, Batch, BatchRequest, Capability,
+    ChatCompletionRequest, ChatCompletionResponse, ChatContent, ChatContentPart,
+    EmbeddingRequest, EmbeddingResponse, ImageGenerationRequest, ImageGenerationResponse,
+    ResponseFormat,
 };
 use godwit_db::models::Model;
 use reqwest::Client;
@@ -508,6 +509,88 @@ impl Adapter for OpenAiProvider {
                 ..Default::default()
             },
         ))
+    }
+
+    async fn create_batch(
+        &self,
+        profile: &ResolvedProfile,
+        _model: &Model,
+        request: BatchRequest,
+    ) -> Result<Batch, ProviderError> {
+        let url = format!("{}/batches", profile.base_url);
+        let mut req = self.client.post(&url).json(&request);
+        if let Some(key) = &profile.api_key {
+            req = req.header("Authorization", format!("Bearer {key}"));
+        }
+        let res = req.send().await.map_err(|e| ProviderError::Http {
+            status: 0,
+            message: e.to_string(),
+        })?;
+        if !res.status().is_success() {
+            return Err(ProviderError::Http {
+                status: res.status().as_u16(),
+                message: res.text().await.unwrap_or_default(),
+            });
+        }
+        let body: Batch = res
+            .json()
+            .await
+            .map_err(|e| ProviderError::Serialization(e.to_string()))?;
+        Ok(body)
+    }
+
+    async fn retrieve_batch(
+        &self,
+        profile: &ResolvedProfile,
+        batch_id: String,
+    ) -> Result<Batch, ProviderError> {
+        let url = format!("{}/batches/{}", profile.base_url, batch_id);
+        let mut req = self.client.get(&url);
+        if let Some(key) = &profile.api_key {
+            req = req.header("Authorization", format!("Bearer {key}"));
+        }
+        let res = req.send().await.map_err(|e| ProviderError::Http {
+            status: 0,
+            message: e.to_string(),
+        })?;
+        if !res.status().is_success() {
+            return Err(ProviderError::Http {
+                status: res.status().as_u16(),
+                message: res.text().await.unwrap_or_default(),
+            });
+        }
+        let body: Batch = res
+            .json()
+            .await
+            .map_err(|e| ProviderError::Serialization(e.to_string()))?;
+        Ok(body)
+    }
+
+    async fn cancel_batch(
+        &self,
+        profile: &ResolvedProfile,
+        batch_id: String,
+    ) -> Result<Batch, ProviderError> {
+        let url = format!("{}/batches/{}/cancel", profile.base_url, batch_id);
+        let mut req = self.client.post(&url);
+        if let Some(key) = &profile.api_key {
+            req = req.header("Authorization", format!("Bearer {key}"));
+        }
+        let res = req.send().await.map_err(|e| ProviderError::Http {
+            status: 0,
+            message: e.to_string(),
+        })?;
+        if !res.status().is_success() {
+            return Err(ProviderError::Http {
+                status: res.status().as_u16(),
+                message: res.text().await.unwrap_or_default(),
+            });
+        }
+        let body: Batch = res
+            .json()
+            .await
+            .map_err(|e| ProviderError::Serialization(e.to_string()))?;
+        Ok(body)
     }
 }
 
@@ -1155,5 +1238,156 @@ mod tests {
         assert_eq!(body["response_format"]["type"], "json_schema");
         assert_eq!(body["response_format"]["json_schema"]["name"], "test_schema");
         assert_eq!(body["response_format"]["json_schema"]["strict"], true);
+    }
+
+    #[tokio::test]
+    async fn openai_create_batch() {
+        let server = MockServer::start().await;
+        let body = serde_json::json!({
+            "id": "batch_123",
+            "object": "batch",
+            "endpoint": "/v1/chat/completions",
+            "errors": null,
+            "input_file_id": "file-abc",
+            "completion_window": "24h",
+            "status": "validating",
+            "output_file_id": null,
+            "error_file_id": null,
+            "created_at": 1234567890,
+            "in_progress_at": null,
+            "expires_at": null,
+            "finalizing_at": null,
+            "completed_at": null,
+            "failed_at": null,
+            "expired_at": null,
+            "cancelling_at": null,
+            "cancelled_at": null,
+            "request_counts": {
+                "total": 0,
+                "completed": 0,
+                "failed": 0
+            },
+            "metadata": null
+        });
+        Mock::given(method("POST"))
+            .and(path("/batches"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server)
+            .await;
+
+        let client = OpenAiAdapter::new();
+        let profile = ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
+        let req = BatchRequest {
+            input_file_id: "file-abc".to_string(),
+            endpoint: "/v1/chat/completions".to_string(),
+            completion_window: "24h".to_string(),
+            metadata: None,
+        };
+        let batch = client
+            .create_batch(&profile, &dummy_model(), req)
+            .await
+            .unwrap();
+        assert_eq!(batch.id, "batch_123");
+        assert_eq!(batch.status, "validating");
+    }
+
+    #[tokio::test]
+    async fn openai_retrieve_batch() {
+        let server = MockServer::start().await;
+        let body = serde_json::json!({
+            "id": "batch_123",
+            "object": "batch",
+            "endpoint": "/v1/chat/completions",
+            "errors": null,
+            "input_file_id": "file-abc",
+            "completion_window": "24h",
+            "status": "completed",
+            "output_file_id": "file-xyz",
+            "error_file_id": null,
+            "created_at": 1234567890,
+            "in_progress_at": 1234567900,
+            "expires_at": null,
+            "finalizing_at": null,
+            "completed_at": 1234568000,
+            "failed_at": null,
+            "expired_at": null,
+            "cancelling_at": null,
+            "cancelled_at": null,
+            "request_counts": {
+                "total": 10,
+                "completed": 10,
+                "failed": 0
+            },
+            "metadata": null
+        });
+        Mock::given(method("GET"))
+            .and(path("/batches/batch_123"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server)
+            .await;
+
+        let client = OpenAiAdapter::new();
+        let profile = ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
+        let batch = client
+            .retrieve_batch(&profile, "batch_123".to_string())
+            .await
+            .unwrap();
+        assert_eq!(batch.id, "batch_123");
+        assert_eq!(batch.status, "completed");
+        assert_eq!(batch.output_file_id, Some("file-xyz".to_string()));
+    }
+
+    #[tokio::test]
+    async fn openai_cancel_batch() {
+        let server = MockServer::start().await;
+        let body = serde_json::json!({
+            "id": "batch_123",
+            "object": "batch",
+            "endpoint": "/v1/chat/completions",
+            "errors": null,
+            "input_file_id": "file-abc",
+            "completion_window": "24h",
+            "status": "cancelling",
+            "output_file_id": null,
+            "error_file_id": null,
+            "created_at": 1234567890,
+            "in_progress_at": 1234567900,
+            "expires_at": null,
+            "finalizing_at": null,
+            "completed_at": null,
+            "failed_at": null,
+            "expired_at": null,
+            "cancelling_at": 1234568000,
+            "cancelled_at": null,
+            "request_counts": {
+                "total": 10,
+                "completed": 5,
+                "failed": 0
+            },
+            "metadata": null
+        });
+        Mock::given(method("POST"))
+            .and(path("/batches/batch_123/cancel"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(body))
+            .mount(&server)
+            .await;
+
+        let client = OpenAiAdapter::new();
+        let profile = ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
+        let batch = client
+            .cancel_batch(&profile, "batch_123".to_string())
+            .await
+            .unwrap();
+        assert_eq!(batch.id, "batch_123");
+        assert_eq!(batch.status, "cancelling");
     }
 }

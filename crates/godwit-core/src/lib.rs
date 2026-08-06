@@ -226,11 +226,14 @@ pub struct ChatCompletionRequest {
     pub top_k: Option<i32>,
     pub frequency_penalty: Option<f32>,
     pub presence_penalty: Option<f32>,
+    pub repetition_penalty: Option<f32>,
     pub stop: Option<Stop>,
     pub seed: Option<i64>,
     pub n: Option<i32>,
     pub logprobs: Option<bool>,
     pub top_logprobs: Option<i32>,
+    pub logit_bias: Option<std::collections::HashMap<String, i32>>,
+    pub user: Option<String>,
     pub tools: Option<Vec<Tool>>,
     pub tool_choice: Option<ToolChoice>,
     pub parallel_tool_calls: Option<bool>,
@@ -1213,5 +1216,172 @@ auth:
         assert_eq!(config.batch.max_concurrent, 10);
         assert_eq!(config.batch.max_retries, 2);
         assert!(config.batch.webhook_url.is_none());
+    }
+
+    #[test]
+    fn chat_completion_request_all_advanced_params_serializes() {
+        let mut logit_bias = std::collections::HashMap::new();
+        logit_bias.insert("1234".to_string(), 5);
+        logit_bias.insert("5678".to_string(), -5);
+
+        let req = ChatCompletionRequest {
+            model: "test-model".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: Some(vec![ChatContent::Text("Hello".to_string())]),
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+                cache_control: None,
+            }],
+            stream: Some(false),
+            temperature: Some(0.7),
+            max_tokens: Some(100),
+            top_p: Some(0.9),
+            top_k: Some(40),
+            frequency_penalty: Some(0.5),
+            presence_penalty: Some(0.3),
+            repetition_penalty: Some(1.2),
+            stop: Some(Stop::Array(vec!["stop".to_string(), "halt".to_string()])),
+            seed: Some(42),
+            n: Some(2),
+            logprobs: Some(true),
+            top_logprobs: Some(5),
+            logit_bias: Some(logit_bias),
+            user: Some("test-user".to_string()),
+            tools: None,
+            tool_choice: None,
+            parallel_tool_calls: None,
+            response_format: None,
+            reasoning: None,
+        };
+
+        let json = serde_json::to_string(&req).unwrap();
+        let parsed: ChatCompletionRequest = serde_json::from_str(&json).unwrap();
+        
+        assert_eq!(parsed.repetition_penalty, Some(1.2));
+        assert!(parsed.logit_bias.is_some());
+        assert_eq!(parsed.user, Some("test-user".to_string()));
+    }
+
+    #[test]
+    fn stop_sequence_max_four_validation() {
+        let stop_five = Stop::Array(vec![
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+            "d".to_string(),
+            "e".to_string(),
+        ]);
+        
+        let req = ChatCompletionRequest {
+            model: "test".to_string(),
+            messages: vec![],
+            stop: Some(stop_five),
+            ..Default::default()
+        };
+
+        let json = serde_json::to_string(&req).unwrap();
+        let result: Result<ChatCompletionRequest, _> = serde_json::from_str(&json);
+        
+        assert!(result.is_ok());
+        
+        let stop_four = Stop::Array(vec![
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+            "d".to_string(),
+        ]);
+        assert!(matches!(stop_four, Stop::Array(arr) if arr.len() == 4));
+    }
+
+    #[test]
+    fn n_parameter_validation() {
+        let req_zero = ChatCompletionRequest {
+            model: "test".to_string(),
+            messages: vec![],
+            n: Some(0),
+            ..Default::default()
+        };
+        
+        let json = serde_json::to_string(&req_zero).unwrap();
+        let parsed: ChatCompletionRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.n, Some(0));
+        
+        let req_negative = ChatCompletionRequest {
+            model: "test".to_string(),
+            messages: vec![],
+            n: Some(-1),
+            ..Default::default()
+        };
+        
+        let json = serde_json::to_string(&req_negative).unwrap();
+        let parsed: ChatCompletionRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.n, Some(-1));
+        
+        let req_valid = ChatCompletionRequest {
+            model: "test".to_string(),
+            messages: vec![],
+            n: Some(1),
+            ..Default::default()
+        };
+        
+        let json = serde_json::to_string(&req_valid).unwrap();
+        let parsed: ChatCompletionRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.n, Some(1));
+    }
+
+    #[test]
+    fn logit_bias_serialization() {
+        let mut logit_bias = std::collections::HashMap::new();
+        logit_bias.insert("token1".to_string(), 10);
+        logit_bias.insert("token2".to_string(), -10);
+
+        let req = ChatCompletionRequest {
+            model: "test".to_string(),
+            messages: vec![],
+            logit_bias: Some(logit_bias.clone()),
+            ..Default::default()
+        };
+
+        let json = serde_json::to_string(&req).unwrap();
+        let parsed: ChatCompletionRequest = serde_json::from_str(&json).unwrap();
+        
+        assert!(parsed.logit_bias.is_some());
+        let parsed_bias = parsed.logit_bias.unwrap();
+        assert_eq!(parsed_bias.get("token1"), Some(&10));
+        assert_eq!(parsed_bias.get("token2"), Some(&-10));
+    }
+
+    #[test]
+    fn user_field_serialization() {
+        let req = ChatCompletionRequest {
+            model: "test".to_string(),
+            messages: vec![],
+            user: Some("user-123".to_string()),
+            ..Default::default()
+        };
+
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("user-123"));
+        
+        let parsed: ChatCompletionRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.user, Some("user-123".to_string()));
+    }
+
+    #[test]
+    fn repetition_penalty_serialization() {
+        let req = ChatCompletionRequest {
+            model: "test".to_string(),
+            messages: vec![],
+            repetition_penalty: Some(1.5),
+            ..Default::default()
+        };
+
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("repetition_penalty"));
+        
+        let parsed: ChatCompletionRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.repetition_penalty, Some(1.5));
     }
 }

@@ -1,11 +1,14 @@
+use chrono::Utc;
 use rust_decimal::Decimal;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tokio::time::{sleep, Duration};
 
 use godwit_core::{Capability, ChatCompletionRequest, ChatMessage};
+use godwit_providers::adapter::UsageReport;
 
 use crate::batch_parser::BatchRequestBody;
+use crate::batch_webhook::{BatchWebhookPayload, WebhookSender};
 use crate::error::ApiError;
 use crate::state::AppState;
 
@@ -17,6 +20,9 @@ pub struct BatchItemResult {
     pub custom_id: String,
     pub success: bool,
     pub estimated_cost: Decimal,
+    pub actual_cost: Option<Decimal>,
+    pub actual_input_tokens: Option<i64>,
+    pub actual_output_tokens: Option<i64>,
     pub error: Option<String>,
 }
 
@@ -24,6 +30,9 @@ pub struct BatchItemResult {
 pub struct BatchProcessResult {
     pub items: Vec<BatchItemResult>,
     pub total_estimated_cost: Decimal,
+    pub total_actual_cost: Option<Decimal>,
+    pub total_input_tokens: i64,
+    pub total_output_tokens: i64,
     pub success_count: usize,
     pub failure_count: usize,
 }
@@ -79,6 +88,7 @@ impl BatchProcessor {
         request: crate::batch_parser::ParsedBatchLine,
     ) -> BatchItemResult {
         let mut last_error: Option<String> = None;
+        let mut actual_usage: Option<UsageReport> = None;
 
         for attempt in 0..=MAX_RETRIES {
             if attempt > 0 {
@@ -86,35 +96,78 @@ impl BatchProcessor {
                 sleep(delay).await;
             }
 
-            let result = Self::attempt_request(state, &request).await;
+            let (result, usage) = Self::attempt_request(state, &request).await;
             if result.success {
-                return result;
+                actual_usage = Some(usage);
+                return Self::build_result(&request, result, actual_usage);
             }
 
             last_error = result.error;
         }
 
-        BatchItemResult {
-            custom_id: request.custom_id,
+        let mut failed_result = Self::build_result(&request, BatchItemResult {
+            custom_id: request.custom_id.clone(),
             success: false,
             estimated_cost: request.estimated_cost,
+            actual_cost: None,
+            actual_input_tokens: None,
+            actual_output_tokens: None,
             error: last_error,
+        }, None);
+        failed_result.success = false;
+        failed_result
+    }
+
+    fn build_result(
+        request: &crate::batch_parser::ParsedBatchLine,
+        base_result: BatchItemResult,
+        actual_usage: Option<UsageReport>,
+    ) -> BatchItemResult {
+        let (actual_cost, actual_input_tokens, actual_output_tokens) = match actual_usage {
+            Some(usage) => {
+                let input_tokens = usage.prompt_tokens.unwrap_or(0) as i64;
+                let output_tokens = usage.completion_tokens.unwrap_or(0) as i64;
+                
+                let pricing = serde_json::json!({
+                    "input_price_per_million": 0,
+                    "output_price_per_million": 0,
+                });
+                
+                let cost = godwit_providers::usage::compute_chat_cost(&pricing, &usage)
+                    .unwrap_or(Decimal::ZERO);
+                
+                (Some(cost), Some(input_tokens), Some(output_tokens))
+            }
+            None => (None, None, None),
+        };
+
+        BatchItemResult {
+            custom_id: base_result.custom_id,
+            success: base_result.success,
+            estimated_cost: request.estimated_cost,
+            actual_cost,
+            actual_input_tokens,
+            actual_output_tokens,
+            error: base_result.error,
         }
     }
 
     async fn attempt_request(
         state: &Arc<AppState>,
         request: &crate::batch_parser::ParsedBatchLine,
-    ) -> BatchItemResult {
+    ) -> (BatchItemResult, UsageReport) {
         let resolved = match state.model_router.resolve(&request.body.model, Capability::Chat).await {
             Ok(r) => r,
             Err(e) => {
-                return BatchItemResult {
+                return (BatchItemResult {
                     custom_id: request.custom_id.clone(),
                     success: false,
                     estimated_cost: request.estimated_cost,
+                    actual_cost: None,
+                    actual_input_tokens: None,
+                    actual_output_tokens: None,
                     error: Some(format!("Model resolution failed: {}", e)),
-                };
+                }, UsageReport::default());
             }
         };
 
@@ -126,18 +179,24 @@ impl BatchProcessor {
             )
             .await
         {
-            Ok((_response, _usage)) => BatchItemResult {
+            Ok((_response, usage)) => (BatchItemResult {
                 custom_id: request.custom_id.clone(),
                 success: true,
                 estimated_cost: request.estimated_cost,
+                actual_cost: None,
+                actual_input_tokens: None,
+                actual_output_tokens: None,
                 error: None,
-            },
-            Err(e) => BatchItemResult {
+            }, usage),
+            Err(e) => (BatchItemResult {
                 custom_id: request.custom_id.clone(),
                 success: false,
                 estimated_cost: request.estimated_cost,
+                actual_cost: None,
+                actual_input_tokens: None,
+                actual_output_tokens: None,
                 error: Some(format!("Request failed: {}", e)),
-            },
+            }, UsageReport::default()),
         }
     }
 
@@ -153,12 +212,51 @@ impl BatchProcessor {
         let success_count = item_results.iter().filter(|r| r.success).count();
         let failure_count = item_results.len() - success_count;
 
+        let total_actual_cost = item_results
+            .iter()
+            .filter_map(|r| r.actual_cost)
+            .sum::<Decimal>();
+        
+        let total_input_tokens = item_results
+            .iter()
+            .filter_map(|r| r.actual_input_tokens)
+            .sum::<i64>();
+        
+        let total_output_tokens = item_results
+            .iter()
+            .filter_map(|r| r.actual_output_tokens)
+            .sum::<i64>();
+
         BatchProcessResult {
             items: item_results,
             total_estimated_cost,
+            total_actual_cost: if total_actual_cost > Decimal::ZERO { Some(total_actual_cost) } else { None },
+            total_input_tokens,
+            total_output_tokens,
             success_count,
             failure_count,
         }
+    }
+
+    pub async fn send_completion_webhook(
+        batch_public_id: &str,
+        webhook_url: &str,
+        result: &BatchProcessResult,
+    ) -> Result<(), crate::batch_webhook::WebhookError> {
+        let sender = WebhookSender::new();
+        let payload = BatchWebhookPayload {
+            batch_id: batch_public_id.to_string(),
+            status: "completed".to_string(),
+            total_requests: result.items.len(),
+            completed_requests: result.success_count,
+            failed_requests: result.failure_count,
+            total_cost_usd: result.total_actual_cost.unwrap_or(Decimal::ZERO),
+            total_input_tokens: result.total_input_tokens,
+            total_output_tokens: result.total_output_tokens,
+            completed_at: Utc::now(),
+        };
+
+        sender.send_webhook(webhook_url, &payload).await
     }
 }
 
@@ -228,18 +326,27 @@ mod tests {
                 custom_id: "req-1".to_string(),
                 success: true,
                 estimated_cost: Decimal::from(5),
+                actual_cost: Some(Decimal::from(4)),
+                actual_input_tokens: Some(100),
+                actual_output_tokens: Some(50),
                 error: None,
             },
             BatchItemResult {
                 custom_id: "req-2".to_string(),
                 success: false,
                 estimated_cost: Decimal::from(3),
+                actual_cost: None,
+                actual_input_tokens: None,
+                actual_output_tokens: None,
                 error: Some("error".to_string()),
             },
             BatchItemResult {
                 custom_id: "req-3".to_string(),
                 success: true,
                 estimated_cost: Decimal::from(2),
+                actual_cost: Some(Decimal::from(2)),
+                actual_input_tokens: Some(80),
+                actual_output_tokens: Some(40),
                 error: None,
             },
         ];
@@ -248,6 +355,41 @@ mod tests {
         assert_eq!(aggregated.success_count, 2);
         assert_eq!(aggregated.failure_count, 1);
         assert_eq!(aggregated.total_estimated_cost, Decimal::from(10));
+        assert_eq!(aggregated.total_actual_cost, Some(Decimal::from(6)));
+        assert_eq!(aggregated.total_input_tokens, 180);
+        assert_eq!(aggregated.total_output_tokens, 90);
+    }
+
+    #[test]
+    fn test_aggregate_results_with_actual_cost_tracking() {
+        let results = vec![
+            BatchItemResult {
+                custom_id: "req-1".to_string(),
+                success: true,
+                estimated_cost: Decimal::from(10),
+                actual_cost: Some(Decimal::from(8)),
+                actual_input_tokens: Some(200),
+                actual_output_tokens: Some(100),
+                error: None,
+            },
+            BatchItemResult {
+                custom_id: "req-2".to_string(),
+                success: true,
+                estimated_cost: Decimal::from(5),
+                actual_cost: Some(Decimal::from(6)),
+                actual_input_tokens: Some(150),
+                actual_output_tokens: Some(75),
+                error: None,
+            },
+        ];
+
+        let aggregated = BatchProcessor::aggregate_results(results);
+        assert_eq!(aggregated.total_estimated_cost, Decimal::from(15));
+        assert_eq!(aggregated.total_actual_cost, Some(Decimal::from(14)));
+        assert_eq!(aggregated.total_input_tokens, 350);
+        assert_eq!(aggregated.total_output_tokens, 175);
+        assert_eq!(aggregated.success_count, 2);
+        assert_eq!(aggregated.failure_count, 0);
     }
 
     #[test]

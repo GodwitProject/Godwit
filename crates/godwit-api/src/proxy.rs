@@ -360,8 +360,9 @@ async fn merge_agentic_tools(
         .map(|ts| ts.iter().map(|t| t.function.name.clone()).collect())
         .unwrap_or_default();
 
-    // Record the native web-search tool names already declared so we don't duplicate.
     let mut added = Vec::new();
+    
+    // Inject MCP tools
     for tool in state.mcp.all_tools().await {
         let name = tool.function.name.clone();
         if godwit_providers::is_native_web_search_tool(&tool) || existing.contains(&name) {
@@ -370,6 +371,14 @@ async fn merge_agentic_tools(
         existing.insert(name);
         added.push(tool);
     }
+    
+    // Inject web_search tool when SearXNG is configured
+    if state.searxng.is_some() && !existing.contains("web_search") {
+        let web_search = godwit_providers::web_search_tool();
+        existing.insert("web_search".to_string());
+        added.push(web_search);
+    }
+    
     if !added.is_empty() {
         let tools = req.tools.get_or_insert_with(Vec::new);
         tools.extend(added.clone());
@@ -1593,4 +1602,18 @@ mod tests {
             .map(|c| c.openai_wire_streaming)
             .unwrap_or(false));
     }
+
+    #[test]
+    fn web_search_tool_name_is_recognized() {
+        assert!(godwit_providers::NATIVE_WEB_SEARCH_TOOLS.contains(&"web_search"));
+        assert!(godwit_providers::is_native_web_search_tool(&godwit_core::Tool {
+            r#type: "function".to_string(),
+            function: godwit_core::FunctionDefinition {
+                name: "web_search".to_string(),
+                description: None,
+                parameters: None,
+            },
+        }));
+    }
+
 }

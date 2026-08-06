@@ -271,4 +271,21 @@ mod tests {
         assert!(error_message.contains("MCP tool call to 'test__tool' failed"));
         assert!(error_message.contains("unknown MCP server"));
     }
+
+    #[test]
+    fn test_web_search_tool_is_not_mcp_tool() {
+        let web_search_name = "web_search";
+        let mcp_tool_name = "filesystem__read_file";
+        
+        assert!(!web_search_name.contains("__"));
+        assert!(mcp_tool_name.contains("__"));
+    }
+
+    #[test]
+    fn test_web_search_tool_recognized_by_name() {
+        use godwit_providers::NATIVE_WEB_SEARCH_TOOLS;
+        
+        assert!(NATIVE_WEB_SEARCH_TOOLS.contains(&"web_search"));
+        assert!(NATIVE_WEB_SEARCH_TOOLS.contains(&"google_search"));
+    }
 }

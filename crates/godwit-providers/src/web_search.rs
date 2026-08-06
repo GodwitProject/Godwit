@@ -1,4 +1,4 @@
-use godwit_core::{ChatCompletionRequest, Tool};
+use godwit_core::{ChatCompletionRequest, FunctionDefinition, Tool};
 
 /// Native web search tool names recognized across providers (OpenAI `web_search`,
 /// OpenAI/Gemini `google_search`, Gemini `google_search_grounding`).
@@ -8,6 +8,29 @@ pub const NATIVE_WEB_SEARCH_TOOLS: &[&str] = &[
     "google_search",
     "google_search_grounding",
 ];
+
+/// Creates a `web_search` tool definition for use in agentic tool injection.
+/// This tool is injected when SearXNG is configured, allowing models to request
+/// web searches via the SearXNG backend.
+pub fn web_search_tool() -> Tool {
+    Tool {
+        r#type: "function".to_string(),
+        function: FunctionDefinition {
+            name: "web_search".to_string(),
+            description: Some("Search the web for current information using SearXNG".to_string()),
+            parameters: Some(serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query"
+                    }
+                },
+                "required": ["query"]
+            })),
+        },
+    }
+}
 
 /// Returns true if the given tool definition is a native web search tool.
 pub fn is_native_web_search_tool(tool: &Tool) -> bool {
@@ -137,5 +160,25 @@ mod tests {
         };
         strip_native_web_search_from_request(&mut request);
         assert!(request.tools.is_none());
+    }
+
+    #[test]
+    fn web_search_tool_has_correct_structure() {
+        let tool = web_search_tool();
+        assert_eq!(tool.r#type, "function");
+        assert_eq!(tool.function.name, "web_search");
+        assert!(tool.function.description.is_some());
+        assert!(tool.function.description.as_ref().unwrap().contains("SearXNG"));
+        
+        let params = tool.function.parameters.unwrap();
+        let obj = params.as_object().unwrap();
+        assert_eq!(obj["type"], "object");
+        
+        let props = obj["properties"].as_object().unwrap();
+        assert!(props.contains_key("query"));
+        assert_eq!(props["query"]["type"], "string");
+        
+        let required = obj["required"].as_array().unwrap();
+        assert!(required.iter().any(|v| v.as_str() == Some("query")));
     }
 }

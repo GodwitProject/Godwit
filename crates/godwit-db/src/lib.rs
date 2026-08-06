@@ -527,4 +527,40 @@ mod tests {
             .expect("fetch ssn pattern");
         assert_eq!(ssn_pattern, "\\b\\d{3}-\\d{2}-\\d{4}\\b");
     }
+
+    #[sqlx::test(migrations = "./migrations")]
+    async fn alerting_service_check_budgets_integration(pool: PgPool) {
+        use godwit_core::alerting::AlertingService;
+        
+        let org_id: Uuid = sqlx::query_scalar(
+            "INSERT INTO organizations (name) VALUES ('test-org') RETURNING id"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        
+        sqlx::query(
+            "INSERT INTO alerting_config (org_id, webhook_url, budget_threshold_percent)
+             VALUES ($1, 'https://example.com/webhook', 80)"
+        )
+        .bind(org_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        
+        sqlx::query(
+            "INSERT INTO request_logs (organization_id, model, provider, provider_model_id, 
+                                       duration_ms, status, cost_usd)
+             VALUES ($1, 'gpt-4o', 'openai', 'gpt-4o', 100, 'success', 85.00)"
+        )
+        .bind(org_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        
+        let service = AlertingService::new(pool);
+        let result = service.check_budgets().await;
+        
+        assert!(result.is_err());
+    }
 }

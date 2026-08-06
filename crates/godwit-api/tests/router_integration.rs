@@ -64,6 +64,7 @@ fn test_config() -> AppConfig {
         },
         agentic: godwit_core::AgenticConfig::default(),
         compat: None,
+        circuit_breaker: None,
     }
 }
 
@@ -83,6 +84,7 @@ fn test_registry() -> Arc<AdapterRegistry> {
 /// real wiring (including the two auth middlewares and the `/api/v1` admin nesting) rather
 /// than a hand-rolled approximation.
 fn build_app(pool: PgPool) -> Router {
+    use crate::circuit_breaker::CircuitBreakerRegistry;
     let registry = test_registry();
     let state = Arc::new(AppState {
         config: test_config(),
@@ -102,6 +104,7 @@ fn build_app(pool: PgPool) -> Router {
         api_key_cache: MemoryCache::new(),
         credential_master_key: MASTER_KEY,
         rate_limiter: RateLimiter::new(),
+        circuit_breaker_registry: Arc::new(CircuitBreakerRegistry::new(5, std::time::Duration::from_secs(60), 3)),
     });
 
     Router::new()

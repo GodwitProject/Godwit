@@ -1,6 +1,7 @@
 use crate::adapter::{
     Adapter, ProviderError, ProviderResponse, ResolvedProfile, SseEvent, UsageReport,
 };
+use crate::prompt_cache::PromptCache;
 use crate::streaming::{normalize_openai_sse_event, parse_sse_events};
 use async_trait::async_trait;
 use futures::stream::{self, BoxStream, StreamExt};
@@ -13,6 +14,9 @@ use godwit_core::{
 use godwit_db::models::Model;
 use reqwest::Client;
 use serde::Serialize;
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Debug, Serialize)]
 struct OpenAiImageUrl {
@@ -112,8 +116,63 @@ struct OpenAiChatRequest {
     response_format: Option<OpenAiResponseFormat>,
 }
 
+/// Cache key for prompt caching - hashes the essential request parameters
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct PromptCacheKey {
+    model: String,
+    messages_hash: u64,
+    temperature: Option<u32>,
+    max_tokens: Option<i32>,
+    response_format_hash: Option<u64>,
+}
+
+impl Hash for PromptCacheKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.model.hash(state);
+        self.messages_hash.hash(state);
+        self.temperature.hash(state);
+        self.max_tokens.hash(state);
+        self.response_format_hash.hash(state);
+    }
+}
+
+impl PromptCacheKey {
+    fn from_request(request: &ChatCompletionRequest) -> Self {
+        use std::collections::hash_map::DefaultHasher;
+        
+        // Hash the serialized JSON representation of messages for stability
+        let messages_json = serde_json::to_string(&request.messages).unwrap_or_default();
+        let mut messages_hasher = DefaultHasher::new();
+        messages_json.hash(&mut messages_hasher);
+        
+        let response_format_hash = request.response_format.as_ref().map(|rf| {
+            let mut hasher = DefaultHasher::new();
+            serde_json::to_string(rf).unwrap_or_default().hash(&mut hasher);
+            hasher.finish()
+        });
+        
+        Self {
+            model: request.model.clone(),
+            messages_hash: messages_hasher.finish(),
+            temperature: request.temperature.map(|t| (t * 100.0) as u32),
+            max_tokens: request.max_tokens,
+            response_format_hash,
+        }
+    }
+}
+
+/// Cached chat completion response
+#[derive(Clone, Debug)]
+pub struct CachedChatResponse {
+    pub response: ChatCompletionResponse,
+    pub usage: UsageReport,
+}
+
 pub struct OpenAiProvider {
     client: Client,
+    /// Local prompt cache for chat completions
+    /// Default TTL: 3600s (1 hour), Max size: 10000 entries
+    prompt_cache: Arc<PromptCache<PromptCacheKey, CachedChatResponse>>,
 }
 
 pub type OpenAiAdapter = OpenAiProvider;
@@ -126,7 +185,15 @@ impl OpenAiProvider {
             .timeout(std::time::Duration::from_secs(120))
             .build()
             .expect("build reqwest client");
-        Self { client }
+        Self {
+            client,
+            prompt_cache: Arc::new(PromptCache::with_config(10000, Duration::from_secs(3600))),
+        }
+    }
+
+    /// Get a reference to the prompt cache
+    pub fn prompt_cache(&self) -> &PromptCache<PromptCacheKey, CachedChatResponse> {
+        &self.prompt_cache
     }
 }
 
@@ -154,6 +221,15 @@ impl Adapter for OpenAiProvider {
         model: &Model,
         mut request: ChatCompletionRequest,
     ) -> Result<(ProviderResponse, UsageReport), ProviderError> {
+        // Check cache first (only for non-streaming requests)
+        if request.stream != Some(true) {
+            let cache_key = PromptCacheKey::from_request(&request);
+            if let Some(cached) = self.prompt_cache.get(&cache_key) {
+                tracing::debug!("prompt cache hit for model {}", request.model);
+                return Ok((ProviderResponse::Chat(cached.response), cached.usage));
+            }
+        }
+
         // Translate the catalog/wildcard-resolved public id into the upstream model id.
         request.model = model.provider_model_id.clone();
         let openai_messages: Vec<OpenAiMessage> = request
@@ -204,6 +280,18 @@ impl Adapter for OpenAiProvider {
             .await
             .map_err(|e| ProviderError::Serialization(e.to_string()))?;
         let usage = crate::usage::chat_usage_report(&body.usage);
+        
+        // Cache the response (only for non-streaming requests)
+        if request.stream != Some(true) {
+            let cache_key = PromptCacheKey::from_request(&request);
+            let cached_response = CachedChatResponse {
+                response: body.clone(),
+                usage: usage.clone(),
+            };
+            self.prompt_cache.insert(cache_key, cached_response);
+            tracing::debug!("prompt cache miss - stored response for model {}", request.model);
+        }
+        
         Ok((ProviderResponse::Chat(body), usage))
     }
 
@@ -1389,5 +1477,109 @@ mod tests {
             .unwrap();
         assert_eq!(batch.id, "batch_123");
         assert_eq!(batch.status, "cancelling");
+    }
+
+    #[tokio::test]
+    async fn chat_caches_response_on_miss() {
+        use std::time::Duration;
+        let server = MockServer::start().await;
+        let call_count = std::sync::Arc::new(std::sync::Mutex::new(0));
+        let call_count_clone = call_count.clone();
+
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(move |req: &wiremock::Request| {
+                *call_count_clone.lock().unwrap() += 1;
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "id": "chatcmpl-123",
+                    "object": "chat.completion",
+                    "created": 1,
+                    "model": "gpt-4o",
+                    "choices": [{"index":0,"message":{"role":"assistant","content":"Hello from cache test"},"finish_reason":"stop"}],
+                    "usage": {"prompt_tokens":5,"completion_tokens":3,"total_tokens":8}
+                }))
+            })
+            .mount(&server)
+            .await;
+
+        let client = OpenAiAdapter::new();
+        let profile = ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
+        let req = ChatCompletionRequest {
+            model: "gpt-4o".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: Some(vec![ChatContent::text("Test caching")]),
+                name: None,
+                ..Default::default()
+            }],
+            stream: Some(false),
+            temperature: None,
+            max_tokens: None,
+            ..Default::default()
+        };
+        let model = dummy_model();
+
+        // First call - should be a cache miss, hits upstream
+        let (resp1, _usage1) = client.chat(&profile, &model, req.clone()).await.unwrap();
+        assert_eq!(*call_count.lock().unwrap(), 1);
+
+        // Second call with same request - should be a cache hit
+        let (resp2, _usage2) = client.chat(&profile, &model, req.clone()).await.unwrap();
+        assert_eq!(*call_count.lock().unwrap(), 1, "Should not hit upstream on cache hit");
+
+        // Verify cached response matches
+        let ProviderResponse::Chat(chat1) = resp1 else { panic!("expected chat response") };
+        let ProviderResponse::Chat(chat2) = resp2 else { panic!("expected chat response") };
+        assert_eq!(chat1.choices[0].message.content_as_text(), chat2.choices[0].message.content_as_text());
+    }
+
+    #[tokio::test]
+    async fn chat_stream_bypasses_cache() {
+        use std::time::Duration;
+        let server = MockServer::start().await;
+        let call_count = std::sync::Arc::new(std::sync::Mutex::new(0));
+        let call_count_clone = call_count.clone();
+
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(move |req: &wiremock::Request| {
+                *call_count_clone.lock().unwrap() += 1;
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string("data: {\"choices\":[{\"delta\":{\"content\":\"test\"}}]}\n\n")
+            })
+            .mount(&server)
+            .await;
+
+        let client = OpenAiAdapter::new();
+        let profile = ResolvedProfile {
+            base_url: server.uri(),
+            api_key: Some("fake-key".to_string()),
+        };
+        let req = ChatCompletionRequest {
+            model: "gpt-4o".to_string(),
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: Some(vec![ChatContent::text("Test streaming")]),
+                name: None,
+                ..Default::default()
+            }],
+            stream: Some(true),
+            temperature: None,
+            max_tokens: None,
+            ..Default::default()
+        };
+        let model = dummy_model();
+
+        // First streaming call
+        let _stream1 = client.chat_stream(&profile, &model, req.clone()).await.unwrap();
+        
+        // Second streaming call - should also hit upstream (no caching for streams)
+        let _stream2 = client.chat_stream(&profile, &model, req.clone()).await.unwrap();
+        
+        assert_eq!(*call_count.lock().unwrap(), 2, "Streaming requests should not be cached");
     }
 }

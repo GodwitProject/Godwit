@@ -1603,6 +1603,7 @@ dependencies = [
  "bytes",
  "chrono",
  "criterion",
+ "dashmap",
  "futures",
  "godwit-core",
  "godwit-db",

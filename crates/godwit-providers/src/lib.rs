@@ -6,6 +6,7 @@ pub mod gemini_stream;
 pub mod llama_cpp;
 pub mod ollama;
 pub mod openai;
+pub mod prompt_cache;
 pub mod registry;
 pub mod searxng;
 pub mod sglang;

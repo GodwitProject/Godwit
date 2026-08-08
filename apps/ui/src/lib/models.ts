@@ -10,7 +10,7 @@ export interface ApiModel {
   created_at: string;
 }
 
-const API_BASE = ''; // same-origin via next rewrites
+const API_BASE = '/api/v1';
 
 function parseModel(raw: {
   id: string;

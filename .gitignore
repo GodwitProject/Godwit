@@ -7,4 +7,5 @@ node_modules/
 .DS_Store
 UI-Proxy-LLM.zip
 /UI-Proxy-LLM/
+scheduled_tasks.lock
 

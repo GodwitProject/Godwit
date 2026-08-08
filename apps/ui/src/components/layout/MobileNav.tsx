@@ -11,7 +11,7 @@ const items = [
   { href: '/', label: 'nav.overview' as const, icon: OverviewIcon },
   { href: '/logs', label: 'nav.traffic' as const, icon: TrafficIcon },
   { href: '/keys', label: 'nav.keys' as const, icon: KeysIcon },
-  { href: '/providers', label: 'nav.providers' as const, icon: ProvidersIcon },
+  { href: '/providers', label: 'nav.models' as const, icon: ProvidersIcon },
 ];
 
 export function MobileNav() {

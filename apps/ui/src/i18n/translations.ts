@@ -77,6 +77,9 @@ export type TranslationKey =
   | 'traffic.resetFilters'
   | 'traffic.live'
   | 'models.declared'
+  | 'models.declaredCountUnit'
+  | 'models.noModels'
+  | 'models.noCapacity'
   | 'models.add'
   | 'models.exposed'
   | 'models.providerSideId'
@@ -138,6 +141,7 @@ export type TranslationKey =
   | 'providers.credentials'
   | 'providers.status'
   | 'providers.configured'
+  | 'providers.configure'
   | 'providers.missing'
   | 'providers.enabled'
   | 'providers.disabled'
@@ -164,6 +168,7 @@ export type TranslationKey =
   | 'logs.detail.capability'
   | 'logs.detail.streamed'
   | 'logs.detail.apiKey'
+  | 'logs.detail.tokens'
   | 'logs.detail.details'
   | 'logs.detail.detailsNote'
   | 'logs.liveTail'
@@ -277,6 +282,9 @@ const fr: TranslationSet = {
   'traffic.resetFilters': 'Réinitialiser les filtres',
   'traffic.live': 'en direct',
   'models.declared': 'Modèles déclarés',
+  'models.declaredCountUnit': 'déclarés',
+  'models.noModels': 'Aucun modèle déclaré.',
+  'models.noCapacity': 'Aucune activité récente à afficher.',
   'models.add': 'Déclarer un modèle',
   'models.exposed': 'Modèle exposé',
   'models.providerSideId': 'Identifiant côté fournisseur',
@@ -337,6 +345,7 @@ const fr: TranslationSet = {
   'providers.credentials': 'Identifiants',
   'providers.status': 'État',
   'providers.configured': 'Configuré',
+  'providers.configure': 'Configurer',
   'providers.missing': 'Manquant',
   'providers.enabled': 'Activé',
   'providers.disabled': 'Désactivé',
@@ -363,6 +372,7 @@ const fr: TranslationSet = {
   'logs.detail.capability': 'Capacité',
   'logs.detail.streamed': 'Streamé',
   'logs.detail.apiKey': 'Clé API',
+  'logs.detail.tokens': 'Tokens (in→out)',
   'logs.detail.details': 'Détails',
   'logs.detail.detailsNote': 'Les charges utiles et les détails de garde-fous ne sont pas encore disponibles depuis l’endpoint des journaux de dépenses.',
   'logs.liveTail': 'Flux live',
@@ -473,6 +483,9 @@ const en: TranslationSet = {
   'traffic.resetFilters': 'Reset filters',
   'traffic.live': 'live',
   'models.declared': 'Declared models',
+  'models.declaredCountUnit': 'declared',
+  'models.noModels': 'No models declared yet.',
+  'models.noCapacity': 'No recent activity to display.',
   'models.add': 'Declare a model',
   'models.exposed': 'Exposed model',
   'models.providerSideId': 'Provider-side ID',
@@ -533,6 +546,7 @@ const en: TranslationSet = {
   'providers.credentials': 'Credentials',
   'providers.status': 'Status',
   'providers.configured': 'Configured',
+  'providers.configure': 'Configure',
   'providers.missing': 'Missing',
   'providers.enabled': 'Enabled',
   'providers.disabled': 'Disabled',
@@ -559,6 +573,7 @@ const en: TranslationSet = {
   'logs.detail.capability': 'Capability',
   'logs.detail.streamed': 'Streamed',
   'logs.detail.apiKey': 'API Key',
+  'logs.detail.tokens': 'Tokens (in→out)',
   'logs.detail.details': 'Details',
   'logs.detail.detailsNote': 'Request/response payloads and guardrail details are not available from the spend logs endpoint yet.',
   'logs.liveTail': 'Live Tail',

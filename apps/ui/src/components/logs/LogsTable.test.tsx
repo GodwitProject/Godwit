@@ -9,9 +9,12 @@ const fixtures: RequestLog[] = [
     model: 'gpt-4',
     provider: 'openai',
     capability: 'chat',
+    tokens_in: 100,
+    tokens_out: 50,
     duration_ms: 812,
     streamed: false,
     cost_usd: 0.0124,
+    status: 'success',
     created_at: '2026-08-06T10:00:00Z',
   },
   {
@@ -20,9 +23,12 @@ const fixtures: RequestLog[] = [
     model: 'claude-3-opus',
     provider: 'anthropic',
     capability: 'chat',
+    tokens_in: 200,
+    tokens_out: null,
     duration_ms: null,
     streamed: true,
     cost_usd: 0.03,
+    status: 'error',
     created_at: '2026-08-06T09:30:00Z',
   },
   {
@@ -31,9 +37,12 @@ const fixtures: RequestLog[] = [
     model: 'gpt-3.5-turbo',
     provider: 'openai',
     capability: 'chat',
+    tokens_in: null,
+    tokens_out: 12,
     duration_ms: 3100,
     streamed: false,
     cost_usd: 0.0002,
+    status: 'rate_limited',
     created_at: '2026-08-06T09:00:00Z',
   },
 ];
@@ -60,7 +69,7 @@ describe('LogsTable', () => {
 
   it('renders an em dash for missing latency', () => {
     render(<LogsTable {...baseProps} />);
-    expect(screen.getByText('—')).toBeInTheDocument();
+    expect(screen.getAllByText('—').length).toBeGreaterThan(0);
   });
 
   it('opens detail when a log id is clicked', () => {
@@ -72,7 +81,7 @@ describe('LogsTable', () => {
 
   it('sorts the accumulated loaded set when the timestamp header is clicked', () => {
     render(<LogsTable {...baseProps} />);
-    const header = screen.getByText((content) => content.trim().startsWith('Timestamp'));
+    const header = screen.getByText((content) => content.trim().startsWith('Request'));
     fireEvent.click(header);
     const rows = screen.getAllByRole('row');
     const bodyRows = rows.slice(1);

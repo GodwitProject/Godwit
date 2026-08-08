@@ -1,6 +1,7 @@
 // apps/ui/src/components/layout/Header.tsx
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useT } from '@/hooks/useT';
 import { useAuthStore } from '@/store/auth';
@@ -8,11 +9,11 @@ import { logout } from '@/lib/auth';
 import { LangSwitch } from '@/components/ui/LangSwitch';
 import { SearchIcon, BellIcon, KeyboardIcon, PlusIcon } from '@/components/icons';
 
-const CRUMBS: Record<string, 'nav.overview' | 'nav.traffic' | 'nav.logs' | 'nav.keys' | 'nav.providers'> = {
+const CRUMBS: Record<string, 'nav.overview' | 'nav.traffic' | 'nav.logs' | 'nav.keys' | 'nav.models'> = {
   '/': 'nav.overview',
   '/logs': 'nav.traffic',
   '/keys': 'nav.keys',
-  '/providers': 'nav.providers',
+  '/providers': 'nav.models',
 };
 
 export function Header({ onOpenShortcuts }: { onOpenShortcuts: () => void }) {
@@ -23,6 +24,19 @@ export function Header({ onOpenShortcuts }: { onOpenShortcuts: () => void }) {
   const setUser = useAuthStore((s) => s.setUser);
 
   const crumbKey = CRUMBS[pathname] ?? 'nav.overview';
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+      const tag = (document.activeElement?.tagName ?? '').toUpperCase();
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      e.preventDefault();
+      searchRef.current?.focus();
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
 
   async function handleNew() {
     if (pathname === '/keys') return;
@@ -44,6 +58,7 @@ export function Header({ onOpenShortcuts }: { onOpenShortcuts: () => void }) {
       <div className="ml-auto hidden sm:flex items-center gap-2 bg-bg border border-border rounded-lg px-2.5 py-1.5 text-muted text-[12.5px] w-[300px] lg:w-[340px]">
         <SearchIcon width={14} height={14} />
         <input
+          ref={searchRef}
           className="flex-1 bg-transparent font-mono text-xs outline-none placeholder:text-muted text-fg"
           placeholder={t('top.searchPlaceholder')}
           aria-label={t('top.searchPlaceholder')}

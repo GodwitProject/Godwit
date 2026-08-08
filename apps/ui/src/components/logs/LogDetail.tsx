@@ -39,6 +39,10 @@ export function LogDetail({ open, log, onClose }: LogDetailProps) {
             <Fact k={t('logs.detail.provider')} v={log.provider || '—'} />
             <Fact k={t('logs.detail.capability')} v={log.capability || '—'} />
             <Fact k={t('logs.detail.streamed')} v={log.streamed ? t('yes') : t('no')} />
+            <Fact
+              k={t('logs.detail.tokens')}
+              v={log.tokens_in != null || log.tokens_out != null ? `${log.tokens_in ?? '—'} → ${log.tokens_out ?? '—'}` : '—'}
+            />
             <Fact k={t('logs.table.latency')} v={formatLatency(log.duration_ms)} />
             <Fact k={t('traffic.cost')} v={formatCost(log.cost_usd)} />
             <Fact k={t('logs.detail.apiKey')} v={log.api_key_id || '—'} />

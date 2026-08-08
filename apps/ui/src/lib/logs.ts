@@ -6,9 +6,12 @@ export interface RequestLog {
   model: string;
   provider: string;
   capability: string;
+  tokens_in: number | null;
+  tokens_out: number | null;
   duration_ms: number | null;
   streamed: boolean;
   cost_usd: number;
+  status: string;
   created_at: string;
 }
 
@@ -52,10 +55,19 @@ interface RawSpendLog {
   model?: string;
   provider?: string;
   capability?: string;
+  tokens_in?: number | string | null;
+  tokens_out?: number | string | null;
   duration_ms?: number | string | null;
   streamed?: boolean;
   cost_usd?: string | number | null;
+  status?: string;
   created_at?: string;
+}
+
+function toNullableInt(v: number | string | null | undefined): number | null {
+  if (v == null) return null;
+  const n = typeof v === 'string' ? Number(v) : v;
+  return Number.isFinite(n) ? n : null;
 }
 
 function parseLog(raw: RawSpendLog): RequestLog {
@@ -67,9 +79,12 @@ function parseLog(raw: RawSpendLog): RequestLog {
     model: raw.model ?? '',
     provider: raw.provider ?? '',
     capability: raw.capability ?? '',
+    tokens_in: toNullableInt(raw.tokens_in),
+    tokens_out: toNullableInt(raw.tokens_out),
     duration_ms: duration != null && Number.isFinite(duration) ? duration : null,
     streamed: !!raw.streamed,
     cost_usd: cost != null && Number.isFinite(cost) ? cost : 0,
+    status: raw.status ?? '',
     created_at: raw.created_at ?? '',
   };
 }

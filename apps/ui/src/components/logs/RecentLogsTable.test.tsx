@@ -9,9 +9,12 @@ const fixtures: RequestLog[] = [
     model: 'gpt-4',
     provider: 'openai',
     capability: 'chat',
+    tokens_in: 100,
+    tokens_out: 50,
     duration_ms: 812,
     streamed: false,
     cost_usd: 0.0124,
+    status: 'success',
     created_at: '2026-08-06T10:00:00Z',
   },
 ];

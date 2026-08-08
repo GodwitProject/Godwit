@@ -31,6 +31,7 @@ export function ShortcutsModal({ open, onClose }: ShortcutsModalProps) {
     { label: t('shortcuts.search'), keys: ['/'] },
     { label: t('shortcuts.overview'), keys: ['G', 'D'] },
     { label: t('shortcuts.traffic'), keys: ['G', 'T'] },
+    { label: t('shortcuts.models'), keys: ['G', 'R'] },
     { label: t('shortcuts.keys'), keys: ['G', 'K'] },
     { label: t('shortcuts.close'), keys: ['Esc'] },
   ];

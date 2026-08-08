@@ -23,3 +23,13 @@ export async function fetchProviders(): Promise<Provider[]> {
   const data = await getJson<{ data: Provider[] }>('/provider-profiles');
   return data.data || [];
 }
+
+export async function setProviderEnabled(id: string, enabled: boolean): Promise<Provider> {
+  const res = await apiFetch(`${API_BASE}/provider-profiles/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!res.ok) throw new Error(`Failed to PATCH /provider-profiles/${id}`);
+  return res.json();
+}

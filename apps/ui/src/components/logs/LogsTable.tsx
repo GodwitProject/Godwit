@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Card } from '../ui/Card';
 import { Table, TableHead, TableBody, TableRow, TableHeadCell, TableCell } from '../ui/Table';
 import { Button } from '../ui/Button';
+import { StatusPill } from './StatusPill';
 import { useT } from '@/hooks/useT';
 import type { RequestLog } from '../../lib/logs';
 
@@ -13,7 +14,7 @@ export interface LogsTableProps {
   loadingMore?: boolean;
 }
 
-type SortKey = 'created_at' | 'cost_usd' | 'duration_ms';
+type SortKey = 'created_at' | 'model' | 'provider' | 'tokens_in' | 'tokens_out' | 'cost_usd' | 'duration_ms' | 'status';
 
 function formatCost(cost: number): string {
   return `$${cost.toFixed(4)}`;
@@ -21,6 +22,10 @@ function formatCost(cost: number): string {
 
 function formatLatency(durationMs: number | null): string {
   return durationMs != null ? `${durationMs}ms` : '—';
+}
+
+function formatTokens(v: number | null): string {
+  return v != null ? String(v) : '—';
 }
 
 function formatDate(iso: string): string {
@@ -37,6 +42,17 @@ function formatDate(iso: string): string {
     return iso;
   }
 }
+
+const SORTABLE: Record<SortKey, boolean> = {
+  created_at: true,
+  model: true,
+  provider: true,
+  tokens_in: true,
+  tokens_out: true,
+  cost_usd: true,
+  duration_ms: true,
+  status: true,
+};
 
 export function LogsTable({ logs, onSelect, hasMore, onLoadMore, loadingMore }: LogsTableProps) {
   const { t } = useT();
@@ -66,6 +82,14 @@ export function LogsTable({ logs, onSelect, hasMore, onLoadMore, loadingMore }: 
   });
 
   const arrow = () => (sortDir === 'asc' ? '▲' : '▼');
+  const sortCell = (key: SortKey, label: string, align: 'left' | 'right' = 'left') => (
+    <TableHeadCell
+      className={`cursor-pointer select-none ${align === 'right' ? 'text-right' : ''}`}
+      onClick={() => handleSort(key)}
+    >
+      {label} {sortKey === key && arrow()}
+    </TableHeadCell>
+  );
 
   return (
     <Card className="overflow-hidden">
@@ -79,30 +103,31 @@ export function LogsTable({ logs, onSelect, hasMore, onLoadMore, loadingMore }: 
           <Table>
             <TableHead>
               <TableRow>
-                <TableHeadCell className="cursor-pointer select-none" onClick={() => handleSort('created_at')}>
-                  {t('logs.table.timestamp')} {sortKey === 'created_at' && arrow()}
-                </TableHeadCell>
-                <TableHeadCell>{t('logs.table.id')}</TableHeadCell>
-                <TableHeadCell>{t('recent.model')}</TableHeadCell>
-                <TableHeadCell>{t('traffic.provider')}</TableHeadCell>
-                <TableHeadCell className="cursor-pointer select-none text-left" onClick={() => handleSort('cost_usd')}>
-                  {t('traffic.cost')} {sortKey === 'cost_usd' && arrow()}
-                </TableHeadCell>
-                <TableHeadCell className="cursor-pointer select-none text-right" onClick={() => handleSort('duration_ms')}>
-                  {t('logs.table.latency')} {sortKey === 'duration_ms' && arrow()}
-                </TableHeadCell>
+                {sortCell('created_at', t('traffic.request'))}
+                {sortCell('model', t('recent.model'))}
+                {sortCell('provider', t('traffic.provider'))}
+                {sortCell('tokens_in', t('traffic.tokensIn'), 'right')}
+                {sortCell('tokens_out', t('traffic.tokensOut'), 'right')}
+                {sortCell('cost_usd', t('traffic.cost'), 'right')}
+                {sortCell('duration_ms', t('logs.table.latency'), 'right')}
+                {sortCell('status', t('recent.status'))}
                 <TableHeadCell />
               </TableRow>
             </TableHead>
             <TableBody>
               {sorted.map((log) => (
                 <TableRow key={log.id} className="cursor-pointer" onClick={() => onSelect(log)}>
-                  <TableCell className="text-muted whitespace-nowrap">{formatDate(log.created_at)}</TableCell>
-                  <TableCell className="font-mono text-[11.5px] text-muted">{log.id}</TableCell>
+                  <TableCell className="whitespace-nowrap">
+                    <div className="font-mono text-[11.5px] text-muted">{log.id}</div>
+                    <div className="text-[11px] text-muted font-mono">{formatDate(log.created_at)}</div>
+                  </TableCell>
                   <TableCell className="font-mono text-[11.5px] font-medium">{log.model}</TableCell>
                   <TableCell><span className="tag">{log.provider || log.capability}</span></TableCell>
-                  <TableCell className="font-mono text-[11.5px]">{formatCost(log.cost_usd)}</TableCell>
+                  <TableCell className="text-right font-mono text-[11.5px]">{formatTokens(log.tokens_in)}</TableCell>
+                  <TableCell className="text-right font-mono text-[11.5px]">{formatTokens(log.tokens_out)}</TableCell>
+                  <TableCell className="text-right font-mono text-[11.5px]">{formatCost(log.cost_usd)}</TableCell>
                   <TableCell className="text-right font-mono text-[11.5px]">{formatLatency(log.duration_ms)}</TableCell>
+                  <TableCell><StatusPill status={log.status} /></TableCell>
                   <TableCell>
                     <button
                       type="button"

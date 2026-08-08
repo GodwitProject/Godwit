@@ -62,11 +62,15 @@ Le test vérifie que `createModel` POST vers `/api/v1/models` (et non `/models`)
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createModel, fetchModels } from './models';
 
+// NOTE: vi.stubGlobal() returns void — return the mock explicitly so it can be
+// inspected via .mock.calls in the assertions.
 function mockFetch(data: unknown) {
-  return vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+  const fetchMock = vi.fn().mockResolvedValue({
     ok: true,
     json: async () => data,
-  }));
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
 }
 
 afterEach(() => {
@@ -84,7 +88,7 @@ describe('models API', () => {
       capabilities: 'chat',
       pricing: { input_price_per_million: 2.5, output_price_per_million: 10 },
     });
-    const [url, init] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('/api/v1/models');
     expect(init.method).toBe('POST');
   });
@@ -94,7 +98,7 @@ describe('models API', () => {
       data: [{ id: 'm1', public_id: 'gpt-4o', provider_model_id: 'gpt-4o', capabilities: ['chat'] }],
     });
     await fetchModels();
-    const [url] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [url] = fetchMock.mock.calls[0];
     expect(url).toBe('/api/v1/models');
   });
 });
@@ -152,24 +156,26 @@ afterEach(() => {
 });
 
 function mockJson(data: unknown) {
-  return vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+  const fetchMock = vi.fn().mockResolvedValue({
     ok: true,
     json: async () => data,
-  }));
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
 }
 
 describe('admin stats API', () => {
   it('calls /api/v1/admin/stats', async () => {
     const m = mockJson({ organizations: 1, teams: 1, users: 2, apiKeys: 3 });
     await fetchStats();
-    const [url] = (m as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [url] = m.mock.calls[0];
     expect(url).toBe('/api/v1/admin/stats');
   });
 
   it('calls /api/v1/spend with days', async () => {
     const m = mockJson({ data: [{ date: '2026-08-01', cost: '1.2' }] });
     await fetchSpend(30);
-    const [url] = (m as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [url] = m.mock.calls[0];
     expect(url).toBe('/api/v1/spend?days=30');
   });
 });
@@ -222,10 +228,12 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { fetchKeys, blockKey, unblockKey, deleteKey } from './keys';
 
 function mockFetch(data: unknown) {
-  return vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+  const fetchMock = vi.fn().mockResolvedValue({
     ok: true,
     json: async () => data,
-  }));
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
 }
 
 afterEach(() => {
@@ -236,14 +244,14 @@ describe('keys API', () => {
   it('fetches keys from /api/v1/api-keys', async () => {
     const m = mockFetch({ data: [] });
     await fetchKeys();
-    const [url] = (m as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [url] = m.mock.calls[0];
     expect(url).toBe('/api/v1/api-keys');
   });
 
   it('blocks a key at /api/v1/api-keys/:id/block', async () => {
     const m = mockFetch({ data: { id: 'k1' } });
     await blockKey('k1');
-    const [url, init] = (m as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [url, init] = m.mock.calls[0];
     expect(url).toBe('/api/v1/api-keys/k1/block');
     expect(init.method).toBe('POST');
   });
@@ -251,14 +259,15 @@ describe('keys API', () => {
   it('unblocks a key at /api/v1/api-keys/:id/unblock', async () => {
     const m = mockFetch({ data: { id: 'k1' } });
     await unblockKey('k1');
-    const [url] = (m as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [url] = m.mock.calls[0];
     expect(url).toBe('/api/v1/api-keys/k1/unblock');
   });
 
   it('deletes a key at /api/v1/api-keys/:id', async () => {
-    const m = vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
+    const m = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+    vi.stubGlobal('fetch', m);
     await deleteKey('k1');
-    const [url, init] = (m as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [url, init] = m.mock.calls[0];
     expect(url).toBe('/api/v1/api-keys/k1');
     expect(init.method).toBe('DELETE');
   });
@@ -312,10 +321,12 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { fetchProviders, setProviderEnabled } from './providers';
 
 function mockFetch(data: unknown) {
-  return vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+  const fetchMock = vi.fn().mockResolvedValue({
     ok: true,
     json: async () => data,
-  }));
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
 }
 
 afterEach(() => {
@@ -326,14 +337,14 @@ describe('providers API', () => {
   it('fetches providers from /api/v1/provider-profiles', async () => {
     const m = mockFetch({ data: [] });
     await fetchProviders();
-    const [url] = (m as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [url] = m.mock.calls[0];
     expect(url).toBe('/api/v1/provider-profiles');
   });
 
   it('patches enabled at /api/v1/provider-profiles/:id', async () => {
     const m = mockFetch({ id: 'p1', enabled: false });
     await setProviderEnabled('p1', false);
-    const [url, init] = (m as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [url, init] = m.mock.calls[0];
     expect(url).toBe('/api/v1/provider-profiles/p1');
     expect(init.method).toBe('PATCH');
   });
@@ -392,12 +403,13 @@ afterEach(() => {
 
 describe('logs API', () => {
   it('fetches logs from /api/v1/spend/logs', async () => {
-    const m = vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+    const m = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ data: [], offset: 0, limit: 50 }),
-    }));
+    });
+    vi.stubGlobal('fetch', m);
     await fetchLogs({ limit: 50 });
-    const [url] = (m as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    const [url] = m.mock.calls[0];
     expect(url).toBe('/api/v1/spend/logs?limit=50');
   });
 });

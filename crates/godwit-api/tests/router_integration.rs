@@ -18,11 +18,9 @@ use axum::{
         header::{COOKIE, SET_COOKIE},
         Request, StatusCode,
     },
-    middleware, Router,
+    Router,
 };
-use godwit_api::{admin, anthropic_proxy, model_router::DbModelRouter, proxy, rate_limit::RateLimiter, state::AppState};
-use godwit_cache::MemoryCache;
-use godwit_core::{AppConfig, AuthConfig, DatabaseConfig, Protocol, ServerConfig};
+use godwit_core::AuthConfig;
 use godwit_db::models::UserRole;
 use godwit_db::repositories::{
     api_keys::ApiKeyRepository, end_users::EndUsersRepository, models::ModelRepository,
@@ -30,14 +28,7 @@ use godwit_db::repositories::{
     refresh_tokens::RefreshTokenRepository, team_memberships::TeamMembershipRepository,
     teams::TeamRepository, users::UserRepository,
 };
-use godwit_mcp::McpRegistry;
-use godwit_providers::{
-    anthropic::AnthropicAdapter, gemini::GeminiAdapter, llama_cpp::LlamaCppAdapter,
-    ollama::OllamaAdapter, openai::OpenAiAdapter, sglang::SglangAdapter, vllm::VllmAdapter,
-    AdapterRegistry,
-};
 use sqlx::PgPool;
-use std::sync::Arc;
 use tower::ServiceExt;
 use uuid::Uuid;
 use wiremock::{
@@ -62,131 +53,19 @@ fn base_auth() -> AuthConfig {
     }
 }
 
-fn test_config() -> AppConfig {
-    AppConfig {
-        server: ServerConfig {
-            host: "127.0.0.1".to_string(),
-            port: 0,
-            request_timeout_seconds: 30,
-        },
-        database: DatabaseConfig {
-            url: "postgres://unused".to_string(),
-        },
-        auth: base_auth(),
-        agentic: godwit_core::AgenticConfig::default(),
-        compat: None,
-        circuit_breaker: None,
-        moderation: godwit_core::ModerationConfig::default(),
-        rerank: godwit_core::RerankConfig::default(),
-        batch: godwit_core::BatchConfig::default(),
-        cache: godwit_core::CacheConfig::default(),
-        pii: godwit_core::PiiConfig::default(),
-        moderation_pre: None,
-        moderation_post: None,
-        block_on_moderation_failure: None,
-    }
-}
-
-fn test_registry() -> Arc<AdapterRegistry> {
-    let mut registry = AdapterRegistry::new();
-    registry.register(Protocol::openai(), Arc::new(OpenAiAdapter::new()));
-    registry.register(Protocol::anthropic(), Arc::new(AnthropicAdapter::new()));
-    registry.register(Protocol::gemini(), Arc::new(GeminiAdapter::new()));
-    registry.register(Protocol::vllm(), Arc::new(VllmAdapter::new()));
-    registry.register(Protocol::sglang(), Arc::new(SglangAdapter::new()));
-    registry.register(Protocol::llama_cpp(), Arc::new(LlamaCppAdapter::new()));
-    registry.register(Protocol::ollama(), Arc::new(OllamaAdapter::new()));
-    Arc::new(registry)
-}
-
-/// Mirrors `godwit-bin/src/main.rs`'s state + router assembly, so these tests exercise the
-/// real wiring (including the two auth middlewares and the `/api/v1` admin nesting) rather
-/// than a hand-rolled approximation.
+/// Mirrors `godwit-bin/src/main.rs`'s state + router assembly via the shared helpers in
+/// `godwit_api::app`, so these tests exercise the real wiring (including the two auth
+/// middlewares and the `/api/v1` admin nesting) rather than a hand-rolled approximation.
 fn build_app(pool: PgPool) -> Router {
-    use godwit_api::circuit_breaker::CircuitBreakerRegistry;
-    use godwit_api::agentic_loop::AgenticLoop;
-    let registry = test_registry();
-    let state = Arc::new(AppState {
-        config: test_config(),
-        pool: pool.clone(),
-        adapter_registry: registry.clone(),
-        model_router: DbModelRouter::new(pool.clone(), registry, MASTER_KEY),
-        mcp: Arc::new(McpRegistry::new()),
-        searxng: None,
-        searxng_profile: None,
-        user_repo: UserRepository::new(pool.clone()),
-        org_repo: OrganizationRepository::new(pool.clone()),
-        team_repo: TeamRepository::new(pool.clone()),
-        team_membership_repo: TeamMembershipRepository::new(pool.clone()),
-        api_key_repo: ApiKeyRepository::new(pool.clone()),
-        refresh_token_repo: RefreshTokenRepository::new(pool.clone()),
-        end_user_repo: EndUsersRepository::new(pool.clone()),
-        api_key_cache: MemoryCache::new(),
-        credential_master_key: MASTER_KEY,
-        rate_limiter: RateLimiter::new(),
-        login_limiter: godwit_api::login_rate_limit::LoginLimiter::new(10),
-        circuit_breaker_registry: Arc::new(CircuitBreakerRegistry::new(5, std::time::Duration::from_secs(60), 3)),
-        agentic_loop: Arc::new(AgenticLoop::new(4, 120)),
-        guardrails: Arc::new(tokio::sync::Mutex::new(
-            godwit_core::guardrails::GuardrailsOrchestrator::new(godwit_core::guardrails::GuardrailsConfig::default())
-        )),
-    });
-
-    Router::new()
-        .merge(proxy::router())
-        .merge(anthropic_proxy::router())
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            godwit_api::middleware::api_key_auth,
-        ))
-        .nest("/api/v1", admin::router(state.clone()))
-        .with_state(state)
+    let state = godwit_api::app::build_test_state(pool);
+    godwit_api::app::build_app(state)
 }
 
 /// Clone of `build_app`, but with a caller-supplied `AuthConfig` injected (used to tune
 /// rate-limit / trust-proxy settings for auth integration tests).
 fn build_app_with_auth(pool: PgPool, auth: AuthConfig) -> Router {
-    use godwit_api::circuit_breaker::CircuitBreakerRegistry;
-    use godwit_api::agentic_loop::AgenticLoop;
-    let registry = test_registry();
-    let mut config = test_config();
-    let login_capacity = auth.login_max_attempts_per_minute.max(0) as u32;
-    config.auth = auth;
-    let state = Arc::new(AppState {
-        config: config.clone(),
-        pool: pool.clone(),
-        adapter_registry: registry.clone(),
-        model_router: DbModelRouter::new(pool.clone(), registry, MASTER_KEY),
-        mcp: Arc::new(McpRegistry::new()),
-        searxng: None,
-        searxng_profile: None,
-        user_repo: UserRepository::new(pool.clone()),
-        org_repo: OrganizationRepository::new(pool.clone()),
-        team_repo: TeamRepository::new(pool.clone()),
-        team_membership_repo: TeamMembershipRepository::new(pool.clone()),
-        api_key_repo: ApiKeyRepository::new(pool.clone()),
-        refresh_token_repo: RefreshTokenRepository::new(pool.clone()),
-        end_user_repo: EndUsersRepository::new(pool.clone()),
-        api_key_cache: MemoryCache::new(),
-        credential_master_key: MASTER_KEY,
-        rate_limiter: RateLimiter::new(),
-        login_limiter: godwit_api::login_rate_limit::LoginLimiter::new(login_capacity),
-        circuit_breaker_registry: Arc::new(CircuitBreakerRegistry::new(5, std::time::Duration::from_secs(60), 3)),
-        agentic_loop: Arc::new(AgenticLoop::new(4, 120)),
-        guardrails: Arc::new(tokio::sync::Mutex::new(
-            godwit_core::guardrails::GuardrailsOrchestrator::new(godwit_core::guardrails::GuardrailsConfig::default())
-        )),
-    });
-
-    Router::new()
-        .merge(proxy::router())
-        .merge(anthropic_proxy::router())
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            godwit_api::middleware::api_key_auth,
-        ))
-        .nest("/api/v1", admin::router(state.clone()))
-        .with_state(state)
+    let state = godwit_api::app::build_test_state_with_auth(pool, auth);
+    godwit_api::app::build_app(state)
 }
 
 /// Sends a `POST /api/v1/auth/login` request carrying the given `X-Forwarded-For` IP.

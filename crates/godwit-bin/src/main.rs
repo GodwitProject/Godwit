@@ -1,7 +1,8 @@
-use axum::{middleware, routing::Router};
+use axum::routing::Router;
 use godwit_api::{
-    admin, agentic_loop::AgenticLoop, anthropic_proxy, circuit_breaker::CircuitBreakerRegistry, health, login_rate_limit::LoginLimiter, metrics_endpoint, moderation, model_router::DbModelRouter, proxy,
-    rate_limit::RateLimiter, rerank, scheduler::Scheduler, state::AppState, utils,
+    agentic_loop::AgenticLoop, circuit_breaker::CircuitBreakerRegistry,
+    login_rate_limit::LoginLimiter, model_router::DbModelRouter, rate_limit::RateLimiter,
+    scheduler::Scheduler, state::AppState,
 };
 use godwit_core::alerting::AlertingService;
 use godwit_cache::MemoryCache;
@@ -117,26 +118,7 @@ async fn main() -> anyhow::Result<()> {
         scheduler.run().await;
     });
 
-    // `api_key_auth` is applied to the proxy router alone (via `route_layer` on its own
-    // value) so admin routes — authenticated by `jwt_auth` inside `admin::router` — are
-    // never subject to it. Applying it after merging the two routers would wrap both.
-    // Health endpoints are registered before auth middleware so they don't require authentication.
-    let proxy_router = proxy::router()
-        .merge(anthropic_proxy::router())
-        .merge(moderation::router())
-        .merge(rerank::router())
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            godwit_api::middleware::api_key_auth,
-        ));
-
-    let app = Router::new()
-        .merge(health::router())
-        .merge(metrics_endpoint::router())
-        .merge(utils::router())
-        .nest("/api/v1", admin::router(state.clone()))
-        .merge(proxy_router)
-        .with_state(state.clone());
+    let app = godwit_api::app::build_app(state.clone());
 
     let listener =
         tokio::net::TcpListener::bind(format!("{}:{}", config.server.host, config.server.port))

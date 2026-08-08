@@ -1,6 +1,7 @@
 pub mod load_balancer;
 pub mod login_rate_limit;
 pub mod admin;
+pub mod app;
 pub mod agentic_loop;
 pub mod anthropic_proxy;
 pub mod batch;

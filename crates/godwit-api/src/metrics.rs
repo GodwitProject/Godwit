@@ -1,5 +1,6 @@
 use lazy_static::lazy_static;
 use prometheus::{CounterVec, GaugeVec, HistogramVec, HistogramOpts, Opts, Registry, TextEncoder};
+use serde::Serialize;
 
 lazy_static! {
     pub static ref REGISTRY: Registry = Registry::new();
@@ -46,6 +47,53 @@ pub fn get_metrics() -> Result<String, prometheus::Error> {
     encoder.encode_to_string(&metric_families)
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct MetricsSnapshot {
+    pub requestsTotal: f64,
+    pub tokensTotal: f64,
+    pub costUsdTotal: f64,
+    pub activeRequests: f64,
+    pub timestamp: String,
+}
+
+fn sum_counter(name: &str) -> f64 {
+    REGISTRY
+        .gather()
+        .iter()
+        .find(|mf| mf.get_name() == name)
+        .map(|mf| {
+            mf.get_metric()
+                .iter()
+                .map(|m| m.get_counter().get_value())
+                .sum()
+        })
+        .unwrap_or(0.0)
+}
+
+fn sum_gauge(name: &str) -> f64 {
+    REGISTRY
+        .gather()
+        .iter()
+        .find(|mf| mf.get_name() == name)
+        .map(|mf| {
+            mf.get_metric()
+                .iter()
+                .map(|m| m.get_gauge().get_value())
+                .sum()
+        })
+        .unwrap_or(0.0)
+}
+
+pub fn get_metric_snapshot() -> MetricsSnapshot {
+    MetricsSnapshot {
+        requestsTotal: sum_counter("godwit_requests_total"),
+        tokensTotal: sum_counter("godwit_tokens_total"),
+        costUsdTotal: sum_counter("godwit_cost_usd_total"),
+        activeRequests: sum_gauge("godwit_active_requests"),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    }
+}
+
 pub struct MetricsCollector;
 
 impl MetricsCollector {
@@ -87,13 +135,20 @@ impl MetricsCollector {
 mod tests {
     use super::*;
 
-    fn setup() {
+    /// Metrics tests share the process-global `REGISTRY`, so they must not run
+    /// concurrently. `setup` returns a guard held for the lifetime of each test,
+    /// serializing them deterministically.
+    static METRICS_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn setup() -> std::sync::MutexGuard<'static, ()> {
+        let guard = METRICS_GUARD.lock().unwrap_or_else(|p| p.into_inner());
         let _ = register_metrics();
+        guard
     }
 
     #[test]
     fn test_record_request_increments_counter() {
-        setup();
+        let _guard = setup();
         MetricsCollector::record_request("gpt-4", "openai", "success", 0.5);
 
         let metric_families = REGISTRY.gather();
@@ -107,7 +162,7 @@ mod tests {
 
     #[test]
     fn test_record_tokens_by_type() {
-        setup();
+        let _guard = setup();
         MetricsCollector::record_tokens("input", "gpt-4", 100);
         MetricsCollector::record_tokens("output", "gpt-4", 50);
 
@@ -122,7 +177,7 @@ mod tests {
 
     #[test]
     fn test_active_requests_gauge() {
-        setup();
+        let _guard = setup();
         MetricsCollector::increment_active("gpt-4", "openai");
         MetricsCollector::increment_active("gpt-4", "openai");
         MetricsCollector::decrement_active("gpt-4", "openai");
@@ -136,13 +191,25 @@ mod tests {
         let metrics = active_requests.get_metric();
         assert!(!metrics.is_empty());
 
-        let gauge_value = metrics[0].get_gauge().get_value();
+        let gauge_value = metrics
+            .iter()
+            .find(|m| {
+                let labels = m.get_label();
+                labels
+                    .iter()
+                    .any(|l| l.get_name() == "model" && l.get_value() == "gpt-4")
+                    && labels
+                        .iter()
+                        .any(|l| l.get_name() == "provider" && l.get_value() == "openai")
+            })
+            .map(|m| m.get_gauge().get_value())
+            .expect("gpt-4/openai gauge series should exist");
         assert_eq!(gauge_value, 1.0);
     }
 
     #[test]
     fn test_record_cost() {
-        setup();
+        let _guard = setup();
         MetricsCollector::record_cost("org-1", "team-1", "key-1", 0.05);
 
         let metric_families = REGISTRY.gather();
@@ -155,8 +222,24 @@ mod tests {
     }
 
     #[test]
+    fn test_get_metric_snapshot_returns_camel_case_values() {
+        let _guard = setup();
+        MetricsCollector::record_request("snap-model", "snap-provider", "success", 0.5);
+        MetricsCollector::record_tokens("input", "snap-model", 100);
+        MetricsCollector::record_cost("snap-org", "snap-team", "snap-key", 0.05);
+        MetricsCollector::increment_active("snap-model", "snap-provider");
+
+        let snap = get_metric_snapshot();
+        assert!(snap.requestsTotal >= 1.0);
+        assert!(snap.tokensTotal >= 100.0);
+        assert!(snap.costUsdTotal >= 0.05);
+        assert!(snap.activeRequests >= 1.0);
+        assert!(!snap.timestamp.is_empty());
+    }
+
+    #[test]
     fn test_request_duration_histogram() {
-        setup();
+        let _guard = setup();
         MetricsCollector::record_request("claude-3", "anthropic", "success", 1.5);
 
         let metric_families = REGISTRY.gather();

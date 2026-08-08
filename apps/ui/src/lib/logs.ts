@@ -34,7 +34,7 @@ export interface LogsPage {
   limit: number;
 }
 
-const API_BASE = ''; // same-origin via next rewrites
+const API_BASE = '/api/v1';
 
 function buildQuery(query: LogsQuery): string {
   const params = new URLSearchParams();

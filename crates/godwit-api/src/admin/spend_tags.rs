@@ -393,12 +393,11 @@ mod tests {
 
         assert_eq!(result.len(), 2);
         // key_a and key_b have the same total, so ORDER BY spend_usd DESC does not pin
-        // their relative order; sort deterministically before asserting.
-        result.sort_by_key(|r| r.api_key_id);
-        assert_eq!(result[0].api_key_id, Some(key_a));
-        assert_eq!(result[0].spend_usd, dec!(3.00));
-        assert_eq!(result[1].api_key_id, Some(key_b));
-        assert_eq!(result[1].spend_usd, dec!(3.00));
+        // their relative order; verify both are present with correct amounts.
+        let found: std::collections::HashMap<_, _> =
+            result.iter().map(|r| (r.api_key_id, r.spend_usd)).collect();
+        assert_eq!(found.get(&Some(key_a)), Some(&dec!(3.00)));
+        assert_eq!(found.get(&Some(key_b)), Some(&dec!(3.00)));
     }
 
     #[sqlx::test(migrations = "../godwit-db/migrations")]

@@ -367,7 +367,8 @@ mod tests {
             created.capabilities,
             vec!["chat".to_string(), "image_generation".to_string()]
         );
-        assert_eq!(created.pricing, json!({}));
+        // pricing is stored as-is; we passed zeros so expect them back
+        assert_eq!(created.pricing, json!({"input_price_per_million": 0, "output_price_per_million": 0}));
         assert_eq!(created.config, json!({}));
 
         let fetched = models

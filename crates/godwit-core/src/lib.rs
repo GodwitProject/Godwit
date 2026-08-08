@@ -542,6 +542,23 @@ impl ChatMessage {
     }
 }
 
+fn serialize_chat_content<S>(content: &Option<Vec<ChatContent>>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match content {
+        None => serializer.serialize_none(),
+        Some(contents) if contents.len() == 1 => {
+            if let ChatContent::Text(text) = &contents[0] {
+                serializer.serialize_str(text)
+            } else {
+                contents.serialize(serializer)
+            }
+        }
+        Some(contents) => contents.serialize(serializer),
+    }
+}
+
 fn deserialize_chat_content<'de, D>(deserializer: D) -> Result<Option<Vec<ChatContent>>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -578,7 +595,11 @@ where
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct ChatMessage {
     pub role: String,
-    #[serde(default, deserialize_with = "deserialize_chat_content")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_chat_content",
+        serialize_with = "serialize_chat_content"
+    )]
     pub content: Option<Vec<ChatContent>>,
     pub name: Option<String>,
     pub tool_calls: Option<Vec<ToolCall>>,
@@ -1200,6 +1221,43 @@ auth:
         let msg: ChatMessage = serde_json::from_str(json).unwrap();
         assert_eq!(msg.role, "system");
         assert!(msg.content.is_none());
+    }
+
+    #[test]
+    fn chat_message_single_text_content_serializes_to_string() {
+        let msg = ChatMessage {
+            role: "assistant".to_string(),
+            content: Some(vec![ChatContent::Text("Hello, world!".to_string())]),
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+            cache_control: None,
+        };
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["content"], "Hello, world!");
+    }
+
+    #[test]
+    fn chat_message_parts_content_serializes_to_array() {
+        let msg = ChatMessage {
+            role: "assistant".to_string(),
+            content: Some(vec![ChatContent::Parts(vec![
+                ChatContentPart::Text { text: "What is this?".to_string() },
+                ChatContentPart::ImageUrl {
+                    image_url: ImageUrl {
+                        url: "https://example.com/img.png".to_string(),
+                        detail: None,
+                    },
+                },
+            ])]),
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+            cache_control: None,
+        };
+        let json = serde_json::to_value(&msg).unwrap();
+        assert!(json["content"].is_array());
+        assert_eq!(json["content"].as_array().unwrap().len(), 1);
     }
 
     #[test]

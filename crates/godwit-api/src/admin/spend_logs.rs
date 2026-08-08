@@ -35,9 +35,12 @@ struct SpendLogEntry {
     model: String,
     provider: String,
     capability: String,
+    tokens_in: Option<i32>,
+    tokens_out: Option<i32>,
     duration_ms: i32,
     streamed: bool,
     cost_usd: Option<Decimal>,
+    status: String,
     created_at: chrono::DateTime<Utc>,
 }
 
@@ -51,7 +54,7 @@ async fn fetch_spend_logs(
     offset: i64,
 ) -> Result<Vec<SpendLogEntry>, sqlx::Error> {
     sqlx::query_as::<_, SpendLogEntry>(
-        "SELECT id, api_key_id, model, provider, capability, duration_ms, streamed, cost_usd, created_at
+        "SELECT id, api_key_id, model, provider, capability, tokens_in, tokens_out, duration_ms, streamed, cost_usd, status, created_at
          FROM request_logs
          WHERE ($1::uuid IS NULL OR api_key_id = $1)
            AND ($2::text IS NULL OR model = $2)

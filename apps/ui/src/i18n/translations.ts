@@ -90,6 +90,24 @@ export type TranslationKey =
   | 'models.providers'
   | 'models.providersCount'
   | 'models.providerCol'
+  | 'modelForm.title'
+  | 'modelForm.exposed'
+  | 'modelForm.providerProfile'
+  | 'modelForm.selectProvider'
+  | 'modelForm.providerSideId'
+  | 'modelForm.capabilities'
+  | 'modelForm.inputPrice'
+  | 'modelForm.outputPrice'
+  | 'modelForm.submit'
+  | 'modelForm.submitting'
+  | 'modelForm.cancel'
+  | 'settings.subtitle'
+  | 'settings.locale'
+  | 'settings.localeLanguage'
+  | 'settings.localeHint'
+  | 'settings.session'
+  | 'settings.sessionEmail'
+  | 'settings.sessionRole'
   | 'keys.new'
   | 'keys.active'
   | 'keys.name'
@@ -295,6 +313,24 @@ const fr: TranslationSet = {
   'models.providers': 'Fournisseurs',
   'models.providersCount': 'actifs sur',
   'models.providerCol': 'Fournisseur',
+  'modelForm.title': 'Déclarer un modèle',
+  'modelForm.exposed': 'Modèle exposé',
+  'modelForm.providerProfile': 'Fournisseur',
+  'modelForm.selectProvider': 'Choisir un fournisseur',
+  'modelForm.providerSideId': 'Identifiant côté fournisseur',
+  'modelForm.capabilities': 'Capacités (séparées par des virgules)',
+  'modelForm.inputPrice': 'Prix entrée / 1 M',
+  'modelForm.outputPrice': 'Prix sortie / 1 M',
+  'modelForm.submit': 'Déclarer',
+  'modelForm.submitting': 'Déclaration…',
+  'modelForm.cancel': 'Annuler',
+  'settings.subtitle': 'Personnalisez la console et consultez les informations de votre session.',
+  'settings.locale': 'Langue',
+  'settings.localeLanguage': 'Langue de l’interface',
+  'settings.localeHint': 'La préférence est enregistrée dans votre navigateur.',
+  'settings.session': 'Session',
+  'settings.sessionEmail': 'E-mail',
+  'settings.sessionRole': 'Rôle',
   'keys.new': 'Nouvelle clé',
   'keys.active': 'Clés actives',
   'keys.name': 'Nom',
@@ -496,6 +532,24 @@ const en: TranslationSet = {
   'models.providers': 'Providers',
   'models.providersCount': 'active of',
   'models.providerCol': 'Provider',
+  'modelForm.title': 'Declare a model',
+  'modelForm.exposed': 'Exposed model',
+  'modelForm.providerProfile': 'Provider',
+  'modelForm.selectProvider': 'Choose a provider',
+  'modelForm.providerSideId': 'Provider-side ID',
+  'modelForm.capabilities': 'Capabilities (comma separated)',
+  'modelForm.inputPrice': 'Input price / 1M',
+  'modelForm.outputPrice': 'Output price / 1M',
+  'modelForm.submit': 'Declare',
+  'modelForm.submitting': 'Declaring…',
+  'modelForm.cancel': 'Cancel',
+  'settings.subtitle': 'Personalize the console and review your session information.',
+  'settings.locale': 'Language',
+  'settings.localeLanguage': 'Interface language',
+  'settings.localeHint': 'The preference is saved in your browser.',
+  'settings.session': 'Session',
+  'settings.sessionEmail': 'Email',
+  'settings.sessionRole': 'Role',
   'keys.new': 'New key',
   'keys.active': 'Active keys',
   'keys.name': 'Name',

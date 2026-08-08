@@ -73,15 +73,16 @@ export function Sidebar() {
       <div className="text-[11px] uppercase tracking-[0.08em] text-muted px-2 pt-3.5 pb-1.5">
         {t('nav.system')}
       </div>
-      <button
-        type="button"
-        className="flex items-center gap-2.5 px-2 py-[7px] rounded-lg text-[13.5px] text-fg hover:bg-surface-2 transition-colors cursor-not-allowed opacity-70"
-        disabled
-        title="Coming soon"
+      <Link
+        href="/settings"
+        className={clsx(
+          'flex items-center gap-2.5 px-2 py-[7px] rounded-lg text-[13.5px] text-fg transition-colors',
+          isActive('/settings') ? 'bg-surface text-fg shadow-ambient font-medium' : 'hover:bg-surface-2'
+        )}
       >
-        <SettingsIcon className="flex-none text-muted" />
+        <SettingsIcon className={clsx('flex-none', isActive('/settings') ? 'text-accent-strong' : 'text-muted')} />
         <span>{t('nav.settings')}</span>
-      </button>
+      </Link>
 
       <div className="flex-1" />
 

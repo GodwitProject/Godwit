@@ -1,12 +1,13 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/Button';
 import { ModelsTable } from '@/components/models/ModelsTable';
 import { CapacityCard } from '@/components/models/CapacityCard';
 import { ProvidersCard } from '@/components/models/ProvidersCard';
-import { useModels } from '@/hooks/useModels';
+import { ModelForm } from '@/components/models/ModelForm';
+import { useModels, useCreateModel } from '@/hooks/useModels';
 import { useProviders } from '@/hooks/useProviders';
 import { useSetProviderEnabled } from '@/hooks/useSetProviderEnabled';
 import { useT } from '@/hooks/useT';
@@ -15,9 +16,11 @@ import { PlusIcon } from '@/components/icons';
 
 export default function ProvidersPage() {
   const { t } = useT();
+  const [formOpen, setFormOpen] = useState(false);
   const { data: models, isLoading: modelsLoading } = useModels();
   const { data: providers, isLoading: providersLoading } = useProviders();
   const setEnabled = useSetProviderEnabled();
+  const createModel = useCreateModel();
   const { data: logsPage } = useQuery({
     queryKey: ['models-recent-logs'],
     queryFn: () => fetchLogs({ limit: 200 }),
@@ -72,7 +75,7 @@ export default function ProvidersPage() {
           <h1 className="text-display-lg">{t('page.models.title')}</h1>
           <p className="text-[13px] text-muted mt-1 max-w-[62ch]">{t('page.models.subtitle')}</p>
         </div>
-        <Button onClick={() => {}} title="Coming soon">
+        <Button onClick={() => setFormOpen(true)}>
           <PlusIcon width={14} height={14} />
           {t('models.add')}
         </Button>
@@ -100,6 +103,17 @@ export default function ProvidersPage() {
           </div>
         </>
       )}
+
+      <ModelForm
+        open={formOpen}
+        providers={providers ?? []}
+        submitting={createModel.isPending}
+        onClose={() => setFormOpen(false)}
+        onSubmit={async (req) => {
+          await createModel.mutateAsync(req);
+          setFormOpen(false);
+        }}
+      />
     </div>
   );
 }

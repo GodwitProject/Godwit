@@ -9,11 +9,12 @@ import { logout } from '@/lib/auth';
 import { LangSwitch } from '@/components/ui/LangSwitch';
 import { SearchIcon, BellIcon, KeyboardIcon, PlusIcon } from '@/components/icons';
 
-const CRUMBS: Record<string, 'nav.overview' | 'nav.traffic' | 'nav.logs' | 'nav.keys' | 'nav.models'> = {
+const CRUMBS: Record<string, 'nav.overview' | 'nav.traffic' | 'nav.logs' | 'nav.keys' | 'nav.models' | 'nav.settings'> = {
   '/': 'nav.overview',
   '/logs': 'nav.traffic',
   '/keys': 'nav.keys',
   '/providers': 'nav.models',
+  '/settings': 'nav.settings',
 };
 
 export function Header({ onOpenShortcuts }: { onOpenShortcuts: () => void }) {

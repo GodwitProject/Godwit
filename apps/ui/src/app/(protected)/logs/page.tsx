@@ -9,6 +9,7 @@ import { LogDetail } from '@/components/logs/LogDetail';
 import { useLogs } from '@/hooks/useLogs';
 import { useT } from '@/hooks/useT';
 import { ExportIcon } from '@/components/icons';
+import { logsToCsv, downloadCsv } from '@/lib/exportCsv';
 import type { LogFilters as LogFiltersType } from '@/lib/logs';
 
 const MODELS = ['gpt-4', 'gpt-4-turbo', 'gpt-3.5-turbo', 'claude-3-opus', 'claude-3-sonnet'];
@@ -44,6 +45,10 @@ export default function LogsPage() {
     setFilters(freshFilters());
   }
 
+  function handleExport() {
+    downloadCsv(`godwit-logs-${new Date().toISOString().slice(0, 10)}.csv`, logsToCsv(logs));
+  }
+
   return (
     <div className="view-fade space-y-4">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 border-b border-border pb-4">
@@ -52,7 +57,7 @@ export default function LogsPage() {
           <p className="text-[13px] text-muted mt-1 max-w-[62ch]">{t('page.traffic.subtitle')}</p>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="secondary" size="sm" disabled title="Coming soon">
+          <Button variant="secondary" size="sm" onClick={handleExport} disabled={logs.length === 0}>
             <ExportIcon width={14} height={14} />
             {t('traffic.exportCsv')}
           </Button>

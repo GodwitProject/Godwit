@@ -1,7 +1,7 @@
 import type { MetricsUpdate } from './websocket';
 import { apiFetch } from './http';
 
-const API_BASE = ''; // same-origin via next rewrites
+const API_BASE = '/api/v1';
 
 export interface AdminStats {
   organizations: number;

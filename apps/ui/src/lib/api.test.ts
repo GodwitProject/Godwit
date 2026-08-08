@@ -32,3 +32,35 @@ describe('parsePrometheusMetrics', () => {
     expect(metrics.activeRequests).toBe(0);
   });
 });
+
+import { afterEach, vi } from 'vitest';
+import { fetchStats, fetchSpend } from './api';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+function mockJson(data: unknown) {
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => data,
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
+
+describe('admin stats API', () => {
+  it('calls /api/v1/admin/stats', async () => {
+    const m = mockJson({ organizations: 1, teams: 1, users: 2, apiKeys: 3 });
+    await fetchStats();
+    const [url] = (m as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toBe('/api/v1/admin/stats');
+  });
+
+  it('calls /api/v1/spend with days', async () => {
+    const m = mockJson({ data: [{ date: '2026-08-01', cost: '1.2' }] });
+    await fetchSpend(30);
+    const [url] = (m as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toBe('/api/v1/spend?days=30');
+  });
+});

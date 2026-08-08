@@ -1474,6 +1474,7 @@ dependencies = [
  "godwit-db",
  "godwit-mcp",
  "godwit-providers",
+ "http-body-util",
  "hyper 1.11.0",
  "jsonschema",
  "lazy_static",

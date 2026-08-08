@@ -34,6 +34,7 @@ lazy_static = "1.4"
 
 [dev-dependencies]
 hyper = { version = "1", features = ["full"] }
+http-body-util = "0.1"
 rust_decimal_macros = "1.35"
 # `ServiceExt::oneshot` drives the assembled Router in-process, with no TCP listener.
 tower = { version = "0.5", features = ["util"] }

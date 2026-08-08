@@ -420,6 +420,8 @@ mod tests {
         use godwit_db::repositories::organizations::OrganizationRepository;
         use godwit_db::repositories::users::UserRepository;
         use godwit_db::repositories::end_users::EndUsersRepository;
+        use godwit_db::repositories::api_keys::ApiKeyRepository;
+        use godwit_auth::api_keys::generate_api_key;
         use crate::error::ApiError;
 
         let orgs = OrganizationRepository::new(pool.clone());
@@ -434,11 +436,28 @@ mod tests {
         end_users.create(org.id, user.id, None, Some(max_budget))
             .await.expect("create end user budget");
         
+        let (plaintext, hash, prefix) = generate_api_key();
+        let api_key = ApiKeyRepository::new(pool.clone())
+            .create(
+                user.id,
+                org.id,
+                "budget-test-key",
+                &prefix,
+                &hash,
+                &["chat".to_string()],
+                &["gpt-4o".to_string()],
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect("create api key");
+        
         sqlx::query(
             "INSERT INTO request_logs (api_key_id, user_id, organization_id, model, provider, provider_model_id, capability, duration_ms, streamed, status, cost_usd)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
         )
-        .bind(Uuid::new_v4())
+        .bind(api_key.id)
         .bind(user.id)
         .bind(org.id)
         .bind("gpt-4o")
@@ -463,6 +482,8 @@ mod tests {
         use godwit_db::repositories::organizations::OrganizationRepository;
         use godwit_db::repositories::users::UserRepository;
         use godwit_db::repositories::end_users::EndUsersRepository;
+        use godwit_db::repositories::api_keys::ApiKeyRepository;
+        use godwit_auth::api_keys::generate_api_key;
 
         let orgs = OrganizationRepository::new(pool.clone());
         let org = orgs.create("test-org", None).await.expect("create org");
@@ -476,11 +497,28 @@ mod tests {
         end_users.create(org.id, user.id, None, Some(max_budget))
             .await.expect("create end user budget");
         
+        let (plaintext, hash, prefix) = generate_api_key();
+        let api_key = ApiKeyRepository::new(pool.clone())
+            .create(
+                user.id,
+                org.id,
+                "budget-test-key",
+                &prefix,
+                &hash,
+                &["chat".to_string()],
+                &["gpt-4o".to_string()],
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect("create api key");
+        
         sqlx::query(
             "INSERT INTO request_logs (api_key_id, user_id, organization_id, model, provider, provider_model_id, capability, duration_ms, streamed, status, cost_usd)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
         )
-        .bind(Uuid::new_v4())
+        .bind(api_key.id)
         .bind(user.id)
         .bind(org.id)
         .bind("gpt-4o")
@@ -544,6 +582,8 @@ mod tests {
         use godwit_db::repositories::organizations::OrganizationRepository;
         use godwit_db::repositories::users::UserRepository;
         use godwit_db::repositories::teams::TeamRepository;
+        use godwit_db::repositories::api_keys::ApiKeyRepository;
+        use godwit_auth::api_keys::generate_api_key;
         use crate::error::ApiError;
 
         let orgs = OrganizationRepository::new(pool.clone());
@@ -558,11 +598,28 @@ mod tests {
         let team = teams.create(org.id, "test-team", None, Some(max_budget))
             .await.expect("create team budget");
         
+        let (plaintext, hash, prefix) = generate_api_key();
+        let api_key = ApiKeyRepository::new(pool.clone())
+            .create(
+                user.id,
+                org.id,
+                "budget-test-key",
+                &prefix,
+                &hash,
+                &["chat".to_string()],
+                &["gpt-4o".to_string()],
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect("create api key");
+        
         sqlx::query(
             "INSERT INTO request_logs (api_key_id, user_id, organization_id, team_id, model, provider, provider_model_id, capability, duration_ms, streamed, status, cost_usd)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"
         )
-        .bind(Uuid::new_v4())
+        .bind(api_key.id)
         .bind(user.id)
         .bind(org.id)
         .bind(team.id)
@@ -588,6 +645,8 @@ mod tests {
         use godwit_db::repositories::organizations::OrganizationRepository;
         use godwit_db::repositories::users::UserRepository;
         use godwit_db::repositories::teams::TeamRepository;
+        use godwit_db::repositories::api_keys::ApiKeyRepository;
+        use godwit_auth::api_keys::generate_api_key;
 
         let orgs = OrganizationRepository::new(pool.clone());
         let org = orgs.create("test-org", None).await.expect("create org");
@@ -601,11 +660,28 @@ mod tests {
         let team = teams.create(org.id, "test-team", None, Some(max_budget))
             .await.expect("create team budget");
         
+        let (plaintext, hash, prefix) = generate_api_key();
+        let api_key = ApiKeyRepository::new(pool.clone())
+            .create(
+                user.id,
+                org.id,
+                "budget-test-key",
+                &prefix,
+                &hash,
+                &["chat".to_string()],
+                &["gpt-4o".to_string()],
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect("create api key");
+        
         sqlx::query(
             "INSERT INTO request_logs (api_key_id, user_id, organization_id, team_id, model, provider, provider_model_id, capability, duration_ms, streamed, status, cost_usd)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"
         )
-        .bind(Uuid::new_v4())
+        .bind(api_key.id)
         .bind(user.id)
         .bind(org.id)
         .bind(team.id)

@@ -25,7 +25,7 @@ describe('RecentLogsTable', () => {
 
   it('renders an empty state when there are no logs', () => {
     render(<RecentLogsTable logs={[]} />);
-    expect(screen.getByText('No recent proxy events yet.')).toBeInTheDocument();
+    expect(screen.getByText('No live metric data yet')).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 });

@@ -3,6 +3,7 @@ import { Modal } from '../ui/Modal';
 import { Input } from '../ui/Input';
 import { Checkbox } from '../ui/Checkbox';
 import { Button } from '../ui/Button';
+import { useT } from '@/hooks/useT';
 import type { CreateKeyRequest, CreatedKey } from '../../lib/keys';
 
 export interface KeyFormProps {
@@ -23,6 +24,7 @@ function toNumber(value: string): number | null {
 }
 
 export function KeyForm({ open, availableModels, submitting, onClose, onSubmit }: KeyFormProps) {
+  const { t } = useT();
   const [name, setName] = useState('');
   const [scopes, setScopes] = useState<string[]>([]);
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
@@ -74,20 +76,15 @@ export function KeyForm({ open, availableModels, submitting, onClose, onSubmit }
   }
 
   return (
-    <Modal
-      open={open}
-      onClose={handleClose}
-      title="Create API Key"
-      maxWidth="max-w-2xl"
-    >
+    <Modal open={open} onClose={handleClose} title={t('keys.create.title')} maxWidth="max-w-2xl">
       {created ? (
         <div className="flex flex-col items-center text-center gap-4 py-6">
-          <span className="material-symbols-outlined text-5xl text-success">verified</span>
-          <h3 className="text-title-md">API Key created</h3>
-          <div className="bg-warning/10 text-warning rounded-lg p-3 text-body-base w-full">
-            Copy this key now. You won&apos;t see it again.
+          <span className="text-5xl text-success">✓</span>
+          <h3 className="text-base font-semibold">{t('keys.created.title')}</h3>
+          <div className="bg-[oklch(97%_0.04_80)] text-warn rounded-lg p-3 text-[13px] w-full">
+            {t('keys.created.note')}
           </div>
-          <div className="w-full bg-surface-container-low rounded-lg p-3 font-mono text-code-sm break-all select-all">
+          <div className="w-full bg-bg border border-border rounded-lg p-3 font-mono text-[11.5px] break-all select-all">
             {created.key}
           </div>
           <Button
@@ -97,14 +94,14 @@ export function KeyForm({ open, availableModels, submitting, onClose, onSubmit }
               setCopied(true);
             }}
           >
-            {copied ? 'Copied' : 'Copy Key'}
+            {copied ? t('keys.created.copied') : t('keys.created.copy')}
           </Button>
-          <Button onClick={handleClose}>Done</Button>
+          <Button onClick={handleClose}>{t('keys.created.done')}</Button>
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input
-            label="Name"
+            label={t('keys.create.nameLabel')}
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Production gateway"
@@ -112,7 +109,7 @@ export function KeyForm({ open, availableModels, submitting, onClose, onSubmit }
           />
 
           <div className="flex flex-col gap-2">
-            <span className="text-label-sm font-medium text-on-surface-variant">Scopes</span>
+            <span className="text-[11px] uppercase tracking-wider text-muted font-medium">{t('keys.create.scopes')}</span>
             <div className="flex flex-wrap gap-4">
               {ALL_SCOPES.map((scope) => (
                 <Checkbox
@@ -126,9 +123,9 @@ export function KeyForm({ open, availableModels, submitting, onClose, onSubmit }
           </div>
 
           <div className="flex flex-col gap-2">
-            <span className="text-label-sm font-medium text-on-surface-variant">Allowed Models</span>
+            <span className="text-[11px] uppercase tracking-wider text-muted font-medium">{t('keys.create.allowedModels')}</span>
             {availableModels.length === 0 ? (
-              <p className="text-caption-xs text-on-surface-variant">No models available.</p>
+              <p className="text-[11px] text-muted">—</p>
             ) : (
               <div className="flex flex-wrap gap-3">
                 {availableModels.map((model) => (
@@ -145,7 +142,7 @@ export function KeyForm({ open, availableModels, submitting, onClose, onSubmit }
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Input
-              label="Rate Limit RPM (optional)"
+              label={t('keys.create.rateLimitRpm')}
               type="number"
               min="0"
               value={rateLimitRpm}
@@ -153,7 +150,7 @@ export function KeyForm({ open, availableModels, submitting, onClose, onSubmit }
               placeholder="e.g. 1000"
             />
             <Input
-              label="Rate Limit TPM (optional)"
+              label={t('keys.create.rateLimitTpm')}
               type="number"
               min="0"
               value={rateLimitTpm}
@@ -164,10 +161,10 @@ export function KeyForm({ open, availableModels, submitting, onClose, onSubmit }
 
           <div className="flex justify-end gap-3 pt-2">
             <Button type="button" variant="secondary" onClick={handleClose}>
-              Cancel
+              {t('keys.create.cancel')}
             </Button>
             <Button type="submit" disabled={submitting}>
-              {submitting ? 'Creating...' : 'Create Key'}
+              {submitting ? t('loading.loading') + '…' : t('keys.create.submit')}
             </Button>
           </div>
         </form>

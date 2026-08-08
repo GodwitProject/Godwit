@@ -9,81 +9,60 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Surface
-        surface: '#f8f9fb',
-        'surface-dim': '#d9dadc',
-        'surface-bright': '#f8f9fb',
-        'surface-container-lowest': '#ffffff',
-        'surface-container-low': '#f3f4f6',
-        'surface-container': '#edeef0',
-        'surface-container-high': '#e7e8ea',
-        'surface-container-highest': '#e1e2e4',
-        
-        // On Surface
-        'on-surface': '#191c1e',
-        'on-surface-variant': '#434655',
-        
-        // Primary (Godwit Cobalt Blue)
-        primary: '#004ac6',
-        'on-primary': '#ffffff',
-        'primary-container': '#2563eb',
-        'on-primary-container': '#eeefff',
-        'primary-fixed': '#dbe1ff',
-        'primary-fixed-dim': '#b4c5ff',
-        
-        // Secondary
-        secondary: '#515f74',
-        'on-secondary': '#ffffff',
-        'secondary-container': '#d5e3fc',
-        'on-secondary-container': '#57657a',
-        
-        // Tertiary
-        tertiary: '#005a82',
-        'on-tertiary': '#ffffff',
-        'tertiary-container': '#0074a6',
-        'on-tertiary-container': '#e4f2ff',
-        
-        // Error
-        error: '#ba1a1a',
-        'on-error': '#ffffff',
-        'error-container': '#ffdad6',
-        
+        // Surfaces (cold neutral, from prototype)
+        bg: 'oklch(98% 0.005 250)',
+        surface: 'oklch(100% 0 0)',
+        'sidebar-bg': 'oklch(97% 0.006 250)',
+        'surface-2': 'oklch(93% 0.006 250)',
+        'surface-2_5': 'oklch(97.5% 0.004 250)',
+
+        // Foreground
+        fg: 'oklch(22% 0.02 240)',
+        muted: 'oklch(50% 0.018 240)',
+        border: 'oklch(90% 0.008 240)',
+
+        // Accent (green)
+        accent: 'oklch(58% 0.16 145)',
+        'accent-strong': 'oklch(50% 0.17 145)',
+        'on-accent': '#0c1f12',
+
         // Functional
-        success: '#10b981',
-        warning: '#f59e0b',
-        info: '#3b82f6',
-        
-        // Borders
-        outline: '#737686',
-        'outline-variant': '#c3c6d7',
+        success: 'oklch(55% 0.15 155)',
+        warn: 'oklch(60% 0.15 80)',
+        danger: 'oklch(55% 0.19 25)',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['JetBrains Mono', 'monospace'],
+        sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+        mono: ['"JetBrains Mono"', '"IBM Plex Mono"', 'ui-monospace', 'Menlo', 'monospace'],
       },
       fontSize: {
-        'display-lg': ['30px', { lineHeight: '36px', fontWeight: '700', letterSpacing: '-0.02em' }],
+        'display-lg': ['22px', { lineHeight: '28px', fontWeight: '600', letterSpacing: '-0.02em' }],
         'headline-md': ['24px', { lineHeight: '32px', fontWeight: '700', letterSpacing: '-0.01em' }],
-        'title-md': ['20px', { lineHeight: '28px', fontWeight: '700' }],
-        'section-sm': ['18px', { lineHeight: '28px', fontWeight: '600' }],
-        'body-base': ['16px', { lineHeight: '24px', fontWeight: '400' }],
-        'label-sm': ['14px', { lineHeight: '20px', fontWeight: '500' }],
-        'caption-xs': ['12px', { lineHeight: '16px', fontWeight: '400' }],
-        'code-sm': ['13px', { lineHeight: '20px', fontWeight: '400' }],
+        'title-md': ['20px', { lineHeight: '28px', fontWeight: '600' }],
+        'title-sm': ['15px', { lineHeight: '22px', fontWeight: '600', letterSpacing: '-0.01em' }],
+        'section-sm': ['13px', { lineHeight: '20px', fontWeight: '560', letterSpacing: '-0.01em' }],
+        'body-base': ['13.5px', { lineHeight: '20px', fontWeight: '450' }],
+        'label-sm': ['12.5px', { lineHeight: '20px', fontWeight: '510' }],
+        'caption-xs': ['11px', { lineHeight: '16px', fontWeight: '510', letterSpacing: '0.06em' }],
+        'code-sm': ['11.5px', { lineHeight: '20px', fontWeight: '400' }],
+      },
+      borderRadius: {
+        'DEFAULT': '6px',
+        'lg': '6px',
+        'xl': '10px',
+        '2xl': '12px',
+        'full': '9999px',
       },
       spacing: {
-        'base-unit': '4px',
+        'sidebar-width': '232px',
         'gutter': '16px',
         'margin-mobile': '16px',
         'margin-desktop': '32px',
-        'sidebar-width': '256px',
-        'container-padding': '24px',
+        'container-padding': '16px',
       },
-      borderRadius: {
-        'DEFAULT': '0.125rem',
-        'lg': '0.25rem',
-        'xl': '0.5rem',
-        'full': '9999px',
+      boxShadow: {
+        'ambient': '0 1px 2px oklch(90% 0.01 250), inset 0 0 0 1px oklch(90% 0.008 240)',
+        'drawer': '0 24px 60px oklch(20% 0.02 250 / 0.25)',
       },
     },
   },

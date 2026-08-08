@@ -5,12 +5,12 @@ describe('Button', () => {
   it('renders with default variant', () => {
     render(<Button>Click me</Button>);
     const button = screen.getByRole('button');
-    expect(button).toHaveClass('bg-primary');
+    expect(button).toHaveClass('bg-accent');
   });
 
   it('applies secondary variant', () => {
     render(<Button variant="secondary">Click me</Button>);
     const button = screen.getByRole('button');
-    expect(button).toHaveClass('hairline-border');
+    expect(button).toHaveClass('border-border');
   });
 });

@@ -57,7 +57,7 @@ describe('KeyList', () => {
 
     const readBadges = screen.getAllByText('read');
     expect(readBadges.length).toBeGreaterThan(0);
-    expect(readBadges[0]).toHaveClass('bg-info/10');
+    expect(readBadges[0]).toHaveClass('text-[oklch(40%_0.14_260)]');
   });
 
   it('shows prefix in monospace', () => {

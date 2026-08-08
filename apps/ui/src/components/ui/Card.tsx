@@ -6,16 +6,16 @@ export interface CardProps extends HTMLAttributes<HTMLDivElement> {
 }
 
 export const Card = forwardRef<HTMLDivElement, CardProps>(
-  ({ className, variant = 'elevated', ...props }, ref) => {
+  ({ className, variant = 'outlined', ...props }, ref) => {
     return (
       <div
         ref={ref}
         className={clsx(
-          'bg-surface-container-lowest rounded-xl p-container-padding',
+          'bg-surface rounded-xl',
           {
-            'ambient-shadow': variant === 'elevated',
-            'hairline-border': variant === 'outlined',
-            'bg-surface-container-low': variant === 'filled',
+            'shadow-ambient': variant === 'elevated',
+            'border border-border': variant === 'outlined',
+            'bg-surface-2': variant === 'filled',
           },
           className
         )}

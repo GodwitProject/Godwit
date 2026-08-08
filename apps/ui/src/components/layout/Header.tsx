@@ -1,16 +1,33 @@
 // apps/ui/src/components/layout/Header.tsx
 'use client';
 
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { Button } from '@/components/ui/Button';
-import { logout } from '@/lib/auth';
+import { useRouter, usePathname } from 'next/navigation';
+import { useT } from '@/hooks/useT';
 import { useAuthStore } from '@/store/auth';
+import { logout } from '@/lib/auth';
+import { LangSwitch } from '@/components/ui/LangSwitch';
+import { SearchIcon, BellIcon, KeyboardIcon, PlusIcon } from '@/components/icons';
 
-export function Header() {
+const CRUMBS: Record<string, 'nav.overview' | 'nav.traffic' | 'nav.logs' | 'nav.keys' | 'nav.providers'> = {
+  '/': 'nav.overview',
+  '/logs': 'nav.traffic',
+  '/keys': 'nav.keys',
+  '/providers': 'nav.providers',
+};
+
+export function Header({ onOpenShortcuts }: { onOpenShortcuts: () => void }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const { t } = useT();
   const user = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
+
+  const crumbKey = CRUMBS[pathname] ?? 'nav.overview';
+
+  async function handleNew() {
+    if (pathname === '/keys') return;
+    router.push('/keys');
+  }
 
   async function handleSignOut() {
     await logout();
@@ -19,39 +36,60 @@ export function Header() {
   }
 
   return (
-    <header className="fixed top-0 w-full z-50 bg-surface border-b hairline-border h-16 flex items-center justify-between px-margin-mobile md:px-margin-desktop">
-      <Link href="/" className="flex items-center gap-2 text-primary">
-        <span className="material-symbols-outlined">terminal</span>
-        <span className="font-headline-md font-bold">Godwit</span>
-      </Link>
-      
-      <nav className="hidden md:flex items-center gap-6">
-        <Link href="/" className="text-primary font-medium hover:bg-surface-container-high px-3 py-2 rounded-lg transition-colors">
-          Dashboard
-        </Link>
-        <Link href="/providers" className="text-on-surface-variant hover:bg-surface-container-high px-3 py-2 rounded-lg transition-colors">
-          Providers
-        </Link>
-        <Link href="/keys" className="text-on-surface-variant hover:bg-surface-container-high px-3 py-2 rounded-lg transition-colors">
-          API Keys
-        </Link>
-        <Link href="/logs" className="text-on-surface-variant hover:bg-surface-container-high px-3 py-2 rounded-lg transition-colors">
-          Logs
-        </Link>
-      </nav>
-
-      <div className="flex items-center gap-4">
-        {user && (
-          <span className="text-label-sm text-on-surface-variant hidden sm:inline">
-            {user.email}
-          </span>
-        )}
-        {user && (
-          <Button variant="ghost" size="sm" onClick={handleSignOut}>
-            Sign out
-          </Button>
-        )}
+    <header className="h-[52px] flex-none flex items-center gap-4 px-5 bg-surface border-b border-border">
+      <div className="text-[12.5px] text-muted font-medium">
+        <b className="text-fg font-medium">{t(crumbKey)}</b>
       </div>
+
+      <div className="ml-auto hidden sm:flex items-center gap-2 bg-bg border border-border rounded-lg px-2.5 py-1.5 text-muted text-[12.5px] w-[300px] lg:w-[340px]">
+        <SearchIcon width={14} height={14} />
+        <input
+          className="flex-1 bg-transparent font-mono text-xs outline-none placeholder:text-muted text-fg"
+          placeholder={t('top.searchPlaceholder')}
+          aria-label={t('top.searchPlaceholder')}
+        />
+        <kbd className="font-mono text-[10px] text-muted border border-border rounded px-1.5 py-0.5 bg-surface">/</kbd>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <LangSwitch />
+        <button
+          type="button"
+          className="grid place-items-center w-8 h-8 rounded-lg text-muted border border-border hover:bg-bg hover:text-fg"
+          title={t('top.notifications')}
+        >
+          <BellIcon width={16} height={16} />
+        </button>
+        <button
+          type="button"
+          className="grid place-items-center w-8 h-8 rounded-lg text-muted border border-border hover:bg-bg hover:text-fg"
+          title={t('top.shortcuts')}
+          onClick={onOpenShortcuts}
+        >
+          <KeyboardIcon width={16} height={16} />
+        </button>
+        <button
+          type="button"
+          className="flex items-center gap-1.5 bg-fg text-bg text-[12.5px] font-medium px-3 py-[7px] rounded-lg hover:bg-[oklch(16%_0.02_240)]"
+          onClick={handleNew}
+        >
+          <PlusIcon width={14} height={14} />
+          {pathname === '/keys' ? t('top.newKey') : t('top.newRequest')}
+        </button>
+      </div>
+
+      {user && (
+        <span className="text-[12px] text-muted hidden sm:inline">{user.email}</span>
+      )}
+      {user && (
+        <button
+          type="button"
+          onClick={handleSignOut}
+          className="text-[12px] text-muted hover:text-fg font-medium border-l border-border pl-3"
+        >
+          {t('auth.signOut')}
+        </button>
+      )}
     </header>
   );
 }

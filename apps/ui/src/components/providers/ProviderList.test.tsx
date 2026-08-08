@@ -33,9 +33,9 @@ describe('ProviderList', () => {
 
     expect(screen.getByText('https://api.openai.com/v1')).toBeInTheDocument();
 
-    expect(screen.getByText('Configured')).toHaveClass('bg-success/10');
-    expect(screen.getByText('Missing')).toHaveClass('bg-warning/10');
-    expect(screen.getByText('Enabled')).toHaveClass('bg-success/10');
+    expect(screen.getByText('Configured')).toHaveClass('text-success');
+    expect(screen.getByText('Missing')).toHaveClass('text-warn');
+    expect(screen.getByText('Enabled')).toHaveClass('text-success');
     expect(screen.getByText('Disabled')).toBeInTheDocument();
   });
 

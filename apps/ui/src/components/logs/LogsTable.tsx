@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Card } from '../ui/Card';
 import { Table, TableHead, TableBody, TableRow, TableHeadCell, TableCell } from '../ui/Table';
 import { Button } from '../ui/Button';
+import { useT } from '@/hooks/useT';
 import type { RequestLog } from '../../lib/logs';
 
 export interface LogsTableProps {
@@ -38,6 +39,7 @@ function formatDate(iso: string): string {
 }
 
 export function LogsTable({ logs, onSelect, hasMore, onLoadMore, loadingMore }: LogsTableProps) {
+  const { t } = useT();
   const [sortKey, setSortKey] = useState<SortKey>('created_at');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
@@ -50,8 +52,6 @@ export function LogsTable({ logs, onSelect, hasMore, onLoadMore, loadingMore }: 
     }
   }
 
-  // NOTE: `logs` is the accumulated "load more" set from the parent, so sorting
-  // here applies to the full currently-loaded list (client-side only).
   const sorted = [...logs].sort((a, b) => {
     const av = a[sortKey];
     const bv = b[sortKey];
@@ -65,14 +65,14 @@ export function LogsTable({ logs, onSelect, hasMore, onLoadMore, loadingMore }: 
     return sortDir === 'asc' ? cmp : -cmp;
   });
 
-  const sortArrow = (key: SortKey) => (sortKey === key ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '');
+  const arrow = () => (sortDir === 'asc' ? '▲' : '▼');
 
   return (
     <Card className="overflow-hidden">
       {sorted.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
-          <span className="material-symbols-outlined text-4xl text-on-surface-variant mb-2">receipt_long</span>
-          <p className="text-body-base text-on-surface-variant">No logs found.</p>
+          <span className="text-3xl text-muted mb-2">📋</span>
+          <p className="text-[13px] text-muted">{t('logs.noLogs')}</p>
         </div>
       ) : (
         <>
@@ -80,56 +80,48 @@ export function LogsTable({ logs, onSelect, hasMore, onLoadMore, loadingMore }: 
             <TableHead>
               <TableRow>
                 <TableHeadCell className="cursor-pointer select-none" onClick={() => handleSort('created_at')}>
-                  Timestamp{sortArrow('created_at')}
+                  {t('logs.table.timestamp')} {sortKey === 'created_at' && arrow()}
                 </TableHeadCell>
-                <TableHeadCell>Log ID</TableHeadCell>
-                <TableHeadCell>Model</TableHeadCell>
-                <TableHeadCell>Provider</TableHeadCell>
-                <TableHeadCell className="cursor-pointer select-none" onClick={() => handleSort('cost_usd')}>
-                  Cost{sortArrow('cost_usd')}
+                <TableHeadCell>{t('logs.table.id')}</TableHeadCell>
+                <TableHeadCell>{t('recent.model')}</TableHeadCell>
+                <TableHeadCell>{t('traffic.provider')}</TableHeadCell>
+                <TableHeadCell className="cursor-pointer select-none text-left" onClick={() => handleSort('cost_usd')}>
+                  {t('traffic.cost')} {sortKey === 'cost_usd' && arrow()}
                 </TableHeadCell>
-                <TableHeadCell className="text-right cursor-pointer select-none" onClick={() => handleSort('duration_ms')}>
-                  Latency{sortArrow('duration_ms')}
+                <TableHeadCell className="cursor-pointer select-none text-right" onClick={() => handleSort('duration_ms')}>
+                  {t('logs.table.latency')} {sortKey === 'duration_ms' && arrow()}
                 </TableHeadCell>
                 <TableHeadCell />
               </TableRow>
             </TableHead>
             <TableBody>
               {sorted.map((log) => (
-                <TableRow key={log.id}>
-                  <TableCell className="text-on-surface-variant whitespace-nowrap">{formatDate(log.created_at)}</TableCell>
-                  <TableCell>
-                    <button
-                      type="button"
-                      className="font-mono text-code-sm text-primary hover:underline cursor-pointer"
-                      onClick={() => onSelect(log)}
-                    >
-                      {log.id}
-                    </button>
-                  </TableCell>
-                  <TableCell className="font-mono text-code-sm">{log.model}</TableCell>
-                  <TableCell className="text-on-surface-variant">{log.provider}</TableCell>
-                  <TableCell className="font-mono text-code-sm">{formatCost(log.cost_usd)}</TableCell>
-                  <TableCell className="text-right font-mono text-code-sm">{formatLatency(log.duration_ms)}</TableCell>
+                <TableRow key={log.id} className="cursor-pointer" onClick={() => onSelect(log)}>
+                  <TableCell className="text-muted whitespace-nowrap">{formatDate(log.created_at)}</TableCell>
+                  <TableCell className="font-mono text-[11.5px] text-muted">{log.id}</TableCell>
+                  <TableCell className="font-mono text-[11.5px] font-medium">{log.model}</TableCell>
+                  <TableCell><span className="tag">{log.provider || log.capability}</span></TableCell>
+                  <TableCell className="font-mono text-[11.5px]">{formatCost(log.cost_usd)}</TableCell>
+                  <TableCell className="text-right font-mono text-[11.5px]">{formatLatency(log.duration_ms)}</TableCell>
                   <TableCell>
                     <button
                       type="button"
                       aria-label={`Open details for ${log.id}`}
-                      className="material-symbols-outlined p-1 rounded-full hover:bg-surface-container-high text-on-surface-variant"
-                      onClick={() => onSelect(log)}
+                      className="text-muted hover:text-fg text-lg leading-none"
+                      onClick={(e) => { e.stopPropagation(); onSelect(log); }}
                     >
-                      open_in_full
+                      →
                     </button>
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-          <div className="flex flex-col md:flex-row items-center justify-between gap-3 p-container-padding border-t hairline-border">
-            <span className="text-body-base text-on-surface-variant">Showing {sorted.length} logs</span>
+          <div className="flex flex-col md:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-border">
+            <span className="text-[12.5px] text-muted">{t('logs.table.showing')} {sorted.length}</span>
             {hasMore && (
               <Button variant="secondary" size="sm" disabled={loadingMore} onClick={onLoadMore}>
-                {loadingMore ? 'Loading...' : 'Load more'}
+                {loadingMore ? t('logs.table.loading') : t('logs.table.loadMore')}
               </Button>
             )}
           </div>

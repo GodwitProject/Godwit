@@ -1,7 +1,7 @@
-import { Modal } from '../ui/Modal';
-import { Card } from '../ui/Card';
+import { Drawer } from '../ui/Drawer';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
+import { useT } from '@/hooks/useT';
 import type { ApiKey } from '../../lib/keys';
 
 export interface KeyDetailsProps {
@@ -12,11 +12,11 @@ export interface KeyDetailsProps {
 }
 
 function formatNullable(value: number | null, suffix = ''): string {
-  return value != null ? `${value}${suffix}` : '—';
+  return value != null ? `${value.toLocaleString()}${suffix}` : '—';
 }
 
 function formatExpiry(iso: string | null): string {
-  if (!iso) return 'Never';
+  if (!iso) return '—';
   try {
     return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   } catch {
@@ -25,101 +25,81 @@ function formatExpiry(iso: string | null): string {
 }
 
 export function KeyDetails({ apiKey, onClose, onToggleActive, onDelete }: KeyDetailsProps) {
+  const { t } = useT();
   const active = !apiKey.disabled;
+
   return (
-    <Modal open onClose={onClose} title={apiKey.name} maxWidth="max-w-3xl">
-      <div className="space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Badge variant={active ? 'success' : 'error'}>
-              {active ? 'Active' : 'Revoked'}
-            </Badge>
-            <span className="font-mono text-code-sm text-on-surface-variant">{apiKey.key_prefix || 'sk_live_****'}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="secondary" size="sm" onClick={onToggleActive}>
-              {active ? 'Revoke' : 'Unblock'}
-            </Button>
-            <Button variant="secondary" size="sm" onClick={onDelete}>
-              Delete
-            </Button>
-            <Button variant="secondary" size="sm" onClick={onClose}>
-              Close
-            </Button>
-          </div>
-        </div>
+    <Drawer
+      open
+      onClose={onClose}
+      title={t('keys.details.title')}
+      subtitle={`${apiKey.name} · ${apiKey.key_prefix || 'sk_live_****'}`}
+      header={
+        <span className={`pill ${active ? 'ok' : 'err'}`}><span className="dot" />{active ? t('keys.status.active') : t('keys.status.revoked')}</span>
+      }
+    >
+      <div className="flex items-center justify-end gap-2 mb-5">
+        <Button variant="secondary" size="sm" onClick={onToggleActive}>
+          {active ? t('keys.details.revoke') : t('keys.details.unblock')}
+        </Button>
+        <Button variant="danger" size="sm" onClick={onDelete}>
+          {t('keys.delete')}
+        </Button>
+        <Button variant="secondary" size="sm" onClick={onClose}>
+          {t('keys.details.close')}
+        </Button>
+      </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card variant="filled" className="p-4">
-            <p className="text-caption-xs text-on-surface-variant uppercase tracking-wider">Spent</p>
-            <p className="font-mono text-title-md mt-1">
-              {apiKey.budget_spent_usd != null ? `$${apiKey.budget_spent_usd.toFixed(2)}` : '—'}
-            </p>
-          </Card>
-          <Card variant="filled" className="p-4">
-            <p className="text-caption-xs text-on-surface-variant uppercase tracking-wider">Budget</p>
-            <p className="font-mono text-title-md mt-1">
-              {apiKey.budget_limit_usd != null ? `$${apiKey.budget_limit_usd.toFixed(2)}` : 'Unlimited'}
-            </p>
-          </Card>
-          <Card variant="filled" className="p-4">
-            <p className="text-caption-xs text-on-surface-variant uppercase tracking-wider">Rate Limit (RPM)</p>
-            <p className="font-mono text-title-md mt-1">{formatNullable(apiKey.rate_limit_requests_per_minute)}</p>
-          </Card>
-          <Card variant="filled" className="p-4">
-            <p className="text-caption-xs text-on-surface-variant uppercase tracking-wider">Rate Limit (TPM)</p>
-            <p className="font-mono text-title-md mt-1">{formatNullable(apiKey.rate_limit_tokens_per_minute)}</p>
-          </Card>
-        </div>
+      <div className="fact-grid grid grid-cols-2 gap-2.5">
+        <Fact k={t('keys.details.spent')} v={apiKey.budget_spent_usd != null ? `$${apiKey.budget_spent_usd.toFixed(2)}` : '—'} />
+        <Fact k={t('keys.details.budget')} v={apiKey.budget_limit_usd != null ? `$${apiKey.budget_limit_usd.toFixed(2)}` : t('keys.unlimited')} />
+        <Fact k={t('keys.details.rateRpm')} v={formatNullable(apiKey.rate_limit_requests_per_minute)} />
+        <Fact k={t('keys.details.rateTpm')} v={formatNullable(apiKey.rate_limit_tokens_per_minute)} />
+        <Fact k={t('keys.details.expires')} v={formatExpiry(apiKey.expires_at)} />
+        <Fact k={t('keys.details.created')} v={apiKey.created_at || '—'} />
+        <Fact k={t('keys.details.organization')} v={apiKey.organization_id || '—'} />
+        <Fact k={t('keys.details.user')} v={apiKey.user_id || '—'} />
+      </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-caption-xs text-on-surface-variant uppercase tracking-wider">Scopes</span>
+      <div className="mt-5">
+        <div className="lbl mb-1.5 text-[11px] uppercase tracking-wider text-muted font-medium">{t('keys.scopes')}</div>
+        <div className="flex flex-wrap gap-1.5">
           {apiKey.scopes.length === 0 ? (
-            <span className="text-body-base text-on-surface-variant">—</span>
+            <span className="text-[13px] text-muted">—</span>
           ) : (
             apiKey.scopes.map((scope) => <Badge key={scope} variant="info">{scope}</Badge>)
           )}
         </div>
+      </div>
 
-        <div>
-          <p className="text-caption-xs text-on-surface-variant uppercase tracking-wider mb-2">Allowed Models</p>
-          {apiKey.allowed_models.length === 0 ? (
-            <p className="text-body-base text-on-surface-variant">No models restricted (all allowed).</p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {apiKey.allowed_models.map((model) => (
-                <Badge key={model} variant="default" className="font-mono text-code-sm">{model}</Badge>
-              ))}
-            </div>
-          )}
-        </div>
+      <div className="mt-5">
+        <div className="lbl mb-1.5 text-[11px] uppercase tracking-wider text-muted font-medium">{t('keys.create.allowedModels')}</div>
+        {apiKey.allowed_models.length === 0 ? (
+          <p className="text-[13px] text-muted">{t('keys.details.noModels')}</p>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {apiKey.allowed_models.map((model) => (
+              <span key={model} className="tag font-mono">{model}</span>
+            ))}
+          </div>
+        )}
+      </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div>
-            <p className="text-caption-xs text-on-surface-variant uppercase tracking-wider">Expires</p>
-            <p className="font-mono text-code-sm mt-1">{formatExpiry(apiKey.expires_at)}</p>
-          </div>
-          <div>
-            <p className="text-caption-xs text-on-surface-variant uppercase tracking-wider">Created</p>
-            <p className="font-mono text-code-sm mt-1">{apiKey.created_at || '—'}</p>
-          </div>
-          <div>
-            <p className="text-caption-xs text-on-surface-variant uppercase tracking-wider">Organization</p>
-            <p className="font-mono text-code-sm mt-1">{apiKey.organization_id || '—'}</p>
-          </div>
-          <div>
-            <p className="text-caption-xs text-on-surface-variant uppercase tracking-wider">User</p>
-            <p className="font-mono text-code-sm mt-1">{apiKey.user_id || '—'}</p>
-          </div>
-        </div>
-
-        <div className="bg-surface-container-low p-container-padding rounded-lg">
-          <p className="text-caption-xs text-on-surface-variant uppercase tracking-wider mb-2">Spend Trend</p>
-          <p className="text-body-base text-on-surface-variant">
-            No live spend series yet.
-          </p>
+      <div className="mt-5">
+        <div className="lbl mb-1.5 text-[11px] uppercase tracking-wider text-muted font-medium">{t('keys.details.spendTrend')}</div>
+        <div className="bg-bg border border-border rounded-lg px-3 py-2.5">
+          <p className="text-[13px] text-muted">{t('keys.details.noSpend')}</p>
         </div>
       </div>
-    </Modal>
+    </Drawer>
+  );
+}
+
+function Fact({ k, v }: { k: string; v: string }) {
+  return (
+    <div className="bg-bg border border-border rounded-lg px-3 py-2.5">
+      <div className="text-[10.5px] uppercase tracking-wider text-muted mb-0.5">{k}</div>
+      <div className="font-mono text-[13px] font-medium">{v}</div>
+    </div>
   );
 }

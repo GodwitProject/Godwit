@@ -4,7 +4,7 @@ import { clsx } from 'clsx';
 export const Table = forwardRef<HTMLTableElement, HTMLAttributes<HTMLTableElement>>(
   ({ className, ...props }, ref) => (
     <div className="overflow-x-auto">
-      <table ref={ref} className={clsx('w-full text-left border-collapse', className)} {...props} />
+      <table ref={ref} className={clsx('w-full text-left border-collapse text-[12.5px]', className)} {...props} />
     </div>
   )
 );
@@ -12,7 +12,7 @@ Table.displayName = 'Table';
 
 export const TableHead = forwardRef<HTMLTableSectionElement, HTMLAttributes<HTMLTableSectionElement>>(
   ({ className, ...props }, ref) => (
-    <thead ref={ref} className={clsx('bg-surface-container-low', className)} {...props} />
+    <thead ref={ref} className={clsx('bg-surface', className)} {...props} />
   )
 );
 TableHead.displayName = 'TableHead';
@@ -28,7 +28,7 @@ export const TableRow = forwardRef<HTMLTableRowElement, HTMLAttributes<HTMLTable
   ({ className, ...props }, ref) => (
     <tr
       ref={ref}
-      className={clsx('border-b hairline-border hover:bg-surface-container-low transition-colors', className)}
+      className={clsx('border-b border-bg hover:bg-surface-2_5 transition-colors', className)}
       {...props}
     />
   )
@@ -39,7 +39,10 @@ export const TableHeadCell = forwardRef<HTMLTableCellElement, HTMLAttributes<HTM
   ({ className, ...props }, ref) => (
     <th
       ref={ref}
-      className={clsx('py-3 px-6 text-caption-xs font-medium text-on-surface-variant uppercase tracking-wider', className)}
+      className={clsx(
+        'py-2.5 px-4 text-[11px] font-medium text-muted uppercase tracking-wider whitespace-nowrap text-left border-b border-border sticky top-0 bg-surface',
+        className
+      )}
       {...props}
     />
   )
@@ -51,7 +54,7 @@ export const TableCell = forwardRef<HTMLTableCellElement, HTMLAttributes<HTMLTab
     <td
       ref={ref}
       colSpan={colSpan}
-      className={clsx('py-3 px-6 text-body-base', className)}
+      className={clsx('py-2.5 px-4 whitespace-nowrap align-middle', className)}
       {...props}
     />
   )

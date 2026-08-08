@@ -3,11 +3,15 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
+import { LangSwitch } from '@/components/ui/LangSwitch';
+import { LogoMark } from '@/components/icons';
+import { useT } from '@/hooks/useT';
 import { login } from '@/lib/auth';
 import { useAuthStore } from '@/store/auth';
 
 export default function LoginPage() {
   const router = useRouter();
+  const { t } = useT();
   const setUser = useAuthStore((s) => s.setUser);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -27,15 +31,23 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-surface-container-low px-4">
-      <div className="w-full max-w-sm bg-surface-container-lowest rounded-xl p-container-padding ambient-shadow">
-        <h1 className="text-headline-md mb-1">Sign in to Godwit</h1>
-        <p className="text-body-base text-on-surface-variant mb-6">Admin LLM proxy console</p>
+    <div className="grid place-items-center bg-bg px-4" style={{ minHeight: 'calc(100vh - 52px)' }}>
+      <div className="w-full max-w-sm bg-surface border border-border rounded-2xl p-6 shadow-ambient">
+        <div className="flex items-center gap-2.5 mb-1">
+          <span className="grid place-items-center w-[26px] h-[26px] rounded-[7px] bg-accent text-on-accent">
+            <LogoMark width={15} height={15} />
+          </span>
+          <h1 className="text-lg font-semibold tracking-[-0.02em]">{t('login.title')}</h1>
+        </div>
+        <p className="text-[13px] text-muted mb-6">{t('login.subtitle')}</p>
+        <div className="flex justify-end mb-3">
+          <LangSwitch />
+        </div>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <Input label="Email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
-          <Input label="Password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />
-          {error && <p className="text-label-sm text-error">{error}</p>}
-          <Button type="submit" className="w-full" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</Button>
+          <Input label={t('login.email')} type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+          <Input label={t('login.password')} type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+          {error && <p className="text-[12px] text-danger">{error}</p>}
+          <Button type="submit" className="w-full" disabled={busy}>{busy ? t('login.signingIn') : t('login.submit')}</Button>
         </form>
       </div>
     </div>

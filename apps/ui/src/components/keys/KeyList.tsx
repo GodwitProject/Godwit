@@ -3,6 +3,7 @@ import { Card } from '../ui/Card';
 import { Table, TableHead, TableBody, TableRow, TableHeadCell, TableCell } from '../ui/Table';
 import { Badge } from '../ui/Badge';
 import { Toggle } from '../ui/Toggle';
+import { useT } from '@/hooks/useT';
 import type { ApiKey } from '../../lib/keys';
 
 export interface KeyListProps {
@@ -31,7 +32,7 @@ function formatRateLimit(value: number | null): string {
 }
 
 function formatExpiry(iso: string | null): string {
-  if (!iso) return 'Never';
+  if (!iso) return '—';
   try {
     return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   } catch {
@@ -40,14 +41,15 @@ function formatExpiry(iso: string | null): string {
 }
 
 export function KeyList({ keys, onSelect, onToggleActive, onDelete }: KeyListProps) {
+  const { t } = useT();
   const [menuFor, setMenuFor] = useState<string | null>(null);
 
   if (keys.length === 0) {
     return (
       <Card>
         <div className="flex flex-col items-center justify-center py-16 text-center">
-          <span className="material-symbols-outlined text-4xl text-on-surface-variant mb-2">vpn_key</span>
-          <p className="text-body-base text-on-surface-variant">No API keys created yet.</p>
+          <span className="text-3xl text-muted mb-2">🔑</span>
+          <p className="text-[13px] text-muted">{t('keys.noKeys')}</p>
         </div>
       </Card>
     );
@@ -55,19 +57,19 @@ export function KeyList({ keys, onSelect, onToggleActive, onDelete }: KeyListPro
 
   return (
     <Card className="overflow-hidden">
-      <div className="p-container-padding border-b hairline-border">
-        <h3 className="text-section-sm">API Keys</h3>
+      <div className="px-4 py-3 border-b border-border">
+        <h3 className="text-[13px] font-semibold">{t('keys.active')}</h3>
       </div>
       <Table>
         <TableHead>
           <TableRow>
-            <TableHeadCell>Name</TableHeadCell>
-            <TableHeadCell>Prefix</TableHeadCell>
-            <TableHeadCell>Scopes</TableHeadCell>
-            <TableHeadCell>Spent</TableHeadCell>
-            <TableHeadCell>Rate Limit</TableHeadCell>
-            <TableHeadCell>Expires</TableHeadCell>
-            <TableHeadCell>Status</TableHeadCell>
+            <TableHeadCell>{t('keys.name')}</TableHeadCell>
+            <TableHeadCell>{t('keys.prefix')}</TableHeadCell>
+            <TableHeadCell>{t('keys.scopes')}</TableHeadCell>
+            <TableHeadCell>{t('keys.spent')}</TableHeadCell>
+            <TableHeadCell>{t('keys.rateLimit')}</TableHeadCell>
+            <TableHeadCell>{t('keys.expires')}</TableHeadCell>
+            <TableHeadCell>{t('keys.state')}</TableHeadCell>
             <TableHeadCell />
           </TableRow>
         </TableHead>
@@ -83,13 +85,8 @@ export function KeyList({ keys, onSelect, onToggleActive, onDelete }: KeyListPro
                   onSelect(key);
                 }}
               >
-                <TableCell>
-                  <div className="flex items-center gap-3">
-                    <span className="material-symbols-outlined text-on-surface-variant">vpn_key</span>
-                    <span className="font-medium">{key.name}</span>
-                  </div>
-                </TableCell>
-                <TableCell className="font-mono text-code-sm">{prefixLabel(key)}</TableCell>
+                <TableCell className="font-medium">{key.name}</TableCell>
+                <TableCell className="font-mono text-[11.5px] text-muted">{prefixLabel(key)}</TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-1.5">
                     {key.scopes.map((scope) => (
@@ -97,13 +94,13 @@ export function KeyList({ keys, onSelect, onToggleActive, onDelete }: KeyListPro
                     ))}
                   </div>
                 </TableCell>
-                <TableCell className="font-mono text-code-sm">
+                <TableCell className="font-mono text-[11.5px]">
                   {key.budget_spent_usd != null ? `$${key.budget_spent_usd.toFixed(2)}` : '—'}
                 </TableCell>
-                <TableCell className="font-mono text-code-sm">
+                <TableCell className="font-mono text-[11.5px]">
                   {formatRateLimit(key.rate_limit_requests_per_minute)} RPM
                 </TableCell>
-                <TableCell className="text-on-surface-variant">{formatExpiry(key.expires_at)}</TableCell>
+                <TableCell className="text-muted">{formatExpiry(key.expires_at)}</TableCell>
                 <TableCell>
                   <Toggle
                     checked={active}
@@ -111,30 +108,30 @@ export function KeyList({ keys, onSelect, onToggleActive, onDelete }: KeyListPro
                       e.stopPropagation();
                       onToggleActive(key);
                     }}
-                    label={active ? 'Active' : 'Revoked'}
+                    label={active ? t('keys.status.active') : t('keys.status.revoked')}
                   />
                 </TableCell>
                 <TableCell>
                   <div className="relative" onClick={(e) => e.stopPropagation()}>
                     <button
                       type="button"
-                      className="material-symbols-outlined p-1 rounded-full hover:bg-surface-container-high text-on-surface-variant"
+                      className="text-muted hover:text-fg px-1 rounded hover:bg-surface-2 leading-none"
                       onClick={() => setMenuFor(menuFor === key.id ? null : key.id)}
                       aria-label={`Actions for ${key.name}`}
                     >
-                      more_vert
+                      ⋯
                     </button>
                     {menuFor === key.id && (
-                      <div className="absolute right-0 mt-1 z-20 bg-surface-container-lowest rounded-xl shadow-lg hairline-border p-1 w-40">
+                      <div className="absolute right-0 mt-1 z-20 bg-surface rounded-xl shadow-drawer border border-border p-1 w-36">
                         <button
                           type="button"
-                          className="w-full text-left px-3 py-2 rounded-lg text-body-base text-error hover:bg-error/10"
+                          className="w-full text-left px-3 py-2 rounded-lg text-[12.5px] text-danger hover:bg-surface-2"
                           onClick={() => {
                             setMenuFor(null);
                             onDelete(key);
                           }}
                         >
-                          Delete
+                          {t('keys.delete')}
                         </button>
                       </div>
                     )}

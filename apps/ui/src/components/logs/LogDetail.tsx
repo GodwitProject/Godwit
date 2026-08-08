@@ -1,4 +1,5 @@
-import { Modal } from '../ui/Modal';
+import { Drawer } from '../ui/Drawer';
+import { useT } from '@/hooks/useT';
 import type { RequestLog } from '../../lib/logs';
 
 export interface LogDetailProps {
@@ -25,59 +26,44 @@ function formatLatency(durationMs: number | null): string {
 }
 
 export function LogDetail({ open, log, onClose }: LogDetailProps) {
+  const { t } = useT();
+
   return (
-    <Modal open={open} onClose={onClose} title="Log Details" maxWidth="max-w-4xl">
+    <Drawer open={open} onClose={onClose} title={t('logs.detail.title')} subtitle={log?.id}>
       {!log ? (
-        <p className="text-body-base text-on-surface-variant">No log selected.</p>
+        <p className="text-[13px] text-muted">{t('logs.detail.noSelection')}</p>
       ) : (
-        <div className="space-y-6">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-code-sm text-on-surface-variant">{log.id}</span>
+        <div className="space-y-5">
+          <div className="fact-grid grid grid-cols-2 gap-2.5">
+            <Fact k={t('logs.detail.model')} v={log.model || '—'} />
+            <Fact k={t('logs.detail.provider')} v={log.provider || '—'} />
+            <Fact k={t('logs.detail.capability')} v={log.capability || '—'} />
+            <Fact k={t('logs.detail.streamed')} v={log.streamed ? t('yes') : t('no')} />
+            <Fact k={t('logs.table.latency')} v={formatLatency(log.duration_ms)} />
+            <Fact k={t('traffic.cost')} v={formatCost(log.cost_usd)} />
+            <Fact k={t('logs.detail.apiKey')} v={log.api_key_id || '—'} />
+            <Fact k={t('recent.timestamp')} v={formatDate(log.created_at)} />
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div>
-              <p className="text-caption-xs text-on-surface-variant uppercase tracking-wider">Model</p>
-              <p className="font-mono text-code-sm mt-1">{log.model || '—'}</p>
+          <div>
+            <div className="lbl mb-1.5 text-[11px] uppercase tracking-wider text-muted font-medium">
+              {t('logs.detail.details')}
             </div>
-            <div>
-              <p className="text-caption-xs text-on-surface-variant uppercase tracking-wider">Provider</p>
-              <p className="text-body-base mt-1">{log.provider || '—'}</p>
+            <div className="bg-bg border border-border rounded-lg px-3 py-2.5">
+              <p className="text-[13px] text-muted">{t('logs.detail.detailsNote')}</p>
             </div>
-            <div>
-              <p className="text-caption-xs text-on-surface-variant uppercase tracking-wider">Capability</p>
-              <p className="font-mono text-code-sm mt-1">{log.capability || '—'}</p>
-            </div>
-            <div>
-              <p className="text-caption-xs text-on-surface-variant uppercase tracking-wider">Streamed</p>
-              <p className="font-mono text-code-sm mt-1">{log.streamed ? 'Yes' : 'No'}</p>
-            </div>
-            <div>
-              <p className="text-caption-xs text-on-surface-variant uppercase tracking-wider">Latency</p>
-              <p className="font-mono text-code-sm mt-1">{formatLatency(log.duration_ms)}</p>
-            </div>
-            <div>
-              <p className="text-caption-xs text-on-surface-variant uppercase tracking-wider">Cost</p>
-              <p className="font-mono text-code-sm mt-1">{formatCost(log.cost_usd)}</p>
-            </div>
-            <div>
-              <p className="text-caption-xs text-on-surface-variant uppercase tracking-wider">API Key</p>
-              <p className="font-mono text-code-sm mt-1">{log.api_key_id || '—'}</p>
-            </div>
-            <div>
-              <p className="text-caption-xs text-on-surface-variant uppercase tracking-wider">Timestamp</p>
-              <p className="font-mono text-code-sm mt-1">{formatDate(log.created_at)}</p>
-            </div>
-          </div>
-
-          <div className="bg-surface-container-low p-container-padding rounded-lg">
-            <p className="text-caption-xs text-on-surface-variant uppercase tracking-wider mb-2">Details</p>
-            <p className="text-body-base text-on-surface-variant">
-              Request/response payloads and guardrail details are not available from the spend logs endpoint yet.
-            </p>
           </div>
         </div>
       )}
-    </Modal>
+    </Drawer>
+  );
+}
+
+function Fact({ k, v }: { k: string; v: string }) {
+  return (
+    <div className="bg-bg border border-border rounded-lg px-3 py-2.5">
+      <div className="text-[10.5px] uppercase tracking-wider text-muted mb-0.5">{k}</div>
+      <div className="font-mono text-[13px] font-medium">{v}</div>
+    </div>
   );
 }

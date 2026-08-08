@@ -566,9 +566,26 @@ async fn anthropic_messages_translates_to_openai_upstream(pool: PgPool) {
     let messages = upstream_body["messages"].as_array().expect("messages array");
     assert_eq!(messages.len(), 2);
     assert_eq!(messages[0]["role"], "system");
-    assert_eq!(messages[0]["content"], "You are a helpful assistant.");
+    // The upstream payload may carry the system text as a plain string or as a
+    // multimodal array [{type:"text", text:...}] — both are accepted by OpenAI. Extract
+    // the text either way.
+    let system_text = match messages[0]["content"].as_str() {
+        Some(s) => s.to_string(),
+        None => messages[0]["content"][0]["text"]
+            .as_str()
+            .expect("multimodal system text")
+            .to_string(),
+    };
+    assert_eq!(system_text, "You are a helpful assistant.");
     assert_eq!(messages[1]["role"], "user");
-    assert_eq!(messages[1]["content"], "Hi");
+    let user_text = match messages[1]["content"].as_str() {
+        Some(s) => s.to_string(),
+        None => messages[1]["content"][0]["text"]
+            .as_str()
+            .expect("multimodal user text")
+            .to_string(),
+    };
+    assert_eq!(user_text, "Hi");
     assert_eq!(upstream_body["max_tokens"], 1024);
     assert_eq!(upstream_body["temperature"], 0.5);
     assert_eq!(upstream_body["top_p"], 0.9);
@@ -1023,7 +1040,8 @@ async fn non_super_admin_roles_are_forbidden_from_catalog_endpoints(pool: PgPool
                 "provider": "vllm",
                 "provider_profile_id": profile.id,
                 "provider_model_id": "x",
-                "capabilities": "chat"
+                "capabilities": "chat",
+                "pricing": {"input_price_per_million": 0, "output_price_per_million": 0}
             })),
         ),
         (
@@ -1119,14 +1137,14 @@ async fn image_edit_against_a_vllm_model_returns_400_not_500(pool: PgPool) {
     // The catalog row claims image_edit; the vllm adapter does not implement it, so the
     // rejection has to come from the adapter (not from the router's capability check).
     ModelRepository::new(pool.clone())
-        .create("claude-sonnet", "openai", profile.id, "gpt-4o-mini-2024-07-18", "chat", serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}))
+        .create("claude-sonnet", "openai", profile.id, "gpt-4o-mini-2024-07-18", "chat,image_edit", serde_json::json!({"input_price_per_million": 0, "output_price_per_million": 0}))
         .await
         .expect("create model");
 
     let api_key = seed_api_key(&pool).await;
     let boundary = "TESTBOUNDARY";
     let multipart = format!(
-        "--{b}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\nllama-edit\r\n\
+        "--{b}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\nclaude-sonnet\r\n\
          --{b}\r\nContent-Disposition: form-data; name=\"prompt\"\r\n\r\nadd a hat\r\n\
          --{b}\r\nContent-Disposition: form-data; name=\"image\"; filename=\"a.png\"\r\n\
          Content-Type: image/png\r\n\r\n\x01\x02\x03\r\n--{b}--\r\n",

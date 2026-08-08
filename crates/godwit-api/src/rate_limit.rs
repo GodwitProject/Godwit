@@ -414,7 +414,7 @@ mod tests {
         assert!(estimated > 10);
     }
 
-    #[sqlx::test]
+    #[sqlx::test(migrations = "../godwit-db/migrations")]
     async fn budget_check_blocks_when_exceeded(pool: PgPool) {
         use godwit_db::models::UserRole;
         use godwit_db::repositories::organizations::OrganizationRepository;
@@ -457,7 +457,7 @@ mod tests {
         assert!(matches!(result, Err(ApiError::BudgetExceeded)));
     }
 
-    #[sqlx::test]
+    #[sqlx::test(migrations = "../godwit-db/migrations")]
     async fn budget_check_allows_when_under_budget(pool: PgPool) {
         use godwit_db::models::UserRole;
         use godwit_db::repositories::organizations::OrganizationRepository;
@@ -499,7 +499,7 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    #[sqlx::test]
+    #[sqlx::test(migrations = "../godwit-db/migrations")]
     async fn budget_check_allows_when_no_budget_set(pool: PgPool) {
         use godwit_db::models::UserRole;
         use godwit_db::repositories::organizations::OrganizationRepository;
@@ -521,7 +521,7 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    #[sqlx::test]
+    #[sqlx::test(migrations = "../godwit-db/migrations")]
     async fn budget_check_allows_when_no_end_user_record(pool: PgPool) {
         use godwit_db::models::UserRole;
         use godwit_db::repositories::organizations::OrganizationRepository;
@@ -538,7 +538,7 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    #[sqlx::test]
+    #[sqlx::test(migrations = "../godwit-db/migrations")]
     async fn budget_check_team_blocks_when_exceeded(pool: PgPool) {
         use godwit_db::models::UserRole;
         use godwit_db::repositories::organizations::OrganizationRepository;
@@ -582,7 +582,7 @@ mod tests {
         assert!(matches!(result, Err(ApiError::BudgetExceeded)));
     }
 
-    #[sqlx::test]
+    #[sqlx::test(migrations = "../godwit-db/migrations")]
     async fn budget_check_team_allows_when_under_budget(pool: PgPool) {
         use godwit_db::models::UserRole;
         use godwit_db::repositories::organizations::OrganizationRepository;
@@ -625,7 +625,7 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    #[sqlx::test]
+    #[sqlx::test(migrations = "../godwit-db/migrations")]
     async fn budget_check_team_allows_when_no_max_budget(pool: PgPool) {
         use godwit_db::models::UserRole;
         use godwit_db::repositories::organizations::OrganizationRepository;

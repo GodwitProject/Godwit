@@ -47,7 +47,13 @@ impl CircuitBreaker {
                 }
             }
             CircuitState::HalfOpen => {
-                self.half_open_requests.load(Ordering::SeqCst) < self.half_open_max
+                let reserved = self.half_open_requests.fetch_add(1, Ordering::SeqCst);
+                if reserved < self.half_open_max {
+                    true
+                } else {
+                    self.half_open_requests.fetch_sub(1, Ordering::SeqCst);
+                    false
+                }
             }
         }
     }
@@ -88,11 +94,13 @@ impl CircuitBreaker {
     }
 
     pub fn state(&self) -> CircuitState {
-        let current = *self.state.read().unwrap();
+        let mut guard = self.state.write().unwrap();
+        let current = *guard;
         if current == CircuitState::Open {
             let last_failure = self.last_failure.read().unwrap();
             if let Some(last) = *last_failure {
                 if last.elapsed() >= self.timeout {
+                    *guard = CircuitState::HalfOpen;
                     return CircuitState::HalfOpen;
                 }
             }

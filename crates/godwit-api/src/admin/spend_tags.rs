@@ -387,14 +387,17 @@ mod tests {
         .await
         .expect("insert request_logs");
 
-        let result = fetch_api_key_spend(&pool, None, None, Some(org), None)
+        let mut result = fetch_api_key_spend(&pool, None, None, Some(org), None)
             .await
             .expect("fetch api_key spend");
 
         assert_eq!(result.len(), 2);
-        assert_eq!(result[0].api_key_id, Some(key_b));
+        // key_a and key_b have the same total, so ORDER BY spend_usd DESC does not pin
+        // their relative order; sort deterministically before asserting.
+        result.sort_by_key(|r| r.api_key_id);
+        assert_eq!(result[0].api_key_id, Some(key_a));
         assert_eq!(result[0].spend_usd, dec!(3.00));
-        assert_eq!(result[1].api_key_id, Some(key_a));
+        assert_eq!(result[1].api_key_id, Some(key_b));
         assert_eq!(result[1].spend_usd, dec!(3.00));
     }
 

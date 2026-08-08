@@ -675,6 +675,7 @@ async fn embeddings(
         Err(e) => {
             std::mem::drop(primary_resolved.in_flight.take());
             let mut fallback_result = None;
+            let mut last_err: Option<godwit_providers::adapter::ProviderError> = Some(e);
             for fallback_id in fallback_chain {
                 tracing::info!(
                     "falling back from {} to {} for embedding",
@@ -699,7 +700,8 @@ async fn embeddings(
                                 fallback_result = Some((resp, usage, resolved.model.clone()));
                                 break;
                             }
-                            Err(_e) => {
+                            Err(err) => {
+                                last_err = Some(err);
                                 continue;
                             }
                         }
@@ -707,7 +709,19 @@ async fn embeddings(
                     Err(_) => continue,
                 }
             }
-            fallback_result.ok_or_else(|| rate_limited_err.unwrap())?
+            match fallback_result {
+                Some((resp, usage, model)) => (resp, usage, model),
+                None => {
+                    if let Some(rl_err) = rate_limited_err {
+                        return Err(rl_err);
+                    }
+                    return Err(map_provider_error(
+                        last_err.unwrap_or(godwit_providers::adapter::ProviderError::Provider(
+                            "embedding failed on all providers".to_string(),
+                        )),
+                    ));
+                }
+            }
         }
     };
     let cost_usd = compute_cost(&used_model.pricing, Capability::Embedding, &usage);
@@ -790,6 +804,7 @@ async fn image_generations(
         Err(e) => {
             std::mem::drop(primary_resolved.in_flight.take());
             let mut fallback_result = None;
+            let mut last_err: Option<godwit_providers::adapter::ProviderError> = Some(e);
             for fallback_id in fallback_chain {
                 tracing::info!(
                     "falling back from {} to {} for image generation",
@@ -814,7 +829,8 @@ async fn image_generations(
                                 fallback_result = Some((resp, usage, resolved.model.clone()));
                                 break;
                             }
-                            Err(_e) => {
+                            Err(err) => {
+                                last_err = Some(err);
                                 continue;
                             }
                         }
@@ -822,7 +838,19 @@ async fn image_generations(
                     Err(_) => continue,
                 }
             }
-            fallback_result.ok_or_else(|| rate_limited_err.unwrap())?
+            match fallback_result {
+                Some((resp, usage, model)) => (resp, usage, model),
+                None => {
+                    if let Some(rl_err) = rate_limited_err {
+                        return Err(rl_err);
+                    }
+                    return Err(map_provider_error(
+                        last_err.unwrap_or(godwit_providers::adapter::ProviderError::Provider(
+                            "image generation failed on all providers".to_string(),
+                        )),
+                    ));
+                }
+            }
         }
     };
     let cost_usd = compute_cost(&used_model.pricing, Capability::ImageGeneration, &usage);
@@ -907,6 +935,7 @@ async fn audio_speech(
         Err(e) => {
             std::mem::drop(primary_resolved.in_flight.take());
             let mut fallback_result = None;
+            let mut last_err: Option<godwit_providers::adapter::ProviderError> = Some(e);
             for fallback_id in fallback_chain {
                 tracing::info!(
                     "falling back from {} to {} for audio speech",
@@ -931,7 +960,8 @@ async fn audio_speech(
                                 fallback_result = Some(((bytes, content_type), usage, resolved.model.clone()));
                                 break;
                             }
-                            Err(_e) => {
+                            Err(err) => {
+                                last_err = Some(err);
                                 continue;
                             }
                         }
@@ -939,7 +969,19 @@ async fn audio_speech(
                     Err(_) => continue,
                 }
             }
-            fallback_result.ok_or_else(|| rate_limited_err.unwrap())?
+            match fallback_result {
+                Some((resp, usage, model)) => (resp, usage, model),
+                None => {
+                    if let Some(rl_err) = rate_limited_err {
+                        return Err(rl_err);
+                    }
+                    return Err(map_provider_error(
+                        last_err.unwrap_or(godwit_providers::adapter::ProviderError::Provider(
+                            "audio speech failed on all providers".to_string(),
+                        )),
+                    ));
+                }
+            }
         }
     };
     let cost_usd = compute_cost(&used_model.pricing, Capability::AudioTts, &usage);
@@ -1072,6 +1114,7 @@ async fn audio_transcriptions(
         Err(e) => {
             std::mem::drop(primary_resolved.in_flight.take());
             let mut fallback_result = None;
+            let mut last_err: Option<godwit_providers::adapter::ProviderError> = Some(e);
             for fallback_id in fallback_chain {
                 tracing::info!(
                     "falling back from {} to {} for audio transcription",
@@ -1096,7 +1139,8 @@ async fn audio_transcriptions(
                                 fallback_result = Some((resp, usage, resolved.model.clone()));
                                 break;
                             }
-                            Err(_e) => {
+                            Err(err) => {
+                                last_err = Some(err);
                                 continue;
                             }
                         }
@@ -1104,7 +1148,19 @@ async fn audio_transcriptions(
                     Err(_) => continue,
                 }
             }
-            fallback_result.ok_or_else(|| rate_limited_err.unwrap())?
+            match fallback_result {
+                Some((resp, usage, model)) => (resp, usage, model),
+                None => {
+                    if let Some(rl_err) = rate_limited_err {
+                        return Err(rl_err);
+                    }
+                    return Err(map_provider_error(
+                        last_err.unwrap_or(godwit_providers::adapter::ProviderError::Provider(
+                            "audio transcription failed on all providers".to_string(),
+                        )),
+                    ));
+                }
+            }
         }
     };
     let cost_usd = compute_cost(&used_model.pricing, Capability::AudioStt, &usage);
@@ -1260,6 +1316,7 @@ async fn image_edits(
         Err(e) => {
             std::mem::drop(primary_resolved.in_flight.take());
             let mut fallback_result = None;
+            let mut last_err: Option<godwit_providers::adapter::ProviderError> = Some(e);
             for fallback_id in fallback_chain {
                 tracing::info!(
                     "falling back from {} to {} for image edit",
@@ -1284,7 +1341,8 @@ async fn image_edits(
                                 fallback_result = Some((resp, usage, resolved.model.clone()));
                                 break;
                             }
-                            Err(_e) => {
+                            Err(err) => {
+                                last_err = Some(err);
                                 continue;
                             }
                         }
@@ -1292,7 +1350,19 @@ async fn image_edits(
                     Err(_) => continue,
                 }
             }
-            fallback_result.ok_or_else(|| rate_limited_err.unwrap())?
+            match fallback_result {
+                Some((resp, usage, model)) => (resp, usage, model),
+                None => {
+                    if let Some(rl_err) = rate_limited_err {
+                        return Err(rl_err);
+                    }
+                    return Err(map_provider_error(
+                        last_err.unwrap_or(godwit_providers::adapter::ProviderError::Provider(
+                            "image edit failed on all providers".to_string(),
+                        )),
+                    ));
+                }
+            }
         }
     };
     let cost_usd = compute_cost(&used_model.pricing, Capability::ImageEdit, &usage);

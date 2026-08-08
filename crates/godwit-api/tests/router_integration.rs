@@ -610,7 +610,11 @@ async fn super_admin_can_create_a_vllm_backed_catalog_model(pool: PgPool) {
                         "provider": "vllm",
                         "provider_profile_id": profile.id,
                         "provider_model_id": "meta-llama/Llama-3-70B-Instruct",
-                        "capabilities": "chat,embedding"
+                        "capabilities": "chat,embedding",
+                        "pricing": {
+                            "input_price_per_million": 2.5,
+                            "output_price_per_million": 10.0
+                        }
                     })
                     .to_string(),
                 ))

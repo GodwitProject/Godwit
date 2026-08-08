@@ -11,7 +11,7 @@ export interface Provider {
   created_at: string;
 }
 
-const API_BASE = ''; // same-origin via next rewrites
+const API_BASE = '/api/v1';
 
 async function getJson<T>(path: string): Promise<T> {
   const res = await apiFetch(`${API_BASE}${path}`);

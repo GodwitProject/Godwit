@@ -11,7 +11,7 @@ godwit-auth = { path = "../godwit-auth" }
 godwit-providers = { path = "../godwit-providers" }
 godwit-cache = { path = "../godwit-cache" }
 godwit-mcp = { path = "../godwit-mcp" }
-axum = { version = "0.7", features = ["multipart"] }
+axum = { version = "0.7", features = ["multipart", "ws"] }
 async-trait = "0.1"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors"] }

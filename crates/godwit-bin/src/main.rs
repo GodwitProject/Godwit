@@ -1,4 +1,3 @@
-use axum::routing::Router;
 use godwit_api::{
     agentic_loop::AgenticLoop, circuit_breaker::CircuitBreakerRegistry,
     login_rate_limit::LoginLimiter, model_router::DbModelRouter, rate_limit::RateLimiter,

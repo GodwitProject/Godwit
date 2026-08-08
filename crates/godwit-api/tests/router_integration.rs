@@ -3351,3 +3351,30 @@ async fn revoke_all_signs_out_all_devices(pool: PgPool) {
         "refresh after revoke-all must be rejected"
     );
 }
+
+/// The FE `websocket.ts` connects to `/api/v1/ws/metrics`. This asserts the route is
+/// wired into the real router and JWT-protected (not the route-missing 404), satisfying
+/// "no bugs" for the socket's contract even before a live-socket E2E test.
+#[sqlx::test]
+async fn ws_metrics_route_exists_and_is_protected(pool: PgPool) {
+    let app = build_app(pool.clone());
+
+    // Without a JWT the admin `jwt_auth` guard runs first. A real route with a
+    // protected middleware returns 401; a missing route would return 404.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/ws/metrics")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "ws.metrics must be JWT-protected, not missing (404)",
+    );
+}

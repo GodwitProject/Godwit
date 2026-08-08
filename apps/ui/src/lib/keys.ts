@@ -36,7 +36,7 @@ export interface ApiKeyActionResponse {
   data: ApiKey;
 }
 
-const API_BASE = ''; // same-origin via next rewrites
+const API_BASE = '/api/v1';
 
 function toNullableNumber(value: string | number | null | undefined): number | null {
   if (value == null || value === '') return null;

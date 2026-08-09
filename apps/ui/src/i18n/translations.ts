@@ -198,7 +198,34 @@ export type TranslationKey =
   | 'login.submit'
   | 'login.signingIn'
   | 'login.loading'
+  | 'login.forgot'
   | 'auth.signOut'
+  | 'auth.forgot.title'
+  | 'auth.forgot.subtitle'
+  | 'auth.forgot.email'
+  | 'auth.forgot.submit'
+  | 'auth.forgot.sending'
+  | 'auth.forgot.success'
+  | 'auth.backToLogin'
+  | 'auth.reset.title'
+  | 'auth.reset.subtitle'
+  | 'auth.reset.newPassword'
+  | 'auth.reset.confirm'
+  | 'auth.reset.submit'
+  | 'auth.reset.submitting'
+  | 'auth.changeRequired.title'
+  | 'auth.changeRequired.subtitle'
+  | 'auth.changeRequired.newPassword'
+  | 'auth.changeRequired.confirm'
+  | 'auth.changeRequired.submit'
+  | 'auth.changeRequired.submitting'
+  | 'auth.change.currentPassword'
+  | 'auth.change.newPassword'
+  | 'auth.change.confirm'
+  | 'auth.change.submit'
+  | 'auth.change.submitting'
+  | 'auth.change.success'
+  | 'auth.mismatch'
   | 'shortcuts.title'
   | 'shortcuts.search'
   | 'shortcuts.overview'
@@ -420,7 +447,34 @@ const fr: TranslationSet = {
   'login.submit': 'Se connecter',
   'login.signingIn': 'Connexion…',
   'login.loading': 'Chargement…',
+  'login.forgot': 'Mot de passe oublié ?',
   'auth.signOut': 'Se déconnecter',
+  'auth.forgot.title': 'Réinitialiser le mot de passe',
+  'auth.forgot.subtitle': 'Saisissez votre e-mail pour recevoir un lien de réinitialisation.',
+  'auth.forgot.email': 'E-mail',
+  'auth.forgot.submit': 'Envoyer le lien',
+  'auth.forgot.sending': 'Envoi…',
+  'auth.forgot.success': 'Si un compte existe pour cet e-mail, un lien de réinitialisation a été envoyé.',
+  'auth.backToLogin': 'Retour à la connexion',
+  'auth.reset.title': 'Nouveau mot de passe',
+  'auth.reset.subtitle': 'Définissez un nouveau mot de passe pour votre compte.',
+  'auth.reset.newPassword': 'Nouveau mot de passe',
+  'auth.reset.confirm': 'Confirmer le mot de passe',
+  'auth.reset.submit': 'Réinitialiser le mot de passe',
+  'auth.reset.submitting': 'Réinitialisation…',
+  'auth.changeRequired.title': 'Changement de mot de passe requis',
+  'auth.changeRequired.subtitle': 'Vous devez définir un nouveau mot de passe avant de continuer.',
+  'auth.changeRequired.newPassword': 'Nouveau mot de passe',
+  'auth.changeRequired.confirm': 'Confirmer le mot de passe',
+  'auth.changeRequired.submit': 'Mettre à jour le mot de passe',
+  'auth.changeRequired.submitting': 'Mise à jour…',
+  'auth.change.currentPassword': 'Mot de passe actuel',
+  'auth.change.newPassword': 'Nouveau mot de passe',
+  'auth.change.confirm': 'Confirmer le mot de passe',
+  'auth.change.submit': 'Changer le mot de passe',
+  'auth.change.submitting': 'Changement…',
+  'auth.change.success': 'Mot de passe mis à jour.',
+  'auth.mismatch': 'Les mots de passe ne correspondent pas.',
   'shortcuts.title': 'Raccourcis clavier',
   'shortcuts.search': 'Rechercher une requête',
   'shortcuts.overview': 'Vue d’ensemble',
@@ -639,7 +693,34 @@ const en: TranslationSet = {
   'login.submit': 'Sign in',
   'login.signingIn': 'Signing in…',
   'login.loading': 'Loading…',
+  'login.forgot': 'Forgot password?',
   'auth.signOut': 'Sign out',
+  'auth.forgot.title': 'Reset password',
+  'auth.forgot.subtitle': 'Enter your email to receive a reset link.',
+  'auth.forgot.email': 'Email',
+  'auth.forgot.submit': 'Send reset link',
+  'auth.forgot.sending': 'Sending…',
+  'auth.forgot.success': 'If an account exists for this email, a reset link has been sent.',
+  'auth.backToLogin': 'Back to sign in',
+  'auth.reset.title': 'New password',
+  'auth.reset.subtitle': 'Set a new password for your account.',
+  'auth.reset.newPassword': 'New password',
+  'auth.reset.confirm': 'Confirm password',
+  'auth.reset.submit': 'Reset password',
+  'auth.reset.submitting': 'Resetting…',
+  'auth.changeRequired.title': 'Password change required',
+  'auth.changeRequired.subtitle': 'You must set a new password before continuing.',
+  'auth.changeRequired.newPassword': 'New password',
+  'auth.changeRequired.confirm': 'Confirm password',
+  'auth.changeRequired.submit': 'Update password',
+  'auth.changeRequired.submitting': 'Updating…',
+  'auth.change.currentPassword': 'Current password',
+  'auth.change.newPassword': 'New password',
+  'auth.change.confirm': 'Confirm password',
+  'auth.change.submit': 'Change password',
+  'auth.change.submitting': 'Changing…',
+  'auth.change.success': 'Password updated.',
+  'auth.mismatch': 'Passwords do not match.',
   'shortcuts.title': 'Keyboard shortcuts',
   'shortcuts.search': 'Search a request',
   'shortcuts.overview': 'Overview',

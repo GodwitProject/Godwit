@@ -29,7 +29,7 @@ describe('LoginPage', () => {
   });
 
   it('navigates to / after successful login', async () => {
-    vi.mocked(login).mockResolvedValue(user as never);
+    vi.mocked(login).mockResolvedValue({ user, must_change_password: false } as never);
     render(<LoginPage />);
 
     fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'admin@example.com' } });
@@ -40,6 +40,17 @@ describe('LoginPage', () => {
     expect(login).toHaveBeenCalledWith('admin@example.com', 'secret');
     expect(useAuthStore.getState().user).toEqual(user);
     expect(useAuthStore.getState().status).toBe('authenticated');
+  });
+
+  it('redirects to change-required when must_change_password is true', async () => {
+    vi.mocked(login).mockResolvedValue({ user, must_change_password: true } as never);
+    render(<LoginPage />);
+
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'admin@example.com' } });
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'secret' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/change-required'));
   });
 
   it('shows an error message on failed login', async () => {

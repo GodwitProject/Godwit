@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -22,9 +23,9 @@ export default function LoginPage() {
     e.preventDefault();
     setBusy(true); setError(null);
     try {
-      const user = await login(email, password);
+      const { user, must_change_password } = await login(email, password);
       setUser(user);
-      router.push('/');
+      router.push(must_change_password ? '/change-required' : '/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally { setBusy(false); }
@@ -49,6 +50,9 @@ export default function LoginPage() {
           {error && <p className="text-[12px] text-danger">{error}</p>}
           <Button type="submit" className="w-full" disabled={busy}>{busy ? t('login.signingIn') : t('login.submit')}</Button>
         </form>
+        <div className="mt-5 text-center">
+          <Link href="/forgot-password" className="text-[12.5px] text-accent hover:underline">{t('login.forgot')}</Link>
+        </div>
       </div>
     </div>
   );

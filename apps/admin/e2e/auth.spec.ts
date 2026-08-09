@@ -1,4 +1,13 @@
 import { test, expect } from '@playwright/test'
+import { loginAsAdmin } from './helpers'
+
+async function setAuthCookies(context: import('@playwright/test').BrowserContext) {
+  const { accessToken, refreshToken } = await loginAsAdmin()
+  await context.addCookies([
+    { name: 'access_token', value: accessToken, domain: 'localhost', path: '/' },
+    { name: 'refresh_token', value: refreshToken, domain: 'localhost', path: '/' },
+  ])
+}
 
 test.describe('Authentication', () => {
   test('login with password', async ({ page }) => {
@@ -22,30 +31,15 @@ test.describe('Authentication', () => {
   })
 
   test('redirect to dashboard when already logged in', async ({ page, context }) => {
-    // Set auth cookie
-    await context.addCookies([
-      {
-        name: 'access_token',
-        value: 'test-token',
-        domain: 'localhost',
-        path: '/',
-      },
-    ])
+    // Real admin JWT from the backend, so the middleware accepts it as authenticated.
+    await setAuthCookies(context)
 
     await page.goto('/login')
     await expect(page).toHaveURL('/admin')
   })
 
   test('logout clears cookies and redirects to login', async ({ page, context }) => {
-    // Set auth cookie
-    await context.addCookies([
-      {
-        name: 'access_token',
-        value: 'test-token',
-        domain: 'localhost',
-        path: '/',
-      },
-    ])
+    await setAuthCookies(context)
 
     await page.goto('/admin')
     await page.click('button:has-text("Logout")')

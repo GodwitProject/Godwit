@@ -1,15 +1,13 @@
 import { test, expect } from '@playwright/test'
+import { loginAsAdmin } from './helpers'
 
 test.describe('Dashboard', () => {
-  test.beforeEach(async ({ page, context }) => {
-    // Set auth cookie before each test
+  test.beforeEach(async ({ context }) => {
+    // Real admin JWT from the backend so the middleware and API calls accept it.
+    const { accessToken, refreshToken } = await loginAsAdmin()
     await context.addCookies([
-      {
-        name: 'access_token',
-        value: 'test-token',
-        domain: 'localhost',
-        path: '/',
-      },
+      { name: 'access_token', value: accessToken, domain: 'localhost', path: '/' },
+      { name: 'refresh_token', value: refreshToken, domain: 'localhost', path: '/' },
     ])
   })
 

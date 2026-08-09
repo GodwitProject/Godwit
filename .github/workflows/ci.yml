@@ -96,3 +96,108 @@ jobs:
       - name: Route-contract test apps/admin
         working-directory: apps/admin
         run: npx vitest run tests/route-contract.test.ts
+
+  e2e-tests:
+    name: admin Playwright e2e
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: godwit
+          POSTGRES_PASSWORD: godwit
+          POSTGRES_DB: godwit
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U godwit"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://godwit:godwit@localhost:5432/godwit
+      # base64 of 32 bytes; required by the backend to decrypt provider credentials.
+      CREDENTIAL_ENCRYPTION_KEY: KioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKio=
+      ADMIN_EMAIL: test@example.com
+      ADMIN_PASSWORD: password123
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # samael (SAML) requires xmlsec1 + libclang to build the backend.
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl pkg-config libclang-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-e2e-
+            ${{ runner.os }}-cargo-
+
+      - name: Build godwit backend
+        run: cargo build -p godwit-bin
+
+      - name: Prepare backend config
+        run: |
+          # Run the API on :8080 so it does not clash with the admin dev server on :3000.
+          sed 's/^  port: 3000/  port: 8080/' config.example.yaml > /tmp/godwit-config.yaml
+
+      - name: Start godwit backend
+        run: |
+          CONFIG_PATH=/tmp/godwit-config.yaml \
+          DATABASE_URL=${{ env.DATABASE_URL }} \
+          CREDENTIAL_ENCRYPTION_KEY=${{ env.CREDENTIAL_ENCRYPTION_KEY }} \
+          ADMIN_EMAIL=${{ env.ADMIN_EMAIL }} \
+          ADMIN_PASSWORD=${{ env.ADMIN_PASSWORD }} \
+          ./target/debug/godwit > /tmp/godwit.log 2>&1 &
+          echo $! > /tmp/godwit.pid
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8080/health >/dev/null 2>&1; then
+              echo "godwit backend up"; break
+            fi
+            if ! kill -0 $(cat /tmp/godwit.pid) 2>/dev/null; then
+              echo "godwit backend exited early" >&2; cat /tmp/godwit.log >&2; exit 1
+            fi
+            sleep 2
+          done
+          curl -fsS http://localhost:8080/health && echo "health OK"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/admin/package-lock.json
+
+      - name: Install apps/admin dependencies
+        working-directory: apps/admin
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: apps/admin
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright e2e tests
+        working-directory: apps/admin
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8080
+          API_URL: http://localhost:8080
+          E2E_API_URL: http://localhost:8080
+        run: npm run test:e2e
+
+      - name: Dump backend log on failure
+        if: failure()
+        run: cat /tmp/godwit.log

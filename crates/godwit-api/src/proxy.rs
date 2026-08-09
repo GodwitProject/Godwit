@@ -1768,6 +1768,8 @@ mod tests {
                 trust_proxy: false,
                 oidc_providers: vec![],
                 saml_providers: vec![],
+                mail: None,
+                password_policy: godwit_core::PasswordPolicy::default(),
             },
             agentic: Default::default(),
             compat: Some(CompatConfig {
@@ -1803,6 +1805,8 @@ mod tests {
                 trust_proxy: false,
                 oidc_providers: vec![],
                 saml_providers: vec![],
+                mail: None,
+                password_policy: godwit_core::PasswordPolicy::default(),
             },
             agentic: Default::default(),
             compat: Some(CompatConfig {
@@ -1838,6 +1842,8 @@ mod tests {
                 trust_proxy: false,
                 oidc_providers: vec![],
                 saml_providers: vec![],
+                mail: None,
+                password_policy: godwit_core::PasswordPolicy::default(),
             },
             agentic: Default::default(),
             compat: None,

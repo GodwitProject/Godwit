@@ -50,6 +50,8 @@ fn base_auth() -> AuthConfig {
         trust_proxy: false,
         oidc_providers: vec![],
         saml_providers: vec![],
+        mail: None,
+        password_policy: godwit_core::PasswordPolicy::default(),
     }
 }
 
@@ -1482,6 +1484,8 @@ async fn login_rate_limits_after_repeated_failures(pool: PgPool) {
         trust_proxy: true,
         oidc_providers: vec![],
         saml_providers: vec![],
+        mail: None,
+        password_policy: godwit_core::PasswordPolicy::default(),
     };
     let app = build_app_with_auth(pool.clone(), auth);
     let (email, password) = seed_password_user(&pool).await;

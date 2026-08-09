@@ -14,12 +14,13 @@ import {
   useUnblockKey,
 } from '@/hooks/useKeys';
 import type { ApiKey, CreateKeyRequest } from '@/lib/keys';
-
-const MOCK_MODELS = ['gpt-4', 'gpt-4-turbo', 'gpt-3.5-turbo', 'claude-3-opus', 'claude-3-sonnet'];
+import { useModels } from '@/hooks/useModels';
 
 export default function KeysPage() {
   const { t } = useT();
   const { data: keys, isLoading } = useKeys();
+  const { data: models = [] } = useModels();
+  const availableModels = models.map((m) => m.public_id);
   const [createOpen, setCreateOpen] = useState(false);
   const [selected, setSelected] = useState<ApiKey | null>(null);
 
@@ -74,7 +75,7 @@ export default function KeysPage() {
 
       <KeyForm
         open={createOpen}
-        availableModels={MOCK_MODELS}
+        availableModels={availableModels}
         submitting={createMutation.isPending}
         onClose={() => setCreateOpen(false)}
         onSubmit={async (req: CreateKeyRequest) => {

@@ -8,6 +8,10 @@ import { setTokens } from '@/lib/auth'
 const API_URL = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'https://api.godwit.io'
 const PUBLIC_API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.godwit.io'
 
+// OIDC provider id must match an entry in the backend's `auth.oidc_providers` config
+// (backend route: GET /api/v1/auth/oidc/{provider}). Defaults to "google".
+const OIDC_PROVIDER_ID = process.env.OIDC_PROVIDER_ID || 'google'
+
 export async function loginWithPassword(
   email: string,
   password: string
@@ -34,7 +38,10 @@ export async function loginWithPassword(
 }
 
 export async function loginWithSSO() {
-  // Redirect to OIDC authorize endpoint
-  // This will be handled by the backend's OIDC endpoint
-  redirect(`${PUBLIC_API_URL}/api/v1/auth/oidc/authorize?redirect_uri=${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`)
+  // The backend builds the authorize URL for this provider: GET /api/v1/auth/oidc/{provider}.
+  // The IdP's redirect_uri (configured in the provider entry) must point at this admin
+  // `/auth/callback` page so the browser lands here with `code`/`state`, which
+  // exchangeOIDCCode then sends back to the backend callback (GET .../oidc/{provider}/callback)
+  // to receive the token pair (HttpOnly cookies + JSON body).
+  redirect(`${PUBLIC_API_URL}/api/v1/auth/oidc/${OIDC_PROVIDER_ID}`)
 }

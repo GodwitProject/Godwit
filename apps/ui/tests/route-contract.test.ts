@@ -41,6 +41,8 @@ function concretePath(path: string): string {
 async function invoke(entry: ContractEntry, mock: ReturnType<typeof vi.fn>): Promise<void> {
   switch (entry.frontend!.fn) {
     case 'login': await auth.login('admin@example.com', 'secret'); break;
+    case 'changePassword': await auth.changePassword('old', 'NewPass1!'); break;
+    case 'changeRequired': await auth.changeRequired('NewPass1!'); break;
     case 'logout': await auth.logout(); break;
     case 'fetchMe': await auth.fetchMe(); break;
     case 'doRefresh': await http.doRefresh(); break;

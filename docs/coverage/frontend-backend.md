@@ -16,6 +16,8 @@
 | ui | POST | `/api/v1/auth/login` | auth.ts | login | auth.rs | login | covered |
 | ui | POST | `/api/v1/auth/logout` | auth.ts | logout | auth.rs | logout | covered |
 | ui | GET | `/api/v1/auth/me` | auth.ts | fetchMe | mod.rs | auth::me | covered |
+| ui | POST | `/api/v1/auth/change-password` | auth.ts | changePassword | password.rs | change_password | covered |
+| ui | POST | `/api/v1/auth/change-required` | auth.ts | changeRequired | password.rs | change_required | covered |
 | ui | POST | `/api/v1/auth/refresh` | http.ts | doRefresh | auth.rs | refresh | covered |
 | ui | GET | `/api/v1/models` | models.ts | fetchModels | models.rs | list_models | covered |
 | ui | POST | `/api/v1/models` | models.ts | createModel | models.rs | create_model | covered |
@@ -28,6 +30,9 @@
 | admin | GET | `/api/v1/api-keys/{id}` | api-keys/actions.ts | getApiKey | api_keys.rs | get_api_key | admin-covered |
 | admin | GET | `/api/v1/auth/oidc/{provider}` | login/actions.ts | loginWithSSO | auth.rs | oidc_start | admin-covered |
 | admin | GET | `/api/v1/auth/oidc/{provider}/callback` | auth/callback/actions.ts | exchangeOIDCCode | auth.rs | oidc_callback | admin-covered |
+| admin | POST | `/api/v1/auth/forgot-password` | forgot-password/actions.ts | requestPasswordReset | password.rs | forgot_password | admin-covered |
+| admin | POST | `/api/v1/auth/reset-password` | reset-password/actions.ts | performPasswordReset | password.rs | reset_password | admin-covered |
+| admin | POST | `/api/v1/auth/admin/reset-password` | users/actions.ts | resetUserPassword | password.rs | admin_reset_password | admin-covered |
 | admin | GET | `/api/v1/models/{id}` | models/actions.ts | getModel | models.rs | get_model | admin-covered |
 | admin | PATCH | `/api/v1/models/{id}` | models/actions.ts | updateModel | models.rs | update_model | admin-covered |
 | admin | DELETE | `/api/v1/models/{id}` | models/actions.ts | deleteModel | models.rs | delete_model | admin-covered |

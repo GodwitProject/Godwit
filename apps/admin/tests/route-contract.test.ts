@@ -37,6 +37,9 @@ function template(p: string): string {
 const EXPECTED_CALLS: Call[] = [
   // auth
   { file: 'app/(auth)/login/actions.ts', fn: 'loginWithPassword', method: 'POST', path: '/api/v1/auth/login' },
+  { file: 'app/(auth)/forgot-password/actions.ts', fn: 'requestPasswordReset', method: 'POST', path: '/api/v1/auth/forgot-password' },
+  { file: 'app/(auth)/reset-password/actions.ts', fn: 'performPasswordReset', method: 'POST', path: '/api/v1/auth/reset-password' },
+  { file: 'app/(dashboard)/admin/users/actions.ts', fn: 'resetUserPassword', method: 'POST', path: '/api/v1/auth/admin/reset-password' },
   { file: 'app/(auth)/login/actions.ts', fn: 'loginWithSSO', method: 'GET', path: '/api/v1/auth/oidc/{provider}' },
   { file: 'app/(auth)/auth/callback/actions.ts', fn: 'exchangeOIDCCode', method: 'GET', path: '/api/v1/auth/oidc/{provider}/callback' },
   { file: 'app/(dashboard)/admin/api-keys/actions.ts', fn: 'listApiKeys', method: 'GET', path: '/api/v1/api-keys' },

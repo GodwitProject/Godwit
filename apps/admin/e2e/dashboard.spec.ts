@@ -15,10 +15,10 @@ test.describe('Dashboard', () => {
     await page.goto('/admin')
 
     // Should show stats
-    await expect(page.locator('text=Organizations')).toBeVisible()
-    await expect(page.locator('text=Teams')).toBeVisible()
-    await expect(page.locator('text=Users')).toBeVisible()
-    await expect(page.locator('text=API Keys')).toBeVisible()
+    await expect(page.locator('text=Organizations').first()).toBeVisible()
+    await expect(page.locator('text=Teams').first()).toBeVisible()
+    await expect(page.locator('text=Users').first()).toBeVisible()
+    await expect(page.locator('text=API Keys').first()).toBeVisible()
   })
 
   test('navigate to organizations page', async ({ page }) => {
@@ -26,7 +26,7 @@ test.describe('Dashboard', () => {
     await page.click('a:has-text("Organizations")')
 
     await expect(page).toHaveURL('/admin/organizations')
-    await expect(page.locator('h1')).toContainText('Organizations')
+    await expect(page.getByRole('heading', { level: 1, name: 'Organizations' })).toBeVisible()
   })
 
   test('create organization from dashboard', async ({ page }) => {

@@ -22,7 +22,7 @@ test.describe('Authentication', () => {
 
     // Should redirect to dashboard
     await expect(page).toHaveURL('/admin')
-    await expect(page.locator('h1')).toContainText('Dashboard')
+    await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible()
   })
 
   test('redirect to login when not authenticated', async ({ page }) => {

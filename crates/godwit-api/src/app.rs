@@ -52,6 +52,8 @@ fn base_auth() -> AuthConfig {
         trust_proxy: false,
         oidc_providers: vec![],
         saml_providers: vec![],
+        mail: None,
+        password_policy: godwit_core::PasswordPolicy::default(),
     }
 }
 

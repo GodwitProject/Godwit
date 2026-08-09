@@ -226,6 +226,86 @@ pub struct AuthConfig {
     pub trust_proxy: bool,
     pub oidc_providers: Vec<OidcProviderConfig>,
     pub saml_providers: Vec<SamlProviderConfig>,
+    #[serde(default)]
+    pub mail: Option<MailConfig>,
+    #[serde(default)]
+    pub password_policy: PasswordPolicy,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MailConfig {
+    pub from: String,
+    pub host: String,
+    #[serde(default = "default_mail_port")]
+    pub port: u16,
+    #[serde(default)]
+    pub username: Option<String>,
+    #[serde(default)]
+    pub password: Option<String>,
+    #[serde(default)]
+    pub tls: MailTls,
+    pub app_url: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MailTls {
+    None,
+    StartTls,
+    Tls,
+}
+
+impl Default for MailTls {
+    fn default() -> Self {
+        MailTls::StartTls
+    }
+}
+
+fn default_mail_port() -> u16 {
+    587
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub struct PasswordPolicy {
+    #[serde(default = "default_min_length")]
+    pub min_length: u32,
+    #[serde(default)]
+    pub require_upper: bool,
+    #[serde(default)]
+    pub require_lower: bool,
+    #[serde(default)]
+    pub require_digit: bool,
+    #[serde(default)]
+    pub require_symbol: bool,
+    #[serde(default = "default_max_reuse")]
+    pub max_reuse: u32,
+    #[serde(default)]
+    pub days_to_expire: u64,
+    #[serde(default)]
+    pub block_common: bool,
+}
+
+impl Default for PasswordPolicy {
+    fn default() -> Self {
+        Self {
+            min_length: 10,
+            require_upper: true,
+            require_lower: true,
+            require_digit: true,
+            require_symbol: true,
+            max_reuse: 5,
+            days_to_expire: 0,
+            block_common: false,
+        }
+    }
+}
+
+fn default_min_length() -> u32 {
+    10
+}
+
+fn default_max_reuse() -> u32 {
+    5
 }
 
 fn default_login_max_attempts() -> i64 {
@@ -1675,5 +1755,71 @@ cache:
         assert_eq!(config.cache.enabled, false);
         assert_eq!(config.cache.ttl_secs, 1800);
         assert_eq!(config.cache.max_size, 5000);
+    }
+
+    #[test]
+    fn auth_config_parses_mail_and_password_policy() {
+        let yaml = r#"
+server:
+  host: 127.0.0.1
+  port: 3000
+  request_timeout_seconds: 60
+database:
+  url: postgres://user:pass@localhost/pasteurllm
+auth:
+  jwt_secret: s
+  access_token_ttl_minutes: 15
+  refresh_token_ttl_days: 7
+  oidc_providers: []
+  saml_providers: []
+  mail:
+    from: "Godwit <noreply@example.com>"
+    host: "smtp.example.com"
+    port: 587
+    app_url: "https://app.example.com"
+  password_policy:
+    min_length: 10
+    require_upper: true
+    require_digit: true
+    max_reuse: 3
+    days_to_expire: 90
+    block_common: true
+"#;
+        let cfg: AppConfig = serde_yaml::from_str(yaml).expect("parse");
+        let auth = cfg.auth;
+        let mail = auth.mail.as_ref().expect("mail present");
+        assert_eq!(mail.host, "smtp.example.com");
+        assert_eq!(mail.port, 587);
+        assert!(mail.username.is_none());
+        let pol = auth.password_policy;
+        assert_eq!(pol.min_length, 10);
+        assert!(pol.require_upper);
+        assert!(!pol.require_symbol);
+        assert_eq!(pol.max_reuse, 3);
+        assert_eq!(pol.days_to_expire, 90);
+        assert!(pol.block_common);
+    }
+
+    #[test]
+    fn auth_config_defaults_when_sections_absent() {
+        let yaml = r#"
+server:
+  host: 127.0.0.1
+  port: 3000
+  request_timeout_seconds: 60
+database:
+  url: postgres://user:pass@localhost/pasteurllm
+auth:
+  jwt_secret: s
+  access_token_ttl_minutes: 15
+  refresh_token_ttl_days: 7
+  oidc_providers: []
+  saml_providers: []
+"#;
+        let cfg: AppConfig = serde_yaml::from_str(yaml).expect("parse");
+        assert!(cfg.auth.mail.is_none());
+        let pol = cfg.auth.password_policy;
+        assert_eq!(pol.min_length, 10);
+        assert!(!pol.block_common);
     }
 }

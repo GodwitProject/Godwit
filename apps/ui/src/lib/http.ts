@@ -11,6 +11,8 @@ async function doRefresh(): Promise<boolean> {
   } catch { return false; }
 }
 
+export { doRefresh };
+
 export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const merged: RequestInit = { ...init, credentials: 'include' };
   const res = await fetch(path, merged);

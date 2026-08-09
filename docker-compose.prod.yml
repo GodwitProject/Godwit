@@ -28,7 +28,7 @@ services:
     restart: unless-stopped
 
   api:
-    image: ghcr.io/GodwitProject/godwit:${IMAGE_TAG:-main}
+    image: ghcr.io/godwitproject/godwit:${IMAGE_TAG:-main}
     ports:
       - "8000:3000"
     volumes:
@@ -113,7 +113,7 @@ services:
     restart: unless-stopped
 
   ui:
-    image: ghcr.io/GodwitProject/godwit-ui:${IMAGE_TAG:-main}
+    image: ghcr.io/godwitproject/godwit-ui:${IMAGE_TAG:-main}
     ports:
       - "3002:3000"
     depends_on:
@@ -124,7 +124,7 @@ services:
     restart: unless-stopped
 
   admin:
-    image: ghcr.io/GodwitProject/godwit-admin:${IMAGE_TAG:-main}
+    image: ghcr.io/godwitproject/godwit-admin:${IMAGE_TAG:-main}
     ports:
       - "3000:3000"
     environment:

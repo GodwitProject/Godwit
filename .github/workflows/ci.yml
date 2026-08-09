@@ -32,7 +32,7 @@ jobs:
           --health-retries 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5.1.0
 
       # samael (SAML) requires xmlsec1 + libclang at build time.
       - name: Install system dependencies
@@ -46,7 +46,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -66,10 +66,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5.1.0
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5.0.0
         with:
           node-version: 22
           cache: npm
@@ -124,7 +124,7 @@ jobs:
       ADMIN_PASSWORD: password123
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5.1.0
 
       # samael (SAML) requires xmlsec1 + libclang to build the backend.
       - name: Install system dependencies
@@ -136,7 +136,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v5.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -176,7 +176,7 @@ jobs:
           curl -fsS http://localhost:8080/health && echo "health OK"
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5.0.0
         with:
           node-version: 22
           cache: npm

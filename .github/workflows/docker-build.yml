@@ -1,10 +1,11 @@
 name: Docker Image
 
+# Build the image only AFTER the CI (tests) workflow completes successfully,
+# so we never publish an image from a commit that broke the build/tests.
 on:
-  push:
-    branches: ['*']
-    tags: ['v*']
-  pull_request:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
 
 permissions:
   contents: read
@@ -16,25 +17,23 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Run only when CI passed on a branch/tag push (not on pull requests).
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     steps:
       - uses: actions/checkout@v5.1.0
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3.9.0
 
-      # Use the short SHA as the image tag for pull requests (never pushed).
+      # The tag is the git branch name (for branch pushes) or the git tag name
+      # (for tag pushes) — both are exposed as workflow_run.head_branch.
       - name: Compute image tag
         id: meta
         run: |
-          REF="${{ github.ref }}"
-          if [[ "$REF" == refs/tags/* ]]; then
-            TAG="${REF#refs/tags/}"
-          elif [[ "$REF" == refs/pull/* ]]; then
-            TAG="pr-${{ github.event.pull_request.number }}-${{ github.sha }}"
-          else
-            BRANCH="${REF#refs/heads/}"
-            TAG="${BRANCH//\//-}"
-          fi
+          TAG="${{ github.event.workflow_run.head_branch }}"
+          TAG="${TAG//\//-}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
@@ -49,7 +48,7 @@ jobs:
         with:
           context: .
           file: Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

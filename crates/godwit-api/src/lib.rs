@@ -13,6 +13,7 @@ pub mod error;
 pub mod fallback;
 pub mod health;
 pub mod metrics;
+pub mod mail;
 pub mod metrics_endpoint;
 pub mod middleware;
 pub mod model_info;

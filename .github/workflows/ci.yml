@@ -60,3 +60,39 @@ jobs:
 
       - name: cargo test
         run: cargo test --workspace
+
+  frontend-tests:
+    name: frontend lint + unit tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            apps/ui/package-lock.json
+            apps/admin/package-lock.json
+
+      - name: Install apps/ui dependencies
+        working-directory: apps/ui
+        run: npm ci
+
+      - name: Install apps/admin dependencies
+        working-directory: apps/admin
+        run: npm ci
+
+      - name: Typecheck apps/ui
+        working-directory: apps/ui
+        run: npm run type-check
+
+      - name: Test apps/ui
+        working-directory: apps/ui
+        run: npm test
+
+      - name: Route-contract test apps/admin
+        working-directory: apps/admin
+        run: npx vitest run tests/route-contract.test.ts

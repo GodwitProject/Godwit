@@ -7,7 +7,7 @@ license = "AGPL-3.0-or-later"
 [dependencies]
 godwit-core = { path = "../godwit-core" }
 argon2 = { version = "0.5", features = ["std"] }
-rand = "0.8"
+rand = "0.10"
 bs58 = "0.5"
 serde_json = { workspace = true }
 jsonwebtoken = "9"
@@ -17,7 +17,7 @@ serde = { workspace = true }
 openidconnect = "3"
 url = "2"
 samael = "0.0.22"
-aes-gcm = "0.10"
-base64 = "0.22"
-sha2 = "0.10"
+aes-gcm = "0.11"
+base64 = "0.23"
+sha2 = "0.11"
 hex = "0.4"

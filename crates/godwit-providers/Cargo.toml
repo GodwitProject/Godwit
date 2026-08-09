@@ -7,7 +7,7 @@ license = "AGPL-3.0-or-later"
 [dependencies]
 godwit-core = { path = "../godwit-core" }
 godwit-db = { path = "../godwit-db" }
-reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream", "multipart"] }
+reqwest = { version = "0.13", features = ["json", "rustls-tls", "stream", "multipart"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

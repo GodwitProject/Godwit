@@ -152,6 +152,19 @@ pub struct RefreshToken {
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct PasswordResetToken {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    // Never serialized into API responses — this is the hashed reset token. Still populated
+    // via `sqlx::FromRow` for lookup/verification; only JSON output is suppressed.
+    #[serde(skip_serializing)]
+    pub token_hash: String,
+    pub expires_at: DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
+    pub used_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct EndUser {
     pub id: Uuid,
     pub organization_id: Uuid,

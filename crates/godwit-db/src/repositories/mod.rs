@@ -3,6 +3,8 @@ pub mod end_users;
 pub mod model_aliases;
 pub mod models;
 pub mod organizations;
+pub mod password_history;
+pub mod password_reset_tokens;
 pub mod provider_profiles;
 pub mod refresh_tokens;
 pub mod request_logs;

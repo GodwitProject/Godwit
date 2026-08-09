@@ -1,4 +1,5 @@
 use crate::models::{User, UserRole};
+use chrono::{DateTime, Utc};
 use godwit_core::PasteurError;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -98,6 +99,36 @@ impl UserRepository {
             .await
             .map_err(|e| PasteurError::Database(e.to_string()))?;
         Ok(())
+    }
+
+    pub async fn update_password(
+        &self,
+        user_id: Uuid,
+        hash: &str,
+        expires_at: Option<DateTime<Utc>>,
+    ) -> Result<User, PasteurError> {
+        sqlx::query_as::<_, User>(
+            "UPDATE users SET password_hash = $2, password_changed_at = NOW(),
+                password_expires_at = $3, must_change_password = FALSE
+             WHERE id = $1 RETURNING *",
+        )
+        .bind(user_id)
+        .bind(hash)
+        .bind(expires_at)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| PasteurError::Database(e.to_string()))
+    }
+
+    pub async fn set_must_change(&self, user_id: Uuid, must: bool) -> Result<User, PasteurError> {
+        sqlx::query_as::<_, User>(
+            "UPDATE users SET must_change_password = $2 WHERE id = $1 RETURNING *",
+        )
+        .bind(user_id)
+        .bind(must)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| PasteurError::Database(e.to_string()))
     }
 }
 

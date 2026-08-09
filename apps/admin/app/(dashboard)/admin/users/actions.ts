@@ -100,3 +100,24 @@ export async function deleteUser(
     return { success: false, error: 'An error occurred' }
   }
 }
+
+export async function resetUserPassword(
+  userId: string,
+  newPassword: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const response = await apiCall('/api/v1/auth/admin/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId, new_password: newPassword }),
+    })
+
+    if (!response.ok) {
+      return { success: false, error: await extractErrorMessage(response, 'Failed to reset password') }
+    }
+
+    return { success: true }
+  } catch (err) {
+    console.error('Reset user password error:', err)
+    return { success: false, error: 'An error occurred' }
+  }
+}

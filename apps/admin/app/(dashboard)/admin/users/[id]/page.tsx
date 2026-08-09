@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { PageHeader } from '@/components/ui/page-header'
 import { FormDialog } from '@/components/ui/form-dialog'
-import { updateUser, deleteUser, getUser } from '../actions'
+import { updateUser, deleteUser, getUser, resetUserPassword } from '../actions'
 
 interface User {
   id: string
@@ -23,6 +23,7 @@ export default function UserDetailPage() {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [isResetPasswordDialogOpen, setIsResetPasswordDialogOpen] = useState(false)
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -48,6 +49,18 @@ export default function UserDetailPage() {
       setIsEditDialogOpen(false)
     } else {
       throw new Error(result.error || 'Failed to update user')
+    }
+  }
+
+  const handleResetPasswordSubmit = async (formData: FormData) => {
+    const newPassword = formData.get('new_password') as string
+    const result = await resetUserPassword(id, newPassword)
+
+    if (result.success) {
+      setIsResetPasswordDialogOpen(false)
+      alert('Password reset successfully')
+    } else {
+      throw new Error(result.error || 'Failed to reset password')
     }
   }
 
@@ -87,12 +100,20 @@ export default function UserDetailPage() {
             </div>
           </div>
 
-          <button
-            onClick={handleDelete}
-            className="mt-6 rounded bg-red-600 px-4 py-2 text-white hover:bg-red-700"
-          >
-            Delete User
-          </button>
+          <div className="mt-6 flex space-x-4">
+            <button
+              onClick={() => setIsResetPasswordDialogOpen(true)}
+              className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+            >
+              Reset Password
+            </button>
+            <button
+              onClick={handleDelete}
+              className="rounded bg-red-600 px-4 py-2 text-white hover:bg-red-700"
+            >
+              Delete User
+            </button>
+          </div>
         </div>
       </div>
 
@@ -129,6 +150,28 @@ export default function UserDetailPage() {
             <option value="org_admin">org_admin</option>
             <option value="super_admin">super_admin</option>
           </select>
+        </div>
+      </FormDialog>
+
+      <FormDialog
+        isOpen={isResetPasswordDialogOpen}
+        title="Reset Password"
+        submitLabel="Reset"
+        onSubmit={handleResetPasswordSubmit}
+        onClose={() => setIsResetPasswordDialogOpen(false)}
+      >
+        <div>
+          <label htmlFor="new_password" className="block text-sm font-medium text-gray-700">
+            New password
+          </label>
+          <input
+            id="new_password"
+            name="new_password"
+            type="password"
+            required
+            minLength={8}
+            className="mt-1 w-full rounded border border-gray-300 px-3 py-2"
+          />
         </div>
       </FormDialog>
     </>

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { loginWithPassword, loginWithSSO } from './actions'
 
 export default function LoginPage() {
@@ -98,14 +99,24 @@ export default function LoginPage() {
         </form>
       )}
 
-      {config.passwordEnabled && config.ssoEnabled && <div className="relative">
-        <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-gray-300"></div>
+      {config.passwordEnabled && (
+        <div className="text-center">
+          <Link href="/forgot-password" className="text-sm text-blue-600 hover:underline">
+            Forgot password?
+          </Link>
         </div>
-        <div className="relative flex justify-center text-sm">
-          <span className="bg-white px-2 text-gray-500">Or</span>
+      )}
+
+      {config.passwordEnabled && config.ssoEnabled && (
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-gray-300"></div>
+          </div>
+          <div className="relative flex justify-center text-sm">
+            <span className="bg-white px-2 text-gray-500">Or</span>
+          </div>
         </div>
-      </div>}
+      )}
 
       {config.ssoEnabled && (
         <button

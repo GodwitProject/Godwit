@@ -11,6 +11,7 @@ const navigation = [
   { name: 'API Keys', href: '/admin/api-keys' },
   { name: 'Models', href: '/admin/models' },
   { name: 'Spend', href: '/admin/spend' },
+  { name: 'Settings', href: '/admin/settings' },
 ]
 
 export function Sidebar() {

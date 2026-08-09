@@ -1,0 +1,41 @@
+{
+  "realm": "godwit",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "users": [
+    {
+      "username": "admin",
+      "enabled": true,
+      "email": "admin@example.com",
+      "firstName": "Admin",
+      "lastName": "Godwit",
+      "emailVerified": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password123",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["default-roles-godwit", "admin"]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "godwit",
+      "name": "Godwit API",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": ["http://localhost:8000/api/v1/auth/oidc/keycloak/callback"],
+      "webOrigins": ["http://localhost:3000", "http://localhost:3002", "http://localhost:8000"],
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:8000/*"
+      }
+    }
+  ]
+}

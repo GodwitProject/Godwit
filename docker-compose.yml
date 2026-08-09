@@ -26,7 +26,7 @@ services:
     ports:
       - "8000:3000"
     volumes:
-      - ./config.yaml:/app/config.yaml
+      - ${GODWIT_CONFIG:-./config.yaml}:/app/config.yaml
     environment:
       CONFIG_PATH: /app/config.yaml
       DATABASE_URL: postgres://${POSTGRES_USER:-godwit}:${POSTGRES_PASSWORD:-godwit}@db:5432/${POSTGRES_DB:-godwit}
@@ -45,6 +45,32 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    networks:
+      - godwit
+    restart: unless-stopped
+
+  # Keycloak IdP for OIDC SSO. Optional: enable with the `keycloak` profile and
+  # point the backend at the OIDC-enabled config:
+  #   GODWIT_CONFIG=./config.keycloak.yaml docker compose --profile keycloak up
+  # The realm + `godwit` client are provisioned from docker/keycloak/realm-export.json.
+  # Login flow: http://localhost:3000/admin (browser) -> backend /api/v1/auth/oidc/keycloak
+  # -> http://localhost:8081/realms/godwit. Seed user: admin / password123.
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    command:
+      - start-dev
+      - --import-realm
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./docker/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles: ["keycloak"]
     networks:
       - godwit
     restart: unless-stopped

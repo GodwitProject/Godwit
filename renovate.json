@@ -1,6 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
+  "repositories": ["GodwitProject/Godwit"],
   "dependencyDashboard": true,
   "prConcurrentLimit": 5,
   "timezone": "UTC",

@@ -7,6 +7,10 @@
   "timezone": "UTC",
   "packageRules": [
     {
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
       "matchManagers": ["cargo"],
       "groupName": "cargo minor & patch",
       "matchUpdateTypes": ["minor", "patch"],
@@ -28,8 +32,5 @@
   "lockFileMaintenance": {
     "enabled": true,
     "automerge": false
-  },
-  "major": {
-    "minimumReleaseAge": "7 days"
   }
 }

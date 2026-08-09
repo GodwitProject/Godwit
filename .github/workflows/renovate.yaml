@@ -2,8 +2,8 @@ name: Renovate
 
 on:
   schedule:
-    # Hourly between 10:00 and 17:00 UTC on weekdays (matches renovate.json schedule).
-    - cron: '0 10-17 * * 1-5'
+    # Hourly dependency scan (no maintenance window: PRs are opened as soon as updates are found).
+    - cron: '0 * * * *'
   workflow_dispatch:
 
 permissions:

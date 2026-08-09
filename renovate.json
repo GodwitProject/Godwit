@@ -5,7 +5,6 @@
   "dependencyDashboard": false,
   "prConcurrentLimit": 5,
   "timezone": "UTC",
-  "schedule": ["after 10am and before 5pm every weekday"],
   "packageRules": [
     {
       "matchManagers": ["cargo"],

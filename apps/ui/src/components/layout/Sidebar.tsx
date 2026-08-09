@@ -34,7 +34,7 @@ export function Sidebar() {
     href === '/' ? pathname === '/' : pathname.startsWith(href);
 
   return (
-    <aside className="hidden md:flex flex-col h-full w-sidebar-width fixed left-0 top-0 bg-sidebar-bg border-r border-border py-4 px-3 gap-1 z-40">
+    <aside className="hidden md:flex flex-col h-full w-sidebar-width bg-sidebar-bg border-r border-border py-4 px-3 gap-1 z-40">
       <Link href="/" className="flex items-center gap-2.5 px-2 pb-3.5">
         <span className="grid place-items-center w-[26px] h-[26px] rounded-[7px] bg-accent text-on-accent">
           <LogoMark width={15} height={15} />

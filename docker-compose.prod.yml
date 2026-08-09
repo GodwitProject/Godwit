@@ -86,6 +86,11 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=3d
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/healthy || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     depends_on:
       api:
         condition: service_healthy
@@ -122,20 +127,6 @@ services:
     networks:
       - godwit
     restart: unless-stopped
-
-  admin:
-    image: ghcr.io/godwitproject/godwit-admin:${IMAGE_TAG:-main}
-    ports:
-      - "3000:3000"
-    environment:
-      API_URL: http://api:3000
-      NEXT_PUBLIC_API_URL: http://localhost:8000
-      NEXT_PUBLIC_APP_URL: http://localhost:3000
-    depends_on:
-      - api
-    profiles: ["admin"]
-    networks:
-      - godwit
 
 volumes:
   pgdata:

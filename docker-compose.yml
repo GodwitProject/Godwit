@@ -53,7 +53,7 @@ services:
   # point the backend at the OIDC-enabled config:
   #   GODWIT_CONFIG=./config.keycloak.yaml docker compose --profile keycloak up
   # The realm + `godwit` client are provisioned from docker/keycloak/realm-export.json.
-  # Login flow: http://localhost:3000/admin (browser) -> backend /api/v1/auth/oidc/keycloak
+  # Login flow: browser (UI at http://localhost:3002) -> backend /api/v1/auth/oidc/keycloak
   # -> http://localhost:8081/realms/godwit. Seed user: admin / password123.
   keycloak:
     image: quay.io/keycloak/keycloak:latest
@@ -86,6 +86,11 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=3d
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/healthy || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     depends_on:
       api:
         condition: service_healthy
@@ -139,24 +144,6 @@ services:
     networks:
       - godwit
     restart: unless-stopped
-
-  # Legacy admin console (Next.js dev server from apps/admin).
-  admin:
-    build:
-      context: .
-      dockerfile: apps/admin/Dockerfile
-    ports:
-      - "3000:3000"
-    environment:
-      API_URL: http://api:3000
-      NEXT_PUBLIC_API_URL: http://localhost:8000
-      NEXT_PUBLIC_APP_URL: http://localhost:3000
-      NODE_ENV: development
-    depends_on:
-      - api
-    profiles: ["admin"]
-    networks:
-      - godwit
 
 volumes:
   pgdata:

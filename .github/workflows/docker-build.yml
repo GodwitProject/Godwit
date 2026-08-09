@@ -28,8 +28,6 @@ jobs:
             dockerfile: Dockerfile
           - name: godwit-ui
             dockerfile: apps/ui/Dockerfile
-          - name: godwit-admin
-            dockerfile: apps/admin/Dockerfile
     steps:
       - uses: actions/checkout@v5.1.0
         with:

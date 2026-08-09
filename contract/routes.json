@@ -53,6 +53,10 @@
   { "id": "end-users.update", "method": "PATCH", "path": "/api/v1/end-users/{user_id}", "frontend": null, "backend": { "module": "crates/godwit-api/src/admin/end_users.rs", "fn": "update_end_user" }, "scope": "uncovered" },
   { "id": "end-users.delete", "method": "DELETE", "path": "/api/v1/end-users/{user_id}", "frontend": null, "backend": { "module": "crates/godwit-api/src/admin/end_users.rs", "fn": "delete_end_user" }, "scope": "uncovered" },
 
+  { "id": "model-aliases.list", "method": "GET", "path": "/api/v1/model-aliases", "frontend": null, "backend": { "module": "crates/godwit-api/src/admin/model_aliases.rs", "fn": "list_aliases" }, "scope": "uncovered" },
+  { "id": "model-aliases.create", "method": "POST", "path": "/api/v1/model-aliases", "frontend": null, "backend": { "module": "crates/godwit-api/src/admin/model_aliases.rs", "fn": "create_alias" }, "scope": "uncovered" },
+  { "id": "model-aliases.delete", "method": "DELETE", "path": "/api/v1/model-aliases/{id}", "frontend": null, "backend": { "module": "crates/godwit-api/src/admin/model_aliases.rs", "fn": "delete_alias" }, "scope": "uncovered" },
+
   { "id": "spend.total", "method": "GET", "path": "/api/v1/spend", "frontend": { "lib": "apps/ui/src/lib/api.ts", "fn": "fetchSpend" }, "backend": { "module": "crates/godwit-api/src/admin/spend.rs", "fn": "get_spend" }, "scope": "ui" },
   { "id": "spend.logs", "method": "GET", "path": "/api/v1/spend/logs", "frontend": { "lib": "apps/ui/src/lib/logs.ts", "fn": "fetchLogs" }, "backend": { "module": "crates/godwit-api/src/admin/spend_logs.rs", "fn": "get_spend_logs" }, "scope": "ui" },
   { "id": "spend.tags", "method": "GET", "path": "/api/v1/spend/tags", "frontend": null, "backend": { "module": "crates/godwit-api/src/admin/spend_tags.rs", "fn": "get_spend_tags" }, "scope": "uncovered" },

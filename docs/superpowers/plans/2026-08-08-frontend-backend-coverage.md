@@ -69,7 +69,7 @@ All tasks are complete and the suite is at zero failures. Commits (chronological
 
 **Findings surfaced by the contract test (dead/incomplete code):**
 
-- `crates/godwit-api/src/admin/model_aliases.rs` is **orphaned**: no `mod model_aliases;` in `admin/mod.rs`, references a nonexistent `godwit_db::repositories::model_aliases::ModelAliasRepository`, and never compiles into the binary. Its `/api/v1/model-aliases*` routes do not exist at runtime, so they are **intentionally excluded** from `contract/routes.json` and documented in the coverage grid's "Out of scope".
+- `crates/godwit-api/src/admin/model_aliases.rs` was flagged by the contract test as missing from the router. **Root cause was incomplete wiring, not missing code:** the DB `ModelAlias` model, `ModelAliasRepository`, and the `model_aliases` migration all existed and were correct, but the module was never declared in `godwit-db` (models + repositories) nor `godwit-api` admin, and it was missing the `post` import. It is now fully wired in, its routes are back in `contract/routes.json` (`scope: uncovered`), and it compiles with its DB unit tests passing.
 
 ---
 

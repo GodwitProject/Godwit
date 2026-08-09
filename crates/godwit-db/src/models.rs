@@ -176,3 +176,11 @@ pub struct RequestLog {
     pub tool_calls_count: Option<i32>,
     pub agentic_iteration: Option<i32>,
 }
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct ModelAlias {
+    pub id: Uuid,
+    pub alias: String,
+    pub target_model_id: Uuid,
+    pub created_at: DateTime<Utc>,
+}

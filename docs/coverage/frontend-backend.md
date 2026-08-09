@@ -38,6 +38,9 @@
 | uncovered | GET | `/api/v1/end-users/{user_id}` |  |  | end_users.rs | get_end_user | backend-only |
 | uncovered | PATCH | `/api/v1/end-users/{user_id}` |  |  | end_users.rs | update_end_user | backend-only |
 | uncovered | DELETE | `/api/v1/end-users/{user_id}` |  |  | end_users.rs | delete_end_user | backend-only |
+| uncovered | GET | `/api/v1/model-aliases` |  |  | model_aliases.rs | list_aliases | backend-only |
+| uncovered | POST | `/api/v1/model-aliases` |  |  | model_aliases.rs | create_alias | backend-only |
+| uncovered | DELETE | `/api/v1/model-aliases/{id}` |  |  | model_aliases.rs | delete_alias | backend-only |
 | uncovered | GET | `/api/v1/models/{id}` |  |  | models.rs | get_model | backend-only |
 | uncovered | PATCH | `/api/v1/models/{id}` |  |  | models.rs | update_model | backend-only |
 | uncovered | DELETE | `/api/v1/models/{id}` |  |  | models.rs | delete_model | backend-only |
@@ -85,5 +88,4 @@
 ## Out of scope
 
 - `/v1/*` proxy routes are **SDK-only** (`scope: proxy`): they are not consumed by the current UI but must stay wired for provider SDKs.
-- `backend-only` routes are live admin endpoints not yet surfaced in the UI.
-- **Dead/incomplete code not in the contract:** `crates/godwit-api/src/admin/model_aliases.rs` declares `/api/v1/model-aliases*` routes but is orphaned (no `mod` declaration in `admin/mod.rs`), references a nonexistent `godwit_db::repositories::model_aliases` repository, and never compiles into the binary. It is intentionally excluded from the contract because those routes do not exist at runtime.
+- `backend-only` routes (`/api/v1/model-aliases*`, `/api/v1/organizations*`, `/api/v1/teams*`, `/api/v1/users*`, `/api/v1/end-users*`, `/api/v1/circuit-breakers`, B2B auth/OIDC/SAML, admin tooling) are live admin/API endpoints not yet surfaced in the UI.

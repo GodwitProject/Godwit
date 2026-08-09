@@ -1,6 +1,6 @@
 use axum::{
     extract::{Extension, Path, State},
-    routing::{delete, get},
+    routing::{delete, get, post},
     Json, Router,
 };
 use godwit_auth::jwt::Claims;

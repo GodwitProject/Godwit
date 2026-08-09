@@ -4,6 +4,7 @@ pub mod circuit_breakers;
 pub mod end_users;
 pub mod models;
 pub mod metrics_ws;
+pub mod model_aliases;
 pub mod organizations;
 pub mod provider_profiles;
 pub mod spend;
@@ -49,6 +50,7 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .merge(spend_tags::router())
         .merge(stats::router())
         .merge(circuit_breakers::router())
+        .merge(model_aliases::router())
         .merge(metrics_ws::router())
         .route("/auth/me", axum::routing::get(auth::me))
         .route("/auth/sessions/revoke-all", axum::routing::post(auth::revoke_all_sessions))

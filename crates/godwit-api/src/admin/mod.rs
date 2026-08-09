@@ -6,6 +6,7 @@ pub mod models;
 pub mod metrics_ws;
 pub mod model_aliases;
 pub mod organizations;
+pub mod password;
 pub mod provider_profiles;
 pub mod spend;
 pub mod spend_logs;

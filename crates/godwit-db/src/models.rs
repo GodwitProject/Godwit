@@ -26,6 +26,12 @@ pub struct User {
     // field), only its presence in JSON *output* is suppressed.
     #[serde(skip_serializing)]
     pub password_hash: Option<String>,
+    #[serde(skip_serializing)]
+    pub password_changed_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing)]
+    pub password_expires_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing)]
+    pub must_change_password: bool,
     pub created_at: DateTime<Utc>,
 }
 

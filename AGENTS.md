@@ -53,11 +53,14 @@ The Dockerfile installs `xmlsec1` / `libclang` dependencies because the `samael`
 
 - Crate prefix is `godwit_*` (e.g., `godwit_core`, `godwit_db`).
 - `godwit-api` exposes `admin::router(state)` — it takes the shared `Arc<AppState>` because the JWT middleware needs state access.
+- `godwit-api::app::build_app(Arc<AppState>)` is the single shared root router used by `godwit-bin` and the integration/contract tests. `app::build_test_state(pool)` / `build_test_state_with_auth(pool, auth)` build the test `AppState`.
+- `contract/routes.json` is the single source of truth for front↔backend routes; `docs/coverage/frontend-backend.md` is derived from it.
 - `godwit-providers` exposes a `Provider` trait; routing is currently by model-id prefix (`claude` → Anthropic, otherwise OpenAI).
 
 ## Testing quirks
 
 - `cargo test --workspace` without `DATABASE_URL` will fail on `godwit-db` tests.
+- `cargo test -p godwit-api --test route_contract` verifies every route in `contract/routes.json` exists in the real router; `apps/ui/tests/route-contract.test.ts` verifies the FE side. Keep `contract/routes.json` in sync when routes change.
 - Integration tests in `tests/` are marked `#[ignore]` because they require a running server.
 - Compile them with `cargo test --test proxy_integration --no-run` and `cargo test --test admin_integration --no-run`.
 

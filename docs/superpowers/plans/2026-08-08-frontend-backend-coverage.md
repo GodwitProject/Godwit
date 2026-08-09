@@ -46,6 +46,33 @@
 
 # Phase 1 — Remission to Green
 
+## Implementation status (executed 2026-08-09)
+
+All tasks are complete and the suite is at zero failures. Commits (chronological):
+
+- `6b9d1f3` Task 1 — budget_check via real `api_keys` row.
+- `9f567f6` Task 2 — zero-failure baseline (spend_tags determinism, godwit-db pricing assertion).
+- `1d4a35e` Task 3 — expose shared `app(state)` builder (`godwit_api::app::build_app`) + `build_test_state(_with_auth)`.
+- `1e97d04` Task 4 — `get_metric_snapshot()` camelCase accessor (+ fix pre-existing flaky metrics tests via serialization guard).
+- `96b73a8` Task 5 — `/api/v1/ws/metrics` WebSocket per FE protocol.
+- `c979c46` Tasks 5+6 — `contract/routes.json` (75 routes) + backend `route_contract.rs` verifier.
+- `2095ba7` Task 7 — FE `route-contract.test.ts` verifier.
+- `3ed0434` Task 8 — rendered `docs/coverage/frontend-backend.md` grid.
+
+**Deviations from plan (intentional):**
+
+- **`app(state)` name collision:** `godwit-api` already had a module path such that the function was named `build_app` (returning `Router<()>`), not `app`. `build_test_state`/`build_test_state_with_auth` derive the login-limiter capacity from `auth.login_max_attempts_per_minute`.
+- **Placeholder substitution & 404 heuristic:** the contract test replaces every `{param}` with a zero UUID, and treats a 404 as “missing” only when the response body is **empty**. A handler-returned 404 (e.g. OIDC/SAML provider not configured) carries a non-empty JSON body and is correctly counted as an existing route.
+- **`auth.refresh` FE fn:** `doRefresh` in `http.ts` was private; it is now exported so the FE contract test can invoke it directly.
+- **`ws.metrics`:** a WebSocket (not `fetch`), so the FE contract test checks the `MetricsSocket` default URL against `/api/v1/ws/metrics` rather than via fetch mocking.
+- **Routes 5+6 combined into one commit** because the backend test reads the contract file (they are interdependent).
+
+**Findings surfaced by the contract test (dead/incomplete code):**
+
+- `crates/godwit-api/src/admin/model_aliases.rs` is **orphaned**: no `mod model_aliases;` in `admin/mod.rs`, references a nonexistent `godwit_db::repositories::model_aliases::ModelAliasRepository`, and never compiles into the binary. Its `/api/v1/model-aliases*` routes do not exist at runtime, so they are **intentionally excluded** from `contract/routes.json` and documented in the coverage grid's "Out of scope".
+
+---
+
 ## Task 1: Fix the 4 `budget_check_*` tests (real API key)
 
 **Files:**

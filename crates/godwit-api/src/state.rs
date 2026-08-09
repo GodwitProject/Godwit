@@ -34,6 +34,7 @@ pub struct AppState {
     pub refresh_token_repo: RefreshTokenRepository,
     pub password_history_repo: PasswordHistoryRepository,
     pub password_reset_token_repo: PasswordResetTokenRepository,
+    pub mailer: Option<Arc<dyn crate::mail::SendEmail>>,
     pub end_user_repo: EndUsersRepository,
     pub api_key_cache: MemoryCache<String, ApiKey>,
     pub credential_master_key: [u8; 32],

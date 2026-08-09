@@ -386,6 +386,7 @@ mod auth_tests {
             refresh_token_repo: RefreshTokenRepository::new(pool.clone()),
             password_history_repo: PasswordHistoryRepository::new(pool.clone()),
             password_reset_token_repo: PasswordResetTokenRepository::new(pool.clone()),
+            mailer: None,
             end_user_repo: EndUsersRepository::new(pool.clone()),
             api_key_cache: MemoryCache::new(),
             credential_master_key: [42u8; 32],

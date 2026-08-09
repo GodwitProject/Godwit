@@ -66,7 +66,7 @@ fn build_app(pool: PgPool) -> Router {
 /// Clone of `build_app`, but with a caller-supplied `AuthConfig` injected (used to tune
 /// rate-limit / trust-proxy settings for auth integration tests).
 fn build_app_with_auth(pool: PgPool, auth: AuthConfig) -> Router {
-    let state = godwit_api::app::build_test_state_with_auth(pool, auth);
+    let state = godwit_api::app::build_test_state_with_auth(pool, auth, None);
     godwit_api::app::build_app(state)
 }
 

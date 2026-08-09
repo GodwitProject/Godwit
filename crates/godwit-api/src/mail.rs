@@ -73,6 +73,21 @@ impl Mailer {
     }
 }
 
+pub fn render_reset_email(app_url: &str, token: &str) -> (String, String) {
+    let reset_link =
+        format!("{}/reset-password?token={}", app_url.trim_end_matches('/'), token);
+    let mut ctx = tera::Context::new();
+    ctx.insert("reset_link", &reset_link);
+    let mut tera = Tera::default();
+    let html = tera
+        .render_str(include_str!("../assets/email/reset_password.html"), &ctx)
+        .unwrap_or_else(|_| format!("Reset your Godwit password: {reset_link}"));
+    let text = tera
+        .render_str(include_str!("../assets/email/reset_password.txt"), &ctx)
+        .unwrap_or(String::new());
+    (html, text)
+}
+
 #[async_trait]
 impl SendEmail for Mailer {
     async fn send(&self, to: &str, subject: &str, html: &str, text: &str) -> Result<(), MailError> {

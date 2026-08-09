@@ -26,7 +26,7 @@ pub fn router() -> Router<Arc<AppState>> {
         )
 }
 
-fn require_role(claims: &Claims, allowed: &[Role]) -> Result<Role, ApiError> {
+pub(crate) fn require_role(claims: &Claims, allowed: &[Role]) -> Result<Role, ApiError> {
     let role = Role::from_str(&claims.role).ok_or(ApiError::Forbidden)?;
     if !allowed.contains(&role) {
         return Err(ApiError::Forbidden);
@@ -35,7 +35,7 @@ fn require_role(claims: &Claims, allowed: &[Role]) -> Result<Role, ApiError> {
 }
 
 /// `org_admin` may only act on a user already in its own org; `super_admin` may act on anyone.
-fn check_same_org(role: Role, claims: &Claims, target_org: Option<Uuid>) -> Result<(), ApiError> {
+pub(crate) fn check_same_org(role: Role, claims: &Claims, target_org: Option<Uuid>) -> Result<(), ApiError> {
     if role != Role::SuperAdmin && target_org != Some(claims.organization_id) {
         return Err(ApiError::Forbidden);
     }
@@ -47,7 +47,7 @@ fn check_same_org(role: Role, claims: &Claims, target_org: Option<Uuid>) -> Resu
 /// an org with the instance's `super_admin` (the default case, since `create_user` always
 /// places new users in the creator's own org) could demote or delete it via `check_same_org`
 /// alone, since that check only compares organizations, never privilege level.
-fn check_not_acting_on_super_admin(role: Role, target_role: &str) -> Result<(), ApiError> {
+pub(crate) fn check_not_acting_on_super_admin(role: Role, target_role: &str) -> Result<(), ApiError> {
     if role != Role::SuperAdmin && target_role == "super_admin" {
         return Err(ApiError::Forbidden);
     }

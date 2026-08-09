@@ -63,14 +63,18 @@ fn base_auth() -> AuthConfig {
 /// This is shared between the integration tests and any other in-process harness
 /// that needs the real router wiring without duplicating the construction logic.
 pub fn build_test_state(pool: PgPool) -> Arc<AppState> {
-    build_test_state_with_auth(pool, base_auth())
+    build_test_state_with_auth(pool, base_auth(), None)
 }
 
 /// Build an `AppState` from a pool and a caller-supplied auth config.
 ///
 /// The login limiter capacity is derived from `auth.login_max_attempts_per_minute`
 /// so tests that tune rate-limiting behave correctly.
-pub fn build_test_state_with_auth(pool: PgPool, auth: AuthConfig) -> Arc<AppState> {
+pub fn build_test_state_with_auth(
+    pool: PgPool,
+    auth: AuthConfig,
+    mailer: Option<Arc<dyn crate::mail::SendEmail>>,
+) -> Arc<AppState> {
     use godwit_core::{DatabaseConfig, Protocol, ServerConfig};
     use godwit_providers::{
         anthropic::AnthropicAdapter, gemini::GeminiAdapter, llama_cpp::LlamaCppAdapter,
@@ -130,6 +134,7 @@ pub fn build_test_state_with_auth(pool: PgPool, auth: AuthConfig) -> Arc<AppStat
         refresh_token_repo: RefreshTokenRepository::new(pool.clone()),
         password_history_repo: PasswordHistoryRepository::new(pool.clone()),
         password_reset_token_repo: PasswordResetTokenRepository::new(pool.clone()),
+        mailer,
         end_user_repo: EndUsersRepository::new(pool.clone()),
         api_key_cache: MemoryCache::new(),
         credential_master_key: MASTER_KEY,

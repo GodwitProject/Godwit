@@ -1,6 +1,6 @@
 use godwit_api::{
     agentic_loop::AgenticLoop, circuit_breaker::CircuitBreakerRegistry,
-    login_rate_limit::LoginLimiter, model_router::DbModelRouter, rate_limit::RateLimiter,
+    login_rate_limit::LoginLimiter, mail::Mailer, model_router::DbModelRouter, rate_limit::RateLimiter,
     scheduler::Scheduler, state::AppState,
 };
 use godwit_core::alerting::AlertingService;
@@ -88,6 +88,10 @@ async fn main() -> anyhow::Result<()> {
         godwit_core::guardrails::GuardrailsOrchestrator::new(guardrails_config)
     ));
 
+    let mailer = Mailer::build(&config)
+        .map_err(|e| anyhow::anyhow!("failed to build mailer: {e}"))?
+        .map(|m| -> Arc<dyn godwit_api::mail::SendEmail> { Arc::new(m) });
+
     let state = Arc::new(AppState {
         config: config.clone(),
         pool: pool.clone(),
@@ -104,6 +108,7 @@ async fn main() -> anyhow::Result<()> {
         refresh_token_repo: RefreshTokenRepository::new(pool.clone()),
         password_history_repo: PasswordHistoryRepository::new(pool.clone()),
         password_reset_token_repo: PasswordResetTokenRepository::new(pool.clone()),
+        mailer,
         end_user_repo: EndUsersRepository::new(pool.clone()),
         api_key_cache: MemoryCache::new(),
         credential_master_key: master_key,

@@ -15,7 +15,7 @@ use godwit_db::models::User;
 use serde::Deserialize;
 use std::sync::Arc;
 
-use crate::middleware::cookie_csrf;
+use crate::middleware::{cookie_csrf, jwt_auth};
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -48,12 +48,21 @@ pub fn router(state: Arc<AppState>) -> Router<Arc<AppState>> {
         .route("/auth/logout", post(logout))
         .route_layer(from_fn_with_state(state.clone(), cookie_csrf));
 
+    let protected_auth = Router::new()
+        .route("/auth/change-password", post(super::password::change_password))
+        .route("/auth/change-required", post(super::password::change_required))
+        .route("/auth/admin/reset-password", post(super::password::admin_reset_password))
+        .route_layer(from_fn_with_state(state.clone(), jwt_auth));
+
     Router::new()
         .merge(cookie_routes)
         .route("/auth/login", post(login))
         .route("/auth/oidc/:provider", get(oidc_start))
         .route("/auth/oidc/:provider/callback", get(oidc_callback))
         .route("/auth/saml/:provider/acs", post(saml_acs))
+        .route("/auth/forgot-password", post(super::password::forgot_password))
+        .route("/auth/reset-password", post(super::password::reset_password))
+        .merge(protected_auth)
 }
 
 /// Issues a fresh access token + refresh token pair for `user`, persisting the refresh
@@ -169,7 +178,15 @@ async fn login(
         }
         return Err(crate::error::ApiError::Unauthorized);
     }
-    let (set_cookie_headers, body) = issue_token_pair(&state, &user).await?;
+    let (set_cookie_headers, mut body) = issue_token_pair(&state, &user).await?;
+    let must_change = user.must_change_password
+        || user
+            .password_expires_at
+            .map(|e| e < chrono::Utc::now())
+            .unwrap_or(false);
+    if let Some(obj) = body.0.as_object_mut() {
+        obj.insert("must_change_password".to_string(), serde_json::json!(must_change));
+    }
     Ok((set_cookie_headers, body))
 }
 
@@ -434,6 +451,7 @@ mod tests {
             refresh_token_repo: RefreshTokenRepository::new(pool.clone()),
             password_history_repo: PasswordHistoryRepository::new(pool.clone()),
             password_reset_token_repo: PasswordResetTokenRepository::new(pool.clone()),
+            mailer: None,
             end_user_repo: EndUsersRepository::new(pool.clone()),
             api_key_cache: MemoryCache::new(),
             credential_master_key: [42u8; 32],

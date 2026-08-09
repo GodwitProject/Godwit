@@ -1,5 +1,20 @@
+use axum::{
+    extract::{Extension, State},
+    Json,
+};
+use chrono::{Duration, Utc};
+use godwit_auth::{
+    api_keys::{hash_password, verify_password},
+    jwt::Claims,
+    refresh_tokens::{generate_refresh_token, hash_refresh_token},
+    rbac::Role,
+};
 use godwit_core::PasswordPolicy;
-use godwit_auth::api_keys::{hash_password, verify_password};
+use serde::Deserialize;
+use std::sync::Arc;
+use uuid::Uuid;
+
+use crate::{admin::users, error::ApiError, mail, state::AppState};
 
 mod common {
     use std::collections::HashSet;
@@ -72,6 +87,180 @@ pub fn password_state(
         Some(exp) if exp < chrono::Utc::now() => PasswordState::Expired,
         _ => PasswordState::Valid,
     }
+}
+
+async fn do_password_change(
+    state: &AppState,
+    user_id: Uuid,
+    new_password: &str,
+) -> Result<(), ApiError> {
+    let policy = &state.config.auth.password_policy;
+    let history = state
+        .password_history_repo
+        .get_last_n(user_id, policy.max_reuse as i64)
+        .await
+        .map_err(ApiError::Core)?;
+    validate_password(policy, new_password, &history)
+        .map_err(|e| ApiError::BadRequest(format!("{e:?}")))?;
+    let hash = hash_password(new_password);
+    let expires_at = if policy.days_to_expire > 0 {
+        Some(Utc::now() + Duration::days(policy.days_to_expire as i64))
+    } else {
+        None
+    };
+    state
+        .user_repo
+        .update_password(user_id, &hash, expires_at)
+        .await
+        .map_err(ApiError::Core)?;
+    state
+        .password_history_repo
+        .push(user_id, &hash)
+        .await
+        .map_err(ApiError::Core)?;
+    state
+        .password_history_repo
+        .purge_older_than(user_id, policy.max_reuse as i64)
+        .await
+        .map_err(ApiError::Core)?;
+    state
+        .refresh_token_repo
+        .delete_all_for_user(user_id)
+        .await
+        .map_err(ApiError::Core)?;
+    Ok(())
+}
+
+#[derive(Deserialize)]
+pub struct ChangePasswordReq {
+    current_password: String,
+    new_password: String,
+}
+
+#[derive(Deserialize)]
+pub struct ChangeRequiredReq {
+    new_password: String,
+}
+
+#[derive(Deserialize)]
+pub struct AdminResetReq {
+    user_id: Uuid,
+    new_password: String,
+}
+
+#[derive(Deserialize)]
+pub struct ForgotPasswordReq {
+    email: String,
+}
+
+#[derive(Deserialize)]
+pub struct ResetPasswordReq {
+    token: String,
+    new_password: String,
+}
+
+pub async fn change_password(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<ChangePasswordReq>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let user_id = claims.user_id;
+    let user = state.user_repo.get_by_id(user_id).await.map_err(ApiError::Core)?;
+    let current_hash = user
+        .password_hash
+        .as_deref()
+        .ok_or(ApiError::BadRequest("account has no password set".to_string()))?;
+    if !verify_password(&req.current_password, current_hash) {
+        return Err(ApiError::Unauthorized);
+    }
+    do_password_change(&state, user_id, &req.new_password).await?;
+    Ok(Json(serde_json::json!({ "changed": true })))
+}
+
+pub async fn change_required(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<ChangeRequiredReq>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let user_id = claims.user_id;
+    let user = state.user_repo.get_by_id(user_id).await.map_err(ApiError::Core)?;
+    let expired = user
+        .password_expires_at
+        .map(|exp| exp < Utc::now())
+        .unwrap_or(false);
+    if !user.must_change_password && !expired {
+        return Err(ApiError::Forbidden);
+    }
+    do_password_change(&state, user_id, &req.new_password).await?;
+    Ok(Json(serde_json::json!({ "changed": true })))
+}
+
+pub async fn admin_reset_password(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<AdminResetReq>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let caller_role = users::require_role(&claims, &[Role::SuperAdmin, Role::OrgAdmin])?;
+    if claims.user_id == req.user_id {
+        return Err(ApiError::BadRequest("cannot reset your own password".to_string()));
+    }
+    let target = state.user_repo.get_by_id(req.user_id).await.map_err(ApiError::Core)?;
+    users::check_same_org(caller_role, &claims, target.organization_id)?;
+    users::check_not_acting_on_super_admin(caller_role, &target.role)?;
+    do_password_change(&state, target.id, &req.new_password).await?;
+    state
+        .user_repo
+        .set_must_change(target.id, true)
+        .await
+        .map_err(ApiError::Core)?;
+    Ok(Json(serde_json::json!({ "reset": true })))
+}
+
+pub async fn forgot_password(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ForgotPasswordReq>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    if let Ok(user) = state.user_repo.get_by_email(&req.email).await {
+        let (plaintext, hash) = generate_refresh_token();
+        let _ = state
+            .password_reset_token_repo
+            .create(user.id, &hash, std::time::Duration::from_secs(1800))
+            .await;
+        if let Some(mailer) = &state.mailer {
+            if let Some(mail_config) = &state.config.auth.mail {
+                let (html, text) = mail::render_reset_email(&mail_config.app_url, &plaintext);
+                let _ = mailer
+                    .send(&req.email, "Reset your password", &html, &text)
+                    .await;
+            }
+        }
+    }
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+pub async fn reset_password(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ResetPasswordReq>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let hash = hash_refresh_token(&req.token);
+    let token = state
+        .password_reset_token_repo
+        .get_by_hash(&hash)
+        .await
+        .map_err(|_| ApiError::BadRequest("invalid or expired reset token".to_string()))?;
+    if token.used_at.is_some() {
+        return Err(ApiError::BadRequest("reset token already used".to_string()));
+    }
+    if token.expires_at < Utc::now() {
+        return Err(ApiError::BadRequest("reset token expired".to_string()));
+    }
+    do_password_change(&state, token.user_id, &req.new_password).await?;
+    state
+        .password_reset_token_repo
+        .mark_used(token.id)
+        .await
+        .map_err(ApiError::Core)?;
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 #[cfg(test)]

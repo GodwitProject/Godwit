@@ -138,6 +138,7 @@ pub fn estimate_cost(
 
 fn estimate_usage_from_request(request: &BatchRequest) -> UsageReport {
     let mut prompt_tokens = 0i32;
+    #[allow(unused_assignments)]
     let mut max_completion_tokens = 0i32;
     
     for message in &request.body.messages {

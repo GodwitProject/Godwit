@@ -137,7 +137,6 @@ pub fn process_streaming_tool_calls(
         let mut stream = Box::pin(stream);
         let mut buffer = ToolCallBuffer::new();
         let mut tool_call_detected = false;
-        let mut finished = false;
 
         while let Some(event_result) = stream.next().await {
             match event_result {
@@ -149,7 +148,6 @@ pub fn process_streaming_tool_calls(
                             let _ = tx.send(Ok(event)).await;
                         }
                         CanonicalEvent::Finish { .. } => {
-                            finished = true;
                             let _ = tx.send(Ok(event)).await;
 
                             if tool_call_detected {
@@ -208,7 +206,7 @@ fn parse_canonical_event(data: &str) -> CanonicalEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures::stream;
+    
 
     #[test]
     fn buffer_accumulates_tool_call_delta() {

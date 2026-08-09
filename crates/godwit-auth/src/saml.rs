@@ -1,6 +1,7 @@
 use godwit_core::{PasteurError, SamlProviderConfig};
 
 pub struct SamlService {
+    #[allow(dead_code)]
     provider_id: String,
 }
 

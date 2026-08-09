@@ -8,7 +8,6 @@ use godwit_auth::{jwt::Claims, rbac::Role};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use sqlx::PgPool;
-use std::str::FromStr;
 use std::sync::Arc;
 use uuid::Uuid;
 

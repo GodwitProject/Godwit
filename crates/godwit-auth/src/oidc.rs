@@ -1,6 +1,6 @@
 use godwit_core::{OidcProviderConfig, PasteurError};
 use openidconnect::{
-    core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata, CoreResponseType},
+    core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata},
     reqwest::async_http_client,
     AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce, RedirectUrl, Scope,
 };
@@ -8,6 +8,7 @@ use url::Url;
 
 pub struct OidcClient {
     inner: CoreClient,
+    #[allow(dead_code)]
     provider_id: String,
 }
 

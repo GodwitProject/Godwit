@@ -21,6 +21,7 @@ struct AzureChoice {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct AzureUsage {
     #[serde(default)]
     prompt_tokens: i64,

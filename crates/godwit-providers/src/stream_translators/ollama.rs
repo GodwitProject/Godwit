@@ -5,6 +5,7 @@ use futures::stream::{self, BoxStream, StreamExt};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct OllamaMessage {
     #[serde(default)]
     role: Option<String>,
@@ -13,6 +14,7 @@ struct OllamaMessage {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct OllamaStreamChunk {
     #[serde(default)]
     model: Option<String>,

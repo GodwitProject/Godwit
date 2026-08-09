@@ -249,7 +249,9 @@ async fn messages(
     }
 
     let fallback_chain = DbModelRouter::fallback_chain(&resolved.model);
+    #[allow(unused_assignments)]
     let mut last_err: Option<crate::error::ApiError> = None;
+    #[allow(unused_assignments)]
     let mut rate_limited_err: Option<crate::error::ApiError> = None;
 
     if streamed {

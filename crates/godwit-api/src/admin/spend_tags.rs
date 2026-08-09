@@ -387,7 +387,7 @@ mod tests {
         .await
         .expect("insert request_logs");
 
-        let mut result = fetch_api_key_spend(&pool, None, None, Some(org), None)
+        let result = fetch_api_key_spend(&pool, None, None, Some(org), None)
             .await
             .expect("fetch api_key spend");
 

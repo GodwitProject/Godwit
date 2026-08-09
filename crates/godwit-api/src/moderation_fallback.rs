@@ -155,8 +155,8 @@ impl ModerationFallback {
 
     async fn call_provider(
         &self,
-        state: &Arc<AppState>,
-        api_key: &ApiKey,
+        _state: &Arc<AppState>,
+        _api_key: &ApiKey,
         provider: &ModerationProviderConfig,
         body: &serde_json::Value,
     ) -> Result<Response, ApiError> {

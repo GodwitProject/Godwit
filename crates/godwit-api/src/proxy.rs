@@ -3,7 +3,7 @@ use axum::{
     http::StatusCode,
     middleware,
     response::{IntoResponse, Response},
-    routing::{delete, get, post},
+    routing::{get, post},
     Router,
 };
 use futures::StreamExt;
@@ -12,7 +12,7 @@ use godwit_core::{
     ImageGenerationRequest, Tool, ToolCall,
 };
 #[cfg(test)]
-use godwit_core::{AppConfig, AuthConfig, CompatConfig, DatabaseConfig, ServerConfig};
+use godwit_core::{AppConfig, AuthConfig, DatabaseConfig, ServerConfig};
 use godwit_db::models::ApiKey;
 use godwit_db::repositories::{
     models::ModelRepository, provider_profiles::ProviderProfileRepository,
@@ -36,8 +36,6 @@ use crate::{
     resilience::{with_retry, RetryPolicy},
     state::AppState,
 };
-use godwit_core::guardrails::GuardrailsOrchestrator;
-use godwit_core::{ChatCompletionResponse, ResponseFormat};
 
 pub fn router() -> Router<Arc<AppState>> {
     let chat_router = Router::new()
@@ -577,7 +575,7 @@ async fn chat_completions(
                     .map(|c| c.message.tool_calls.as_ref().map(|t| t.len()).unwrap_or(0))
                     .sum();
                 let response = Json(completion).into_response();
-                let cost_usd = compute_cost(&primary_resolved.model.pricing, Capability::Chat, &total_usage);
+                let _cost_usd = compute_cost(&primary_resolved.model.pricing, Capability::Chat, &total_usage);
                 (response, Some(total_usage), primary_resolved.model.provider_model_id.clone(), primary_resolved.model.pricing.clone(), 1, false, Some(tool_count), Some(state.agentic_loop.max_iterations))
             }
             Err(e) => {
@@ -1988,7 +1986,7 @@ mod tests {
 
     #[test]
     fn chat_completion_request_forwards_all_advanced_params() {
-        use godwit_core::{ChatCompletionRequest, ChatMessage, ResponseFormat, JsonSchema, Stop, ReasoningConfig, ThinkingConfig, ToolChoice, FunctionName};
+        use godwit_core::{ChatCompletionRequest, ChatMessage, ResponseFormat, Stop, ReasoningConfig, ThinkingConfig, ToolChoice, FunctionName};
         
         let mut logit_bias = std::collections::HashMap::new();
         logit_bias.insert("token1".to_string(), 10);

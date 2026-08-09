@@ -26,7 +26,7 @@ impl Scheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
+    
     use sqlx::{Pool, Postgres};
 
     fn create_mock_alerting_service(pool: Pool<Postgres>) -> AlertingService {

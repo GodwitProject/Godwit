@@ -23,7 +23,7 @@ use axum::{
 use godwit_core::AuthConfig;
 use godwit_db::models::UserRole;
 use godwit_db::repositories::{
-    api_keys::ApiKeyRepository, end_users::EndUsersRepository, models::ModelRepository,
+    api_keys::ApiKeyRepository, models::ModelRepository,
     organizations::OrganizationRepository, provider_profiles::ProviderProfileRepository,
     refresh_tokens::RefreshTokenRepository, team_memberships::TeamMembershipRepository,
     teams::TeamRepository, users::UserRepository,

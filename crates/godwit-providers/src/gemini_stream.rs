@@ -27,6 +27,7 @@ struct GeminiCandidate {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 struct GeminiUsageMetadata {
     #[serde(default)]
     prompt_token_count: i64,

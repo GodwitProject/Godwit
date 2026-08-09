@@ -21,6 +21,7 @@ struct VllmChoice {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct VllmUsage {
     #[serde(default)]
     prompt_tokens: i64,

@@ -1545,14 +1545,14 @@ mod tests {
 
     #[tokio::test]
     async fn chat_caches_response_on_miss() {
-        use std::time::Duration;
+        
         let server = MockServer::start().await;
         let call_count = std::sync::Arc::new(std::sync::Mutex::new(0));
         let call_count_clone = call_count.clone();
 
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
-            .respond_with(move |req: &wiremock::Request| {
+            .respond_with(move |_req: &wiremock::Request| {
                 *call_count_clone.lock().unwrap() += 1;
                 ResponseTemplate::new(200).set_body_json(serde_json::json!({
                     "id": "chatcmpl-123",
@@ -1602,14 +1602,14 @@ mod tests {
 
     #[tokio::test]
     async fn chat_stream_bypasses_cache() {
-        use std::time::Duration;
+        
         let server = MockServer::start().await;
         let call_count = std::sync::Arc::new(std::sync::Mutex::new(0));
         let call_count_clone = call_count.clone();
 
         Mock::given(method("POST"))
             .and(path("/chat/completions"))
-            .respond_with(move |req: &wiremock::Request| {
+            .respond_with(move |_req: &wiremock::Request| {
                 *call_count_clone.lock().unwrap() += 1;
                 ResponseTemplate::new(200)
                     .insert_header("content-type", "text/event-stream")

@@ -1,4 +1,4 @@
-use godwit_core::{ChatCompletionRequest, ChatContent, ChatMessage, Stop, ReasoningConfig, ThinkingConfig, ResponseFormat, JsonSchema, Tool, FunctionDefinition, ToolChoice, FunctionName};
+use godwit_core::{ChatCompletionRequest, ChatContent, ChatMessage, Stop, ReasoningConfig, ThinkingConfig, ResponseFormat, JsonSchema, Tool, FunctionDefinition};
 use reqwest::Client;
 use std::collections::HashMap;
 

@@ -436,7 +436,7 @@ mod tests {
         end_users.create(org.id, user.id, None, Some(max_budget))
             .await.expect("create end user budget");
         
-        let (plaintext, hash, prefix) = generate_api_key();
+        let (_plaintext, hash, prefix) = generate_api_key();
         let api_key = ApiKeyRepository::new(pool.clone())
             .create(
                 user.id,
@@ -497,7 +497,7 @@ mod tests {
         end_users.create(org.id, user.id, None, Some(max_budget))
             .await.expect("create end user budget");
         
-        let (plaintext, hash, prefix) = generate_api_key();
+        let (_plaintext, hash, prefix) = generate_api_key();
         let api_key = ApiKeyRepository::new(pool.clone())
             .create(
                 user.id,
@@ -598,7 +598,7 @@ mod tests {
         let team = teams.create(org.id, "test-team", None, Some(max_budget))
             .await.expect("create team budget");
         
-        let (plaintext, hash, prefix) = generate_api_key();
+        let (_plaintext, hash, prefix) = generate_api_key();
         let api_key = ApiKeyRepository::new(pool.clone())
             .create(
                 user.id,
@@ -660,7 +660,7 @@ mod tests {
         let team = teams.create(org.id, "test-team", None, Some(max_budget))
             .await.expect("create team budget");
         
-        let (plaintext, hash, prefix) = generate_api_key();
+        let (_plaintext, hash, prefix) = generate_api_key();
         let api_key = ApiKeyRepository::new(pool.clone())
             .create(
                 user.id,

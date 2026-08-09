@@ -158,7 +158,7 @@ mod tests {
             .await.expect("create user");
 
         let repo = EndUsersRepository::new(pool);
-        let end_user = repo.create(org.id, user.id, None, None).await.expect("create end_user");
+        let _end_user = repo.create(org.id, user.id, None, None).await.expect("create end_user");
 
         let budget = rust_decimal::Decimal::from_str("100.00").unwrap();
         let max_budget = rust_decimal::Decimal::from_str("200.00").unwrap();

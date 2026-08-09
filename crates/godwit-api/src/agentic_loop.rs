@@ -148,7 +148,7 @@ fn accumulate_usage(mut acc: UsageReport, report: &UsageReport) -> UsageReport {
 mod tests {
     use super::*;
     use godwit_core::{ChatCompletionResponse, ChatCompletionChoice, ChatMessage, FunctionCall, Usage};
-    use godwit_providers::adapter::UsageReport;
+    
 
     #[tokio::test]
     async fn test_no_tool_calls_returns_immediately() {
@@ -239,7 +239,7 @@ mod tests {
     #[tokio::test]
     async fn test_mcp_tool_call_returns_error_for_unknown_server() {
         use godwit_mcp::McpRegistry;
-        use std::sync::Arc;
+        
 
         let registry = McpRegistry::new();
         let result = registry.call_tool("unknown__tool", serde_json::json!({})).await;
@@ -270,7 +270,7 @@ mod tests {
     #[tokio::test]
     async fn test_mcp_tool_error_message_appended_to_conversation() {
         use godwit_mcp::McpRegistry;
-        use godwit_core::{ChatContent, ToolCall};
+        
         use std::sync::Arc;
 
         let registry = Arc::new(McpRegistry::new());

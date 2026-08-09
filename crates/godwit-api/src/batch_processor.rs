@@ -88,6 +88,7 @@ impl BatchProcessor {
         request: crate::batch_parser::ParsedBatchLine,
     ) -> BatchItemResult {
         let mut last_error: Option<String> = None;
+        #[allow(unused_assignments)]
         let mut actual_usage: Option<UsageReport> = None;
 
         for attempt in 0..=MAX_RETRIES {
@@ -405,7 +406,7 @@ mod tests {
         use tokio::sync::Mutex;
 
         let max_concurrent = 3;
-        let processor = BatchProcessor::with_max_concurrent(max_concurrent);
+        let _processor = BatchProcessor::with_max_concurrent(max_concurrent);
         let concurrent_count = Arc::new(AtomicUsize::new(0));
         let max_observed = Arc::new(Mutex::new(0usize));
 

@@ -125,7 +125,7 @@ impl RequestLogsRepository {
 mod tests {
     use super::*;
     use sqlx::PgPool;
-    use rust_decimal_macros::dec;
+    
 
     #[sqlx::test(migrations = "../godwit-db/migrations")]
     async fn create_with_tags_round_trips_correctly(pool: PgPool) {

@@ -121,7 +121,7 @@ async fn test_image_usage_tracked() {
     
     assert!(resp.status().is_success());
     
-    let body: serde_json::Value = resp.json().await.expect("invalid JSON");
+    let _body: serde_json::Value = resp.json().await.expect("invalid JSON");
     
     // Assert: UsageReport has image_count or equivalent
     // Image usage may be reported differently depending on provider

@@ -46,6 +46,7 @@ impl From<serde_json::Error> for AlertingError {
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
+#[allow(dead_code)]
 struct AlertingConfig {
     id: i64,
     org_id: Option<Uuid>,

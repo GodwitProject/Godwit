@@ -21,6 +21,7 @@ struct SglangChoice {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct SglangUsage {
     #[serde(default)]
     prompt_tokens: i64,

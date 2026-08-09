@@ -48,6 +48,7 @@ pub fn get_metrics() -> Result<String, prometheus::Error> {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[allow(non_snake_case)]
 pub struct MetricsSnapshot {
     pub requestsTotal: f64,
     pub tokensTotal: f64,

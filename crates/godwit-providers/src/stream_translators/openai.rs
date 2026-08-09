@@ -21,6 +21,7 @@ struct OpenAiChoice {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct OpenAiUsage {
     #[serde(default)]
     prompt_tokens: i64,

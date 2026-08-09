@@ -302,7 +302,6 @@ mod auth_tests {
     use axum::{
         body::Body,
         http::{header::COOKIE, Request},
-        middleware,
     };
     use godwit_auth::jwt::{issue, Claims};
     use sqlx::PgPool;

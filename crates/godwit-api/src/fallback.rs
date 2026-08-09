@@ -77,7 +77,9 @@ pub async fn call_chat_with_fallback(
     // Get fallback chain from model config
     let fallback_chain = get_fallback_chain(state, initial_model).await;
 
+    #[allow(unused_assignments)]
     let mut attempts_made = 0u32;
+    #[allow(unused_assignments)]
     let mut last_error: Option<ProviderError> = None;
 
     for (attempt_idx, model_ref) in fallback_chain.iter().enumerate() {

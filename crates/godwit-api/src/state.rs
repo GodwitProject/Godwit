@@ -5,7 +5,8 @@ use godwit_core::guardrails::GuardrailsOrchestrator;
 use godwit_db::models::ApiKey;
 use godwit_db::repositories::{
     api_keys::ApiKeyRepository, end_users::EndUsersRepository,
-    organizations::OrganizationRepository, refresh_tokens::RefreshTokenRepository,
+    organizations::OrganizationRepository, password_history::PasswordHistoryRepository,
+    password_reset_tokens::PasswordResetTokenRepository, refresh_tokens::RefreshTokenRepository,
     team_memberships::TeamMembershipRepository, teams::TeamRepository, users::UserRepository,
 };
 use godwit_mcp::McpRegistry;
@@ -31,6 +32,8 @@ pub struct AppState {
     pub team_membership_repo: TeamMembershipRepository,
     pub api_key_repo: ApiKeyRepository,
     pub refresh_token_repo: RefreshTokenRepository,
+    pub password_history_repo: PasswordHistoryRepository,
+    pub password_reset_token_repo: PasswordResetTokenRepository,
     pub end_user_repo: EndUsersRepository,
     pub api_key_cache: MemoryCache<String, ApiKey>,
     pub credential_master_key: [u8; 32],

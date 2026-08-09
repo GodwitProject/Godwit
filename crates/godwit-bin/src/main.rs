@@ -10,7 +10,8 @@ use godwit_db::{
     connect,
     repositories::{
         api_keys::ApiKeyRepository, end_users::EndUsersRepository,
-        organizations::OrganizationRepository, refresh_tokens::RefreshTokenRepository,
+        organizations::OrganizationRepository, password_history::PasswordHistoryRepository,
+        password_reset_tokens::PasswordResetTokenRepository, refresh_tokens::RefreshTokenRepository,
         team_memberships::TeamMembershipRepository, teams::TeamRepository, users::UserRepository,
     },
     run_migrations,
@@ -101,6 +102,8 @@ async fn main() -> anyhow::Result<()> {
         team_membership_repo: TeamMembershipRepository::new(pool.clone()),
         api_key_repo: ApiKeyRepository::new(pool.clone()),
         refresh_token_repo: RefreshTokenRepository::new(pool.clone()),
+        password_history_repo: PasswordHistoryRepository::new(pool.clone()),
+        password_reset_token_repo: PasswordResetTokenRepository::new(pool.clone()),
         end_user_repo: EndUsersRepository::new(pool.clone()),
         api_key_cache: MemoryCache::new(),
         credential_master_key: master_key,

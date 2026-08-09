@@ -1,0 +1,35 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "dependencyDashboard": true,
+  "prConcurrentLimit": 5,
+  "timezone": "UTC",
+  "schedule": ["after 10am and before 5pm every weekday"],
+  "packageRules": [
+    {
+      "matchManagers": ["cargo"],
+      "groupName": "cargo minor & patch",
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupSlug": "cargo-minor-patch"
+    },
+    {
+      "matchManagers": ["npm"],
+      "groupName": "npm minor & patch",
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupSlug": "npm-minor-patch"
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions",
+      "groupSlug": "github-actions"
+    }
+  ],
+  "separateMajorMinor": true,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "automerge": false
+  },
+  "major": {
+    "stabilityDays": 7
+  }
+}

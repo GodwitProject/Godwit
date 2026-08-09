@@ -22,6 +22,26 @@ auth:
   oidc_providers: []
   saml_providers: []
 
+  # Email sending for password reset (forgot-password).
+  mail:
+    from: "Godwit <no-reply@example.com>"
+    host: smtp.example.com
+    port: 587
+    # username/password optional (open-relay or no-auth relays)
+    # username: ""
+    # password: ""
+    tls: starttls          # none | starttls | tls
+    app_url: "https://app.example.com"
+  password_policy:
+    min_length: 10
+    require_upper: true
+    require_lower: true
+    require_digit: true
+    require_symbol: true
+    max_reuse: 5
+    days_to_expire: 90
+    block_common: true
+
 # Circuit breaker configuration for provider resilience
 circuit_breaker:
   failure_threshold: 5

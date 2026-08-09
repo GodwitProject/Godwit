@@ -1,0 +1,147 @@
+# Production compose: uses pre-built images pushed to GHCR by the
+# "Docker Image" workflow (tagged with the git branch or git tag name).
+# Pick an image tag with IMAGE_TAG=<branch-or-tag> (defaults to `main`).
+#
+#   IMAGE_TAG=main docker compose -f docker-compose.prod.yml up -d
+#
+# For local development with source builds, use the plain docker-compose.yml.
+
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-godwit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-godwit}
+      POSTGRES_DB: ${POSTGRES_DB:-godwit}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-godwit} -d ${POSTGRES_DB:-godwit}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - godwit
+    restart: unless-stopped
+
+  api:
+    image: ghcr.io/GodwitProject/godwit:${IMAGE_TAG:-main}
+    ports:
+      - "8000:3000"
+    volumes:
+      - ${GODWIT_CONFIG:-./config.yaml}:/app/config.yaml
+    environment:
+      CONFIG_PATH: /app/config.yaml
+      DATABASE_URL: postgres://${POSTGRES_USER:-godwit}:${POSTGRES_PASSWORD:-godwit}@db:5432/${POSTGRES_DB:-godwit}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - godwit
+    restart: unless-stopped
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    command:
+      - start-dev
+      - --import-realm
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./docker/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles: ["keycloak"]
+    networks:
+      - godwit
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=3d
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - godwit
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://localhost:3001}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    networks:
+      - godwit
+    restart: unless-stopped
+
+  ui:
+    image: ghcr.io/GodwitProject/godwit-ui:${IMAGE_TAG:-main}
+    ports:
+      - "3002:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - godwit
+    restart: unless-stopped
+
+  admin:
+    image: ghcr.io/GodwitProject/godwit-admin:${IMAGE_TAG:-main}
+    ports:
+      - "3000:3000"
+    environment:
+      API_URL: http://api:3000
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+    depends_on:
+      - api
+    profiles: ["admin"]
+    networks:
+      - godwit
+
+volumes:
+  pgdata:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  godwit:
+    driver: bridge

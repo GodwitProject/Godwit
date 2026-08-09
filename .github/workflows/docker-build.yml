@@ -1,6 +1,6 @@
 name: Docker Image
 
-# Build the image only AFTER the CI (tests) workflow completes successfully,
+# Build images only AFTER the CI (tests) workflow completes successfully,
 # so we never publish an image from a commit that broke the build/tests.
 on:
   workflow_run:
@@ -12,13 +12,24 @@ permissions:
   packages: write
 
 env:
-  IMAGE_NAME: ghcr.io/GodwitProject/Godwit
+  REGISTRY: ghcr.io
+  OWNER: GodwitProject
 
 jobs:
   build:
     runs-on: ubuntu-latest
     # Run only when CI passed on a branch/tag push (not on pull requests).
     if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: godwit
+            dockerfile: Dockerfile
+          - name: godwit-ui
+            dockerfile: apps/ui/Dockerfile
+          - name: godwit-admin
+            dockerfile: apps/admin/Dockerfile
     steps:
       - uses: actions/checkout@v5.1.0
         with:
@@ -39,16 +50,19 @@ jobs:
       - name: Log in to GHCR
         uses: docker/login-action@v3.7.0
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push image
+      - name: Build and push ${{ matrix.name }}
         uses: docker/build-push-action@v6.9.0
         with:
           context: .
-          file: Dockerfile
+          file: ${{ matrix.dockerfile }}
           push: true
-          tags: ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
+          tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.name }}:${{ steps.meta.outputs.tag }}
+          build-args: |
+            NEXT_PUBLIC_API_ORIGIN=http://api:3000
+            NEXT_PUBLIC_WS_URL=ws://api:3000/api/v1/ws
           cache-from: type=gha
           cache-to: type=gha,mode=max

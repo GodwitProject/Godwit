@@ -1,5 +1,5 @@
 import { HTMLAttributes, forwardRef } from 'react';
-import { clsx } from 'clsx';
+import { clsx } from '@/lib/utils';
 
 export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
   variant?: 'default' | 'success' | 'warning' | 'error' | 'info';
@@ -11,13 +11,13 @@ export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
       <span
         ref={ref}
         className={clsx(
-          'inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium',
+          'inline-flex items-center rounded-full px-2 py-1 text-caption-xs font-medium',
           {
-            'bg-bg text-muted border border-border': variant === 'default',
-            'text-success bg-[oklch(96%_0.03_155)] border border-[oklch(88%_0.06_155)]': variant === 'success',
-            'text-warn bg-[oklch(97%_0.04_80)] border border-[oklch(90%_0.08_80)]': variant === 'warning',
-            'text-danger bg-[oklch(97%_0.03_25)] border border-[oklch(90%_0.06_25)]': variant === 'error',
-            'text-[oklch(40%_0.14_260)] bg-[oklch(97%_0.02_260)] border border-[oklch(90%_0.05_260)]': variant === 'info',
+            'bg-surface-container-high text-on-surface-variant': variant === 'default',
+            'bg-success/10 text-success': variant === 'success',
+            'bg-warning/10 text-warning': variant === 'warning',
+            'bg-error/10 text-error': variant === 'error',
+            'bg-info/10 text-info': variant === 'info',
           },
           className
         )}

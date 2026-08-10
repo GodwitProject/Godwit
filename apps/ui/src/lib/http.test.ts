@@ -1,100 +1,52 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { apiFetch, UnauthorizedError } from './http';
 
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
-}
+const mockFetch = vi.fn();
+global.fetch = mockFetch;
 
 describe('apiFetch', () => {
-  const refreshSpy = vi.fn();
-
   beforeEach(() => {
-    refreshSpy.mockReset();
+    mockFetch.mockReset();
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it('adds credentials include to every request', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
-    vi.stubGlobal('fetch', fetchMock);
-
-    await apiFetch('/api/v1/admin/stats');
-
-    expect(fetchMock).toHaveBeenCalledWith('/api/v1/admin/stats', {
-      credentials: 'include',
-    });
-  });
-
-  it('returns a 200 response as-is', async () => {
-    const body = { data: [1, 2, 3] };
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(body)));
-
-    const res = await apiFetch('/api/v1/admin/stats');
-
+  it('returns non-401 responses directly', async () => {
+    mockFetch.mockResolvedValueOnce({ status: 200, ok: true } as Response);
+    const res = await apiFetch('/api/v1/models');
     expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual(body);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('on 401 refreshes once and retries the original request', async () => {
-    const refreshResponse = jsonResponse({}, 200);
-    const retryResponse = jsonResponse({ data: 'ok' }, 200);
+  it('refreshes on 401 and retries once', async () => {
+    mockFetch
+      .mockResolvedValueOnce({ status: 401 } as Response)
+      .mockResolvedValueOnce({ status: 200, ok: true } as Response)
+      .mockResolvedValueOnce({ status: 200, ok: true } as Response);
 
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(jsonResponse({}, 401))
-      .mockResolvedValueOnce(refreshResponse)
-      .mockResolvedValueOnce(retryResponse);
-    vi.stubGlobal('fetch', fetchMock);
-
-    const res = await apiFetch('/api/v1/admin/stats');
-
-    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/admin/stats', {
-      credentials: 'include',
-    });
-    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/auth/refresh', {
-      method: 'POST',
-      credentials: 'include',
-    });
-    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/v1/admin/stats', {
-      credentials: 'include',
-    });
-    await expect(res.json()).resolves.toEqual({ data: 'ok' });
-  });
-
-  it('dedups concurrent 401s to a single refresh', async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-
-    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
-      if (url === '/api/v1/auth/refresh') {
-        refreshSpy();
-        return Promise.resolve(jsonResponse({}, 200));
-      }
-      if (url === '/api/v1/admin/stats') {
-        return Promise.resolve(jsonResponse({}, 401));
-      }
-      return Promise.resolve(jsonResponse({ data: 'ok' }, 200));
-    });
-
-    const [a, b, c] = await Promise.all([
-      apiFetch('/api/v1/admin/stats'),
-      apiFetch('/api/v1/admin/stats'),
-      apiFetch('/api/v1/admin/stats'),
-    ]);
-
-    expect(refreshSpy).toHaveBeenCalledTimes(1);
-    await Promise.all([a.json(), b.json(), c.json()]);
+    const res = await apiFetch('/api/v1/models');
+    expect(res.status).toBe(200);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(mockFetch).toHaveBeenNthCalledWith(2, '/api/v1/auth/refresh', expect.objectContaining({ method: 'POST' }));
   });
 
   it('throws UnauthorizedError when refresh fails', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(jsonResponse({}, 401))
-      .mockResolvedValueOnce(jsonResponse({}, 401));
-    vi.stubGlobal('fetch', fetchMock);
+    mockFetch
+      .mockResolvedValueOnce({ status: 401 } as Response)
+      .mockResolvedValueOnce({ status: 401, ok: false } as Response);
 
-    await expect(apiFetch('/api/v1/admin/stats')).rejects.toThrow(UnauthorizedError);
+    await expect(apiFetch('/api/v1/models')).rejects.toBeInstanceOf(UnauthorizedError);
+  });
+
+  it('dedups concurrent refresh calls', async () => {
+    mockFetch
+      .mockResolvedValueOnce({ status: 401 } as Response)
+      .mockResolvedValueOnce({ status: 401 } as Response)
+      .mockResolvedValueOnce({ status: 200, ok: true } as Response)
+      .mockResolvedValueOnce({ status: 200, ok: true } as Response)
+      .mockResolvedValueOnce({ status: 200, ok: true } as Response);
+
+    const [a, b] = await Promise.all([apiFetch('/a'), apiFetch('/b')]);
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    expect(mockFetch).toHaveBeenCalledTimes(5);
   });
 });

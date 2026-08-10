@@ -1,5 +1,5 @@
-import { InputHTMLAttributes, forwardRef, useId } from 'react';
-import { clsx } from 'clsx';
+import { forwardRef, InputHTMLAttributes, useId } from 'react';
+import { clsx } from '@/lib/utils';
 
 export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
@@ -14,7 +14,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     return (
       <div className="flex flex-col gap-1">
         {label && (
-          <label htmlFor={inputId} className="text-[11px] uppercase tracking-wider text-muted font-medium">
+          <label htmlFor={inputId} className="text-label-sm font-medium text-on-surface-variant">
             {label}
           </label>
         )}
@@ -22,17 +22,15 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           ref={ref}
           id={inputId}
           className={clsx(
-            'bg-surface border border-border rounded-lg px-3 py-2 text-[12.5px] text-fg font-mono',
-            'focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/30',
-            'placeholder:text-muted/50',
-            error && 'border-danger focus:ring-danger/30',
+            'bg-surface-container-lowest hairline-border rounded px-3 py-2 text-body-base text-on-surface',
+            'focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent',
+            'placeholder:text-on-surface-variant/50',
+            error && 'border-error focus:ring-error',
             className
           )}
           {...props}
         />
-        {error && (
-          <span className="text-[11px] text-danger">{error}</span>
-        )}
+        {error && <span className="text-caption-xs text-error">{error}</span>}
       </div>
     );
   }

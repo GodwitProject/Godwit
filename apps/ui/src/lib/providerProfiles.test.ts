@@ -63,7 +63,6 @@ describe('providerProfiles', () => {
       base_url: 'https://api.openai.com/v1',
       api_key: 'sk-test',
       allow_wildcard: false,
-      enabled: true,
     });
 
     expect(profile.name).toBe('openai');
@@ -75,6 +74,83 @@ describe('providerProfiles', () => {
         body: expect.stringContaining('"api_key":"sk-test"'),
       })
     );
+  });
+
+  it('normalizes empty base_url to null on create', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        id: '1',
+        name: 'openai',
+        protocol: 'openai',
+        base_url: null,
+        allow_wildcard: false,
+        enabled: true,
+        has_credentials: false,
+        created_at: '2024-01-01T00:00:00Z',
+      }),
+    } as Response);
+
+    await createProviderProfile({
+      name: 'openai',
+      protocol: 'openai',
+      base_url: '',
+      api_key: 'sk-test',
+      allow_wildcard: false,
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      '/api/v1/provider-profiles',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"base_url":null'),
+      })
+    );
+  });
+
+  it('omits empty api_key on create', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        id: '1',
+        name: 'openai',
+        protocol: 'openai',
+        base_url: 'https://api.openai.com/v1',
+        allow_wildcard: false,
+        enabled: true,
+        has_credentials: false,
+        created_at: '2024-01-01T00:00:00Z',
+      }),
+    } as Response);
+
+    await createProviderProfile({
+      name: 'openai',
+      protocol: 'openai',
+      base_url: 'https://api.openai.com/v1',
+      api_key: '',
+      allow_wildcard: false,
+    });
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(init.body).not.toContain('"api_key"');
+  });
+
+  it('throws on non-2xx response', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      json: async () => ({ message: 'Bad request' }),
+    } as Response);
+
+    await expect(
+      createProviderProfile({
+        name: 'openai',
+        protocol: 'openai',
+        base_url: 'https://api.openai.com/v1',
+        api_key: 'sk-test',
+        allow_wildcard: false,
+      })
+    ).rejects.toThrow('Request failed with status 400');
   });
 
   it('updates a profile', async () => {

@@ -57,6 +57,17 @@ The Dockerfile installs `xmlsec1` / `libclang` dependencies because the `samael`
 - `contract/routes.json` is the single source of truth for front↔backend routes; `docs/coverage/frontend-backend.md` is derived from it.
 - `godwit-providers` exposes a `Provider` trait; routing is currently by model-id prefix (`claude` → Anthropic, otherwise OpenAI).
 
+## Testing policy
+
+Tests are not optional. Every change that adds or fixes behavior must ship with tests that would fail if the behavior were broken.
+
+- **New features**: add focused unit tests covering the happy path and the meaningful failure modes. A test that only runs the code without asserting behavior is not acceptable.
+- **Bug fixes**: add a regression test that fails before the fix and passes after it. The test must be specific enough that re-introducing the bug makes it fail.
+- **Frontend (`apps/ui/`)**: every new component, hook, and `lib/` module should have co-located unit tests using Vitest + React Testing Library. Prefer testing behavior over snapshot testing.
+- **Backend (`crates/`)**: every new module, repository method, and API handler should have unit/integration tests using `cargo test`.
+- **Coverage is a side effect, not a goal**: do not add tests whose only purpose is to make coverage numbers look good. The goal is meaningful signal.
+- **Mutation mindset**: a test is useful only if mutating the implementation in a way that breaks the feature would make the test fail.
+
 ## Testing quirks
 
 - `cargo test --workspace` without `DATABASE_URL` will fail on `godwit-db` tests.

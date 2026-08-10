@@ -1,36 +1,34 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useAuthStore, type AuthStatus } from './auth';
+import { useAuthStore } from './auth';
+import type { AuthUser } from '@/types';
 
-const user = {
-  id: 'user_1',
-  email: 'admin@example.com',
-  role: 'admin',
+const sampleUser: AuthUser = {
+  id: '1',
+  email: 'a@b.com',
+  role: 'super_admin',
   organization_id: null,
 };
 
-describe('useAuthStore', () => {
+describe('auth store', () => {
   beforeEach(() => {
     useAuthStore.setState({ user: null, status: 'unknown' });
   });
 
-  it('starts unknown with no user', () => {
-    const s = useAuthStore.getState();
-    expect(s.user).toBeNull();
-    expect(s.status).toBe('unknown');
+  it('has unknown initial state', () => {
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(useAuthStore.getState().status).toBe('unknown');
   });
 
-  it('setUser with a user transitions to authenticated', () => {
-    useAuthStore.getState().setUser(user);
-    const s = useAuthStore.getState();
-    expect(s.user).toEqual(user);
-    expect(s.status).toBe('authenticated');
+  it('setUser with a user marks authenticated', () => {
+    useAuthStore.getState().setUser(sampleUser);
+    expect(useAuthStore.getState().user).toEqual(sampleUser);
+    expect(useAuthStore.getState().status).toBe('authenticated');
   });
 
-  it('setUser with null transitions to unauthenticated', () => {
-    useAuthStore.getState().setUser(user);
+  it('setUser with null marks unauthenticated', () => {
+    useAuthStore.getState().setUser(sampleUser);
     useAuthStore.getState().setUser(null);
-    const s = useAuthStore.getState();
-    expect(s.user).toBeNull();
-    expect(s.status).toBe('unauthenticated');
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(useAuthStore.getState().status).toBe('unauthenticated');
   });
 });

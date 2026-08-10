@@ -4,6 +4,7 @@
 tsconfig.tsbuildinfo
 node_modules/
 .next/
+dist/
 .DS_Store
 UI-Proxy-LLM.zip
 /UI-Proxy-LLM/

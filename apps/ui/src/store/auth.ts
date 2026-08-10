@@ -1,16 +1,20 @@
 import { create } from 'zustand';
-import type { AuthUser } from '@/lib/auth';
+import type { AuthUser } from '@/types';
 
 export type AuthStatus = 'unknown' | 'authenticated' | 'unauthenticated';
 
-interface AuthStore {
+interface AuthState {
   user: AuthUser | null;
   status: AuthStatus;
   setUser: (user: AuthUser | null) => void;
 }
 
-export const useAuthStore = create<AuthStore>((set) => ({
+export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   status: 'unknown',
-  setUser: (user) => set({ user, status: user ? 'authenticated' : 'unauthenticated' }),
+  setUser: (user) =>
+    set({
+      user,
+      status: user ? 'authenticated' : 'unauthenticated',
+    }),
 }));

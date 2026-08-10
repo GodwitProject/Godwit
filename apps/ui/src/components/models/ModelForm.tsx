@@ -1,127 +1,167 @@
-'use client';
-
 import { useState } from 'react';
-import { Modal } from '../ui/Modal';
-import { Input } from '../ui/Input';
-import { Select } from '../ui/Select';
-import { Button } from '../ui/Button';
-import { useT } from '@/hooks/useT';
-import type { Provider } from '@/lib/providers';
-import type { CreateModelRequest } from '@/lib/models';
+import { useForm, type DefaultValues } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { Checkbox } from '@/components/ui/Checkbox';
+import {
+  createModelSchema,
+  updateModelSchema,
+  type CreateModelInput,
+  type UpdateModelInput,
+} from '@/lib/models';
+import { useProviderProfiles } from '@/hooks/useProviderProfiles';
 
-export interface ModelFormProps {
-  open: boolean;
-  providers: Provider[];
-  submitting: boolean;
-  onClose: () => void;
-  onSubmit: (req: CreateModelRequest) => void | Promise<void>;
+const CAPABILITIES = [
+  { value: 'chat', label: 'Chat' },
+  { value: 'embedding', label: 'Embedding' },
+  { value: 'vision', label: 'Vision' },
+  { value: 'tool_calling', label: 'Tool calling' },
+];
+
+type FormValues = {
+  public_id: string;
+  capabilities: string[];
+  provider_profile_id?: string;
+  provider_model_id?: string;
+  input_price_per_million?: number;
+  output_price_per_million?: number;
+};
+
+interface ModelFormProps {
+  mode: 'create' | 'edit';
+  defaultValues?: Partial<FormValues>;
+  onSubmit: (data: CreateModelInput | UpdateModelInput) => Promise<void>;
+  onCancel?: () => void;
 }
 
-export function ModelForm({ open, providers, submitting, onClose, onSubmit }: ModelFormProps) {
-  const { t } = useT();
-  const [publicId, setPublicId] = useState('');
-  const [profileId, setProfileId] = useState('');
-  const [providerModelId, setProviderModelId] = useState('');
-  const [capabilities, setCapabilities] = useState('chat');
-  const [inputPrice, setInputPrice] = useState('');
-  const [outputPrice, setOutputPrice] = useState('');
+export function ModelForm({ mode, defaultValues, onSubmit, onCancel }: ModelFormProps) {
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const { data: profiles = [] } = useProviderProfiles();
+  const schema = mode === 'create' ? createModelSchema.omit({ provider: true }) : updateModelSchema;
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    watch,
+    formState: { errors },
+  } = useForm<FormValues>({
+    resolver: zodResolver(schema),
+    defaultValues: {
+      public_id: '',
+      provider_profile_id: '',
+      provider_model_id: '',
+      capabilities: ['chat'],
+      input_price_per_million: 0,
+      output_price_per_million: 0,
+      ...defaultValues,
+    } as DefaultValues<FormValues>,
+  });
 
-  const selectedProfile = providers.find((p) => p.id === profileId);
+  const profileId = watch('provider_profile_id');
+  const capabilities = watch('capabilities') ?? [];
 
-  function reset() {
-    setPublicId('');
-    setProfileId('');
-    setProviderModelId('');
-    setCapabilities('chat');
-    setInputPrice('');
-    setOutputPrice('');
-  }
-
-  function handleClose() {
-    reset();
-    onClose();
-  }
-
-  async function handleSubmit() {
-    const profile = selectedProfile;
-    if (!profile || !publicId || !providerModelId) return;
-    const inPrice = parseFloat(inputPrice);
-    const outPrice = parseFloat(outputPrice);
-    if (!Number.isFinite(inPrice) || !Number.isFinite(outPrice)) return;
-    await onSubmit({
-      public_id: publicId,
-      provider: profile.protocol,
-      provider_profile_id: profile.id,
-      provider_model_id: providerModelId,
-      capabilities: capabilities || 'chat',
-      pricing: {
-        input_price_per_million: inPrice,
-        output_price_per_million: outPrice,
-      },
-    });
-    handleClose();
-  }
+  const handleFormSubmit = handleSubmit(async (data) => {
+    setBusy(true);
+    setSubmitError(null);
+    try {
+      if (mode === 'create') {
+        const profile = profiles.find((p) => p.id === data.provider_profile_id);
+        await onSubmit({
+          public_id: data.public_id,
+          provider_profile_id: data.provider_profile_id ?? '',
+          provider_model_id: data.provider_model_id ?? '',
+          provider: profile?.protocol ?? '',
+          capabilities: data.capabilities,
+          input_price_per_million: data.input_price_per_million ?? 0,
+          output_price_per_million: data.output_price_per_million ?? 0,
+        } as CreateModelInput);
+      } else {
+        await onSubmit(data as UpdateModelInput);
+      }
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Submission failed');
+    } finally {
+      setBusy(false);
+    }
+  });
 
   return (
-    <Modal open={open} onClose={handleClose} title={t('modelForm.title')}>
-      <div className="space-y-4">
-        <Input
-          label={t('modelForm.exposed')}
-          value={publicId}
-          onChange={(e) => setPublicId(e.target.value)}
-          placeholder="gpt-4o"
-        />
+    <form onSubmit={handleFormSubmit} className="space-y-4">
+      <Input
+        label="Public ID"
+        placeholder="gpt-4o"
+        error={errors.public_id?.message}
+        {...register('public_id')}
+      />
+      {mode === 'create' && (
         <Select
-          label={t('modelForm.providerProfile')}
-          value={profileId}
-          onChange={(e) => setProfileId(e.target.value)}
-        >
-          <option value="">{t('modelForm.selectProvider')}</option>
-          {providers.map((p) => (
-            <option key={p.id} value={p.id}>{p.name}</option>
+          label="Provider profile"
+          value={profileId ?? ''}
+          placeholder="Select a profile"
+          options={profiles.map((p) => ({ value: p.id, label: p.name }))}
+          onChange={(value) => setValue('provider_profile_id', value, { shouldValidate: true })}
+          error={errors.provider_profile_id?.message}
+        />
+      )}
+      {mode === 'create' && (
+        <Input
+          label="Provider model ID"
+          placeholder="gpt-4o"
+          error={errors.provider_model_id?.message}
+          {...register('provider_model_id')}
+        />
+      )}
+      <fieldset className="space-y-2">
+        <legend className="text-body-md text-on-surface">Capabilities</legend>
+        <div className="flex flex-wrap gap-4">
+          {CAPABILITIES.map((cap) => (
+            <Checkbox
+              key={cap.value}
+              label={cap.label}
+              checked={capabilities.includes(cap.value)}
+              onChange={(checked) => {
+                const next = checked
+                  ? [...capabilities, cap.value]
+                  : capabilities.filter((c) => c !== cap.value);
+                setValue('capabilities', next, { shouldValidate: true });
+              }}
+            />
           ))}
-        </Select>
-        <Input
-          label={t('modelForm.providerSideId')}
-          value={providerModelId}
-          onChange={(e) => setProviderModelId(e.target.value)}
-          placeholder="gpt-4o-2024-11-20"
-        />
-        <Input
-          label={t('modelForm.capabilities')}
-          value={capabilities}
-          onChange={(e) => setCapabilities(e.target.value)}
-          placeholder="chat"
-        />
-        <div className="grid grid-cols-2 gap-3">
+        </div>
+        {errors.capabilities && <span className="text-body-sm text-danger">{errors.capabilities.message}</span>}
+      </fieldset>
+      {mode === 'create' && (
+        <>
           <Input
-            label={t('modelForm.inputPrice')}
+            label="Input price per million tokens"
             type="number"
-            min="0"
             step="0.01"
-            value={inputPrice}
-            onChange={(e) => setInputPrice(e.target.value)}
-            placeholder="0"
+            error={errors.input_price_per_million?.message}
+            {...register('input_price_per_million', { valueAsNumber: true })}
           />
           <Input
-            label={t('modelForm.outputPrice')}
+            label="Output price per million tokens"
             type="number"
-            min="0"
             step="0.01"
-            value={outputPrice}
-            onChange={(e) => setOutputPrice(e.target.value)}
-            placeholder="0"
+            error={errors.output_price_per_million?.message}
+            {...register('output_price_per_million', { valueAsNumber: true })}
           />
-        </div>
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="secondary" size="sm" onClick={handleClose} disabled={submitting}>
-            {t('modelForm.cancel')}
+        </>
+      )}
+      {submitError && <p className="text-body-sm text-danger">{submitError}</p>}
+      <div className="flex justify-end gap-3">
+        {onCancel && (
+          <Button type="button" variant="ghost" onClick={onCancel}>
+            Cancel
           </Button>
-          <Button size="sm" onClick={handleSubmit} disabled={submitting || !profileId || !publicId || !providerModelId}>
-            {submitting ? t('modelForm.submitting') : t('modelForm.submit')}
-          </Button>
-        </div>
+        )}
+        <Button type="submit" disabled={busy}>
+          {busy ? 'Saving…' : mode === 'create' ? 'Create' : 'Save'}
+        </Button>
       </div>
-    </Modal>
+    </form>
   );
 }

@@ -1,29 +1,39 @@
-import { InputHTMLAttributes, forwardRef, useId } from 'react';
-import { clsx } from 'clsx';
+import { forwardRef, useId } from 'react';
+import { clsx } from '@/lib/utils';
 
-export interface CheckboxProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> {
-  label?: string;
+export interface CheckboxProps {
+  id?: string;
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  error?: string;
+  disabled?: boolean;
 }
 
 export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
-  ({ className, label, id, ...props }, ref) => {
+  ({ id, label, checked, onChange, error, disabled }, ref) => {
     const generatedId = useId();
-    const checkboxId = id || generatedId;
+    const inputId = id || generatedId;
 
     return (
-      <label
-        htmlFor={checkboxId}
-        className={clsx('inline-flex items-center gap-2 cursor-pointer', className)}
-      >
-        <input
-          ref={ref}
-          id={checkboxId}
-          type="checkbox"
-          className="h-4 w-4 rounded border-border accent-accent focus:ring-2 focus:ring-accent"
-          {...props}
-        />
-        {label && <span className="text-[12.5px] text-fg">{label}</span>}
-      </label>
+      <div className="flex flex-col gap-1">
+        <label htmlFor={inputId} className="flex items-center gap-2 text-body-md text-on-surface">
+          <input
+            ref={ref}
+            id={inputId}
+            type="checkbox"
+            checked={checked}
+            disabled={disabled}
+            onChange={(e) => onChange(e.target.checked)}
+            className={clsx(
+              'h-4 w-4 rounded border-outline bg-surface text-primary focus:ring-primary',
+              error && 'border-danger'
+            )}
+          />
+          {label}
+        </label>
+        {error && <span className="text-body-sm text-danger">{error}</span>}
+      </div>
     );
   }
 );

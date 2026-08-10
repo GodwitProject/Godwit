@@ -1,41 +1,133 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import { createModel, fetchModels } from './models';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { listModels, createModel, updateModel, deleteModel } from './models';
 
-function mockFetch(data: unknown) {
-  const fetchMock = vi.fn().mockResolvedValue({
-    ok: true,
-    json: async () => data,
+const mockFetch = vi.fn();
+global.fetch = mockFetch;
+
+describe('models', () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
   });
-  vi.stubGlobal('fetch', fetchMock);
-  return fetchMock;
-}
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
+  it('lists models', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          {
+            id: '1',
+            public_id: 'gpt-4o',
+            provider: 'openai',
+            provider_profile_id: 'p1',
+            provider_model_id: 'gpt-4o',
+            capabilities: ['chat'],
+            pricing: { input_price_per_million: 5, output_price_per_million: 15 },
+            config: {},
+            created_at: '2024-01-01T00:00:00Z',
+          },
+        ],
+      }),
+    } as Response);
 
-describe('models API', () => {
-  it('posts to /api/v1/models when creating a model', async () => {
-    const fetchMock = mockFetch({ data: { id: 'm1', public_id: 'gpt-4o' } });
+    const models = await listModels();
+    expect(models).toHaveLength(1);
+    expect(models[0].public_id).toBe('gpt-4o');
+  });
+
+  it('creates a model with provider, comma-separated capabilities and pricing JSON', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        id: '1',
+        public_id: 'gpt-4o',
+        provider: 'openai',
+        provider_profile_id: 'p1',
+        provider_model_id: 'gpt-4o',
+        capabilities: ['chat', 'embedding'],
+        pricing: { input_price_per_million: 5, output_price_per_million: 15 },
+        config: {},
+        created_at: '2024-01-01T00:00:00Z',
+      }),
+    } as Response);
+
     await createModel({
       public_id: 'gpt-4o',
+      provider_profile_id: 'p1',
+      provider_model_id: 'gpt-4o',
       provider: 'openai',
-      provider_profile_id: '11111111-1111-1111-1111-111111111111',
-      provider_model_id: 'gpt-4o-2024-11-20',
-      capabilities: 'chat',
-      pricing: { input_price_per_million: 2.5, output_price_per_million: 10 },
+      capabilities: ['chat', 'embedding'],
+      input_price_per_million: 5,
+      output_price_per_million: 15,
     });
-    const [url, init] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(url).toBe('/api/v1/models');
-    expect(init.method).toBe('POST');
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.provider).toBe('openai');
+    expect(body.capabilities).toBe('chat,embedding');
+    expect(body.pricing).toEqual({ input_price_per_million: 5, output_price_per_million: 15 });
   });
 
-  it('fetches models from /api/v1/models', async () => {
-    const fetchMock = mockFetch({
-      data: [{ id: 'm1', public_id: 'gpt-4o', provider_model_id: 'gpt-4o', capabilities: ['chat'] }],
-    });
-    await fetchModels();
-    const [url] = (fetchMock as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(url).toBe('/api/v1/models');
+  it('updates only public_id and capabilities', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({}) } as Response);
+    await updateModel('1', { public_id: 'gpt-4o-renamed', capabilities: ['chat'] });
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body).toEqual({ public_id: 'gpt-4o-renamed', capabilities: 'chat' });
+  });
+
+  it('deletes a model', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true } as Response);
+    await deleteModel('1');
+    expect(mockFetch.mock.calls[0][1].method).toBe('DELETE');
+  });
+
+  it('throws with the backend message on non-2xx list response', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: async () => ({ message: 'Database unavailable' }),
+    } as Response);
+
+    await expect(listModels()).rejects.toThrow('Database unavailable');
+  });
+
+  it('throws with the backend message on non-2xx create response', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      json: async () => ({ message: 'Invalid provider profile' }),
+    } as Response);
+
+    await expect(
+      createModel({
+        public_id: 'gpt-4o',
+        provider_profile_id: '00000000-0000-0000-0000-000000000000',
+        provider_model_id: 'gpt-4o',
+        provider: 'openai',
+        capabilities: ['chat'],
+        input_price_per_million: 5,
+        output_price_per_million: 15,
+      })
+    ).rejects.toThrow('Invalid provider profile');
+  });
+
+  it('throws with the backend message on non-2xx update response', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      json: async () => ({ message: 'Public ID already in use' }),
+    } as Response);
+
+    await expect(updateModel('1', { public_id: 'gpt-4o', capabilities: ['chat'] })).rejects.toThrow(
+      'Public ID already in use'
+    );
+  });
+
+  it('throws with the backend message on non-2xx delete response', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      json: async () => ({ message: 'Model is referenced by an API key' }),
+    } as Response);
+
+    await expect(deleteModel('1')).rejects.toThrow('Model is referenced by an API key');
   });
 });

@@ -1,69 +1,85 @@
+import { z } from 'zod';
 import { apiFetch } from './http';
+import type { Model } from '@/types';
 
-export interface ApiModel {
-  id: string;
-  public_id: string;
-  provider: string;
-  provider_model_id: string;
-  capabilities: string[];
-  pricing: unknown;
-  created_at: string;
+const capabilityEnum = z.enum(['chat', 'embedding', 'vision', 'tool_calling']);
+
+export const createModelSchema = z.object({
+  public_id: z.string().min(1).regex(/^[a-z0-9._-]+$/i),
+  provider_profile_id: z.string().uuid(),
+  provider_model_id: z.string().min(1),
+  provider: z.string().min(1),
+  capabilities: z.array(capabilityEnum),
+  input_price_per_million: z.coerce.number().min(0),
+  output_price_per_million: z.coerce.number().min(0),
+});
+
+export type CreateModelInput = z.infer<typeof createModelSchema>;
+
+export const updateModelSchema = z.object({
+  public_id: z.string().min(1).regex(/^[a-z0-9._-]+$/i),
+  capabilities: z.array(capabilityEnum),
+});
+
+export type UpdateModelInput = z.infer<typeof updateModelSchema>;
+
+function capabilitiesToString(caps: string[]) {
+  if (caps.length === 0) return 'chat';
+  return caps.join(',');
 }
 
-const API_BASE = '/api/v1';
-
-function parseModel(raw: {
-  id: string;
-  public_id: string;
-  provider?: string;
-  provider_profile_id?: string;
-  provider_model_id: string;
-  capabilities?: string[] | string;
-  pricing?: unknown;
-  created_at?: string;
-}): ApiModel {
-  return {
-    id: raw.id,
-    public_id: raw.public_id,
-    provider: raw.provider ?? '',
-    provider_model_id: raw.provider_model_id,
-    capabilities: Array.isArray(raw.capabilities)
-      ? raw.capabilities
-      : typeof raw.capabilities === 'string'
-        ? (raw.capabilities || '').split(',').map((s) => s.trim()).filter(Boolean)
-        : [],
-    pricing: raw.pricing ?? null,
-    created_at: raw.created_at ?? '',
-  };
+async function assertOk(res: Response): Promise<void> {
+  if (!res.ok) {
+    let message: string;
+    try {
+      const body = (await res.json()) as { message?: unknown };
+      message = typeof body.message === 'string' ? body.message : res.statusText;
+    } catch {
+      message = res.statusText;
+    }
+    throw new Error(message || `Request failed with status ${res.status}`);
+  }
 }
 
-export async function fetchModels(): Promise<ApiModel[]> {
-  const res = await apiFetch(`${API_BASE}/models`);
-  if (!res.ok) throw new Error('Failed to fetch models');
-  const data = await res.json();
-  const rawItems = Array.isArray(data?.data) ? data.data : [];
-  return rawItems.map(parseModel);
+export async function listModels(): Promise<Model[]> {
+  const res = await apiFetch('/api/v1/models');
+  await assertOk(res);
+  const json = (await res.json()) as { data: Model[] };
+  return json.data;
 }
 
-export interface CreateModelRequest {
-  public_id: string;
-  provider: string;
-  provider_profile_id: string;
-  provider_model_id: string;
-  capabilities: string;
-  pricing: {
-    input_price_per_million: number;
-    output_price_per_million: number;
-  };
-}
-
-export async function createModel(req: CreateModelRequest): Promise<ApiModel> {
-  const res = await apiFetch(`${API_BASE}/models`, {
+export async function createModel(input: CreateModelInput): Promise<Model> {
+  const res = await apiFetch('/api/v1/models', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req),
+    body: JSON.stringify({
+      public_id: input.public_id,
+      provider_profile_id: input.provider_profile_id,
+      provider_model_id: input.provider_model_id,
+      provider: input.provider,
+      capabilities: capabilitiesToString(input.capabilities),
+      pricing: {
+        input_price_per_million: input.input_price_per_million,
+        output_price_per_million: input.output_price_per_million,
+      },
+    }),
   });
-  if (!res.ok) throw new Error('Failed to create model');
-  const data = await res.json();
-  return parseModel(data.data);
+  await assertOk(res);
+  return (await res.json()) as Model;
+}
+
+export async function updateModel(id: string, input: UpdateModelInput): Promise<Model> {
+  const res = await apiFetch(`/api/v1/models/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      public_id: input.public_id,
+      capabilities: capabilitiesToString(input.capabilities),
+    }),
+  });
+  await assertOk(res);
+  return (await res.json()) as Model;
+}
+
+export async function deleteModel(id: string): Promise<void> {
+  const res = await apiFetch(`/api/v1/models/${id}`, { method: 'DELETE' });
+  await assertOk(res);
 }

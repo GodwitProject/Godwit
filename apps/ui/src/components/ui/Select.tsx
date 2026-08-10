@@ -1,37 +1,53 @@
-import { SelectHTMLAttributes, forwardRef, useId } from 'react';
-import { clsx } from 'clsx';
+import { forwardRef, useId } from 'react';
+import { clsx } from '@/lib/utils';
 
-export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
-  label?: string;
+interface SelectOption {
+  value: string;
+  label: string;
+}
+
+export interface SelectProps {
+  id?: string;
+  label: string;
+  value: string;
+  options: SelectOption[];
+  onChange: (value: string) => void;
+  error?: string;
+  placeholder?: string;
 }
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(
-  ({ className, label, id, children, ...props }, ref) => {
+  ({ id, label, value, options, onChange, error, placeholder }, ref) => {
     const generatedId = useId();
     const selectId = id || generatedId;
 
     return (
       <div className="flex flex-col gap-1">
-        {label && (
-          <label htmlFor={selectId} className="text-[11px] uppercase tracking-wider text-muted font-medium">
-            {label}
-          </label>
-        )}
-        <div className="relative">
-          <select
-            ref={ref}
-            id={selectId}
-            className={clsx(
-              'w-full appearance-none bg-surface border border-border rounded-lg px-3 py-2 pr-8 text-[12.5px] text-fg font-mono',
-              'focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/30',
-              className
-            )}
-            {...props}
-          >
-            {children}
-          </select>
-          <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-muted text-xs">▾</span>
-        </div>
+        <label htmlFor={selectId} className="text-body-md text-on-surface">
+          {label}
+        </label>
+        <select
+          ref={ref}
+          id={selectId}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className={clsx(
+            'rounded-lg border bg-surface px-3 py-2 text-body-md text-on-surface outline-none focus:border-primary focus:ring-1 focus:ring-primary',
+            error ? 'border-danger' : 'border-outline'
+          )}
+        >
+          {(placeholder || value === '') && (
+            <option value="" disabled>
+              {placeholder ?? ''}
+            </option>
+          )}
+          {options.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+        {error && <span className="text-body-sm text-danger">{error}</span>}
       </div>
     );
   }

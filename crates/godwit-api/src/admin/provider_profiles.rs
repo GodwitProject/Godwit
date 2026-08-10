@@ -17,7 +17,7 @@ pub fn router() -> Router<Arc<AppState>> {
             "/provider-profiles",
             get(list_profiles).post(create_profile),
         )
-        .route("/provider-profiles/:id", patch(update_profile))
+        .route("/provider-profiles/:id", patch(update_profile).delete(delete_profile))
 }
 
 fn profile_json(profile: &godwit_db::models::ProviderProfile) -> serde_json::Value {
@@ -111,6 +111,17 @@ async fn update_profile(
         profile
     };
     Ok(Json(profile_json(&profile)))
+}
+
+async fn delete_profile(
+    State(state): State<Arc<AppState>>,
+    Extension(claims): Extension<Claims>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    require_super_admin(&claims)?;
+    let repo = ProviderProfileRepository::new(state.pool.clone());
+    repo.delete(id).await?;
+    Ok(Json(serde_json::json!({ "deleted": true })))
 }
 
 #[cfg(test)]

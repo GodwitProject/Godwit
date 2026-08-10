@@ -99,11 +99,17 @@ impl ProviderProfileRepository {
     }
 
     pub async fn delete(&self, id: Uuid) -> Result<(), PasteurError> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| PasteurError::Database(e.to_string()))?;
+
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM models WHERE provider_profile_id = $1"
         )
         .bind(id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(|e| PasteurError::Database(e.to_string()))?;
 
@@ -113,9 +119,17 @@ impl ProviderProfileRepository {
             ));
         }
 
-        sqlx::query("DELETE FROM provider_profiles WHERE id = $1")
+        let result = sqlx::query("DELETE FROM provider_profiles WHERE id = $1")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| PasteurError::Database(e.to_string()))?;
+
+        if result.rows_affected() == 0 {
+            return Err(PasteurError::NotFound);
+        }
+
+        tx.commit()
             .await
             .map_err(|e| PasteurError::Database(e.to_string()))?;
 
@@ -274,5 +288,12 @@ mod tests {
 
         let err = profiles.delete(profile.id).await.unwrap_err();
         assert!(matches!(err, PasteurError::Validation(_)));
+    }
+
+    #[sqlx::test]
+    async fn delete_nonexistent_profile_returns_not_found(pool: PgPool) {
+        let repo = ProviderProfileRepository::new(pool);
+        let err = repo.delete(uuid::Uuid::nil()).await.unwrap_err();
+        assert!(matches!(err, PasteurError::NotFound));
     }
 }

@@ -97,6 +97,30 @@ impl ProviderProfileRepository {
         .await
         .map_err(|e| PasteurError::Database(e.to_string()))
     }
+
+    pub async fn delete(&self, id: Uuid) -> Result<(), PasteurError> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM models WHERE provider_profile_id = $1"
+        )
+        .bind(id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| PasteurError::Database(e.to_string()))?;
+
+        if count > 0 {
+            return Err(PasteurError::Validation(
+                "Provider profile is referenced by existing models".to_string(),
+            ));
+        }
+
+        sqlx::query("DELETE FROM provider_profiles WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| PasteurError::Database(e.to_string()))?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -208,5 +232,47 @@ mod tests {
             serde_json::from_value(updated.auth.clone()).expect("deserialize stored auth");
         assert_eq!(stored.ciphertext, secret.ciphertext);
         assert_eq!(stored.nonce, secret.nonce);
+    }
+
+    #[sqlx::test]
+    async fn delete_profile_ok(pool: PgPool) {
+        let repo = ProviderProfileRepository::new(pool);
+        let profile = repo
+            .create("openai", "openai", None, false)
+            .await
+            .expect("create profile");
+
+        repo.delete(profile.id).await.expect("delete profile");
+
+        let err = repo.get(profile.id).await.unwrap_err();
+        assert!(matches!(err, PasteurError::NotFound));
+    }
+
+    #[sqlx::test]
+    async fn cannot_delete_profile_with_models(pool: PgPool) {
+        let profiles = ProviderProfileRepository::new(pool.clone());
+        let profile = profiles
+            .create("openai", "openai", None, false)
+            .await
+            .expect("create profile");
+
+        let models = crate::repositories::models::ModelRepository::new(pool.clone());
+        models
+            .create(
+                "gpt-4o",
+                "openai",
+                profile.id,
+                "gpt-4o",
+                "chat",
+                serde_json::json!({
+                    "input_price_per_million": 5.0,
+                    "output_price_per_million": 15.0,
+                }),
+            )
+            .await
+            .expect("create model");
+
+        let err = profiles.delete(profile.id).await.unwrap_err();
+        assert!(matches!(err, PasteurError::Validation(_)));
     }
 }

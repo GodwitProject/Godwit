@@ -1,10 +1,11 @@
 import { PageHeader } from '@/components/ui/PageHeader';
+import { ProviderProfileList } from '@/components/provider-profiles/ProviderProfileList';
 
 export function AdminProviderProfiles() {
   return (
-    <div>
+    <div className="space-y-4">
       <PageHeader title="Provider Profiles" description="Configure provider profiles" />
-      <p className="text-body-base text-on-surface-variant">Provider profiles content coming soon.</p>
+      <ProviderProfileList />
     </div>
   );
 }

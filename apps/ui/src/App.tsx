@@ -8,7 +8,9 @@ import { ConsoleLayout } from '@/layouts/ConsoleLayout';
 import { LoginPage } from '@/routes/login';
 import { AdminDashboard } from '@/routes/admin';
 import { AdminModels } from '@/routes/admin/models';
+import { AdminModelsNew } from '@/routes/admin/models-new';
 import { AdminProviderProfiles } from '@/routes/admin/provider-profiles';
+import { AdminProviderProfilesNew } from '@/routes/admin/provider-profiles-new';
 import { AdminUsers } from '@/routes/admin/users';
 import { AdminKeys } from '@/routes/admin/keys';
 import { AdminUsage } from '@/routes/admin/usage';
@@ -47,7 +49,9 @@ function AppRouter() {
       >
         <Route path="/admin" element={<AdminDashboard />} />
         <Route path="/admin/models" element={<AdminModels />} />
+        <Route path="/admin/models/new" element={<AdminModelsNew />} />
         <Route path="/admin/provider-profiles" element={<AdminProviderProfiles />} />
+        <Route path="/admin/provider-profiles/new" element={<AdminProviderProfilesNew />} />
         <Route path="/admin/users" element={<AdminUsers />} />
         <Route path="/admin/keys" element={<AdminKeys />} />
         <Route path="/admin/usage" element={<AdminUsage />} />

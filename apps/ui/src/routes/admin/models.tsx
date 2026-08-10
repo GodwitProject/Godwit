@@ -1,10 +1,11 @@
 import { PageHeader } from '@/components/ui/PageHeader';
+import { ModelList } from '@/components/models/ModelList';
 
 export function AdminModels() {
   return (
-    <div>
+    <div className="space-y-4">
       <PageHeader title="Models" description="Manage available models" />
-      <p className="text-body-base text-on-surface-variant">Models content coming soon.</p>
+      <ModelList />
     </div>
   );
 }

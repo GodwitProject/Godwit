@@ -1,6 +1,8 @@
 .worktrees/
 /target/
 .playwright-mcp/
+.playwright-cli/
+.superpowers/
 tsconfig.tsbuildinfo
 node_modules/
 .next/

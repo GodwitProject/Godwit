@@ -28,8 +28,22 @@ function capabilitiesToString(caps: string[]) {
   return caps.join(',');
 }
 
+async function assertOk(res: Response): Promise<void> {
+  if (!res.ok) {
+    let message: string;
+    try {
+      const body = (await res.json()) as { message?: unknown };
+      message = typeof body.message === 'string' ? body.message : res.statusText;
+    } catch {
+      message = res.statusText;
+    }
+    throw new Error(message || `Request failed with status ${res.status}`);
+  }
+}
+
 export async function listModels(): Promise<Model[]> {
   const res = await apiFetch('/api/v1/models');
+  await assertOk(res);
   const json = (await res.json()) as { data: Model[] };
   return json.data;
 }
@@ -49,6 +63,7 @@ export async function createModel(input: CreateModelInput): Promise<Model> {
       },
     }),
   });
+  await assertOk(res);
   return (await res.json()) as Model;
 }
 
@@ -60,9 +75,11 @@ export async function updateModel(id: string, input: UpdateModelInput): Promise<
       capabilities: capabilitiesToString(input.capabilities),
     }),
   });
+  await assertOk(res);
   return (await res.json()) as Model;
 }
 
 export async function deleteModel(id: string): Promise<void> {
-  await apiFetch(`/api/v1/models/${id}`, { method: 'DELETE' });
+  const res = await apiFetch(`/api/v1/models/${id}`, { method: 'DELETE' });
+  await assertOk(res);
 }

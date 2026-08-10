@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -44,8 +44,46 @@ describe('ProviderProfileList', () => {
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: [] }) } as Response);
 
     render(<ProviderProfileList />, { wrapper });
-    await waitFor(() => expect(screen.getAllByText('openai')[0]).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('openai', { selector: 'td:first-child' })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: /delete/i }));
     expect(screen.getByText(/delete provider profile/i)).toBeInTheDocument();
+
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /delete$/i }));
+  });
+
+  it('shows an error when deletion fails', async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [
+            {
+              id: '1',
+              name: 'openai',
+              protocol: 'openai',
+              base_url: null,
+              allow_wildcard: false,
+              enabled: true,
+              has_credentials: true,
+              created_at: '',
+            },
+          ],
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        json: async () => ({ message: 'Profile is still referenced by models' }),
+      } as Response);
+
+    render(<ProviderProfileList />, { wrapper });
+    await waitFor(() => expect(screen.getByText('openai', { selector: 'td:first-child' })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /delete/i }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /delete$/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText('Profile is still referenced by models')).toBeInTheDocument()
+    );
   });
 });

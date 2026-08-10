@@ -14,6 +14,7 @@ export function ModelList() {
   const deleteMutation = useDeleteModel();
   const [editing, setEditing] = useState<Model | null>(null);
   const [deleting, setDeleting] = useState<Model | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   if (isLoading) return <p className="text-on-surface-variant">Loading…</p>;
 
@@ -53,7 +54,14 @@ export function ModelList() {
                   <Button variant="ghost" size="sm" onClick={() => setEditing(model)}>
                     Edit
                   </Button>
-                  <Button variant="danger" size="sm" onClick={() => setDeleting(model)}>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={() => {
+                      setDeleting(model);
+                      setDeleteError(null);
+                    }}
+                  >
                     Delete
                   </Button>
                 </div>
@@ -86,16 +94,26 @@ export function ModelList() {
       <ConfirmDialog
         open={!!deleting}
         title="Delete model"
-        description={`Are you sure you want to delete "${deleting?.public_id}"?`}
+        description={
+          deleteError ??
+          `Are you sure you want to delete "${deleting?.public_id}"?`
+        }
         confirmLabel="Delete"
         destructive
         onConfirm={async () => {
-          if (deleting) {
+          if (!deleting) return;
+          try {
             await deleteMutation.mutateAsync(deleting.id);
             setDeleting(null);
+            setDeleteError(null);
+          } catch (err) {
+            setDeleteError(err instanceof Error ? err.message : 'Delete failed');
           }
         }}
-        onCancel={() => setDeleting(null)}
+        onCancel={() => {
+          setDeleting(null);
+          setDeleteError(null);
+        }}
       />
     </div>
   );

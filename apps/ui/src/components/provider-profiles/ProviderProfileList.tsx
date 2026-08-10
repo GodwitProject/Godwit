@@ -18,6 +18,7 @@ export function ProviderProfileList() {
   const deleteMutation = useDeleteProviderProfile();
   const [editing, setEditing] = useState<ProviderProfile | null>(null);
   const [deleting, setDeleting] = useState<ProviderProfile | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   if (isLoading) return <p className="text-on-surface-variant">Loading…</p>;
 
@@ -55,7 +56,14 @@ export function ProviderProfileList() {
                   <Button variant="ghost" size="sm" onClick={() => setEditing(profile)}>
                     Edit
                   </Button>
-                  <Button variant="danger" size="sm" onClick={() => setDeleting(profile)}>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={() => {
+                      setDeleting(profile);
+                      setDeleteError(null);
+                    }}
+                  >
                     Delete
                   </Button>
                 </div>
@@ -89,16 +97,26 @@ export function ProviderProfileList() {
       <ConfirmDialog
         open={!!deleting}
         title="Delete provider profile"
-        description={`Are you sure you want to delete "${deleting?.name}"? This is blocked if models still reference it.`}
+        description={
+          deleteError ??
+          `Are you sure you want to delete "${deleting?.name}"? This is blocked if models still reference it.`
+        }
         confirmLabel="Delete"
         destructive
         onConfirm={async () => {
-          if (deleting) {
+          if (!deleting) return;
+          try {
             await deleteMutation.mutateAsync(deleting.id);
             setDeleting(null);
+            setDeleteError(null);
+          } catch (err) {
+            setDeleteError(err instanceof Error ? err.message : 'Delete failed');
           }
         }}
-        onCancel={() => setDeleting(null)}
+        onCancel={() => {
+          setDeleting(null);
+          setDeleteError(null);
+        }}
       />
     </div>
   );

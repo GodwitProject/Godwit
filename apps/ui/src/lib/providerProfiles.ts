@@ -30,15 +30,22 @@ function normalizeInput(input: CreateProviderProfileInput | UpdateProviderProfil
   return body;
 }
 
-function assertOk(res: Response): void {
+async function assertOk(res: Response): Promise<void> {
   if (!res.ok) {
-    throw new Error(`Request failed with status ${res.status}`);
+    let message: string;
+    try {
+      const body = (await res.json()) as { message?: unknown };
+      message = typeof body.message === 'string' ? body.message : res.statusText;
+    } catch {
+      message = res.statusText;
+    }
+    throw new Error(message || `Request failed with status ${res.status}`);
   }
 }
 
 export async function listProviderProfiles(): Promise<ProviderProfile[]> {
   const res = await apiFetch('/api/v1/provider-profiles');
-  assertOk(res);
+  await assertOk(res);
   const json = (await res.json()) as { data: ProviderProfile[] };
   return json.data;
 }
@@ -48,7 +55,7 @@ export async function createProviderProfile(input: CreateProviderProfileInput): 
     method: 'POST',
     body: JSON.stringify(normalizeInput(input)),
   });
-  assertOk(res);
+  await assertOk(res);
   return (await res.json()) as ProviderProfile;
 }
 
@@ -60,11 +67,11 @@ export async function updateProviderProfile(
     method: 'PATCH',
     body: JSON.stringify(normalizeInput(input)),
   });
-  assertOk(res);
+  await assertOk(res);
   return (await res.json()) as ProviderProfile;
 }
 
 export async function deleteProviderProfile(id: string): Promise<void> {
   const res = await apiFetch(`/api/v1/provider-profiles/${id}`, { method: 'DELETE' });
-  assertOk(res);
+  await assertOk(res);
 }

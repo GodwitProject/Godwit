@@ -78,4 +78,56 @@ describe('models', () => {
     await deleteModel('1');
     expect(mockFetch.mock.calls[0][1].method).toBe('DELETE');
   });
+
+  it('throws with the backend message on non-2xx list response', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: async () => ({ message: 'Database unavailable' }),
+    } as Response);
+
+    await expect(listModels()).rejects.toThrow('Database unavailable');
+  });
+
+  it('throws with the backend message on non-2xx create response', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 400,
+      json: async () => ({ message: 'Invalid provider profile' }),
+    } as Response);
+
+    await expect(
+      createModel({
+        public_id: 'gpt-4o',
+        provider_profile_id: '00000000-0000-0000-0000-000000000000',
+        provider_model_id: 'gpt-4o',
+        provider: 'openai',
+        capabilities: ['chat'],
+        input_price_per_million: 5,
+        output_price_per_million: 15,
+      })
+    ).rejects.toThrow('Invalid provider profile');
+  });
+
+  it('throws with the backend message on non-2xx update response', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      json: async () => ({ message: 'Public ID already in use' }),
+    } as Response);
+
+    await expect(updateModel('1', { public_id: 'gpt-4o', capabilities: ['chat'] })).rejects.toThrow(
+      'Public ID already in use'
+    );
+  });
+
+  it('throws with the backend message on non-2xx delete response', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      json: async () => ({ message: 'Model is referenced by an API key' }),
+    } as Response);
+
+    await expect(deleteModel('1')).rejects.toThrow('Model is referenced by an API key');
+  });
 });

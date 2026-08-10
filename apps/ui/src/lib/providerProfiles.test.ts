@@ -150,7 +150,7 @@ describe('providerProfiles', () => {
         api_key: 'sk-test',
         allow_wildcard: false,
       })
-    ).rejects.toThrow('Request failed with status 400');
+    ).rejects.toThrow('Bad request');
   });
 
   it('updates a profile', async () => {

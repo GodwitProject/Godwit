@@ -16,7 +16,7 @@ godwit-providers = { path = "../godwit-providers" }
 godwit-cache = { path = "../godwit-cache" }
 godwit-api = { path = "../godwit-api" }
 godwit-mcp = { path = "../godwit-mcp" }
-axum = "0.7"
+axum = "0.8"
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = "0.3"
@@ -24,4 +24,4 @@ serde_yaml = { workspace = true }
 anyhow = { workspace = true }
 uuid = { workspace = true }
 async-trait = "0.1"
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate", "rust_decimal"] }
+sqlx = { version = "0.9", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate", "rust_decimal"] }
